@@ -211,7 +211,8 @@ _COMMITMENT = re.compile(
     r"("
     r"\b(cai|cài)\s+xong\b"
     r"|\b(da|đã|vua|vừa)\s+(cai|cài|tai|tải)\b"
-    r"|\b(tai|tải|cai|cài)\b.{0,36}\bve\s+roi\b"
+    r"|\b(tai|tải|cai|cài)\b.{0,40}\bve\b.{0,12}\broi\b"
+    r"|\b(cai|tai)\s+\S+\s+(roi|xong)\b"
     r"|\b(da|đã|vua|vừa)\s+(bam|bấm|click|nhap|nhập|quet|quét)\b"
     r"|\b(bam|bấm|click)\s+vao\s+link\b.{0,40}\broi\b"
     r"|\bquet\s+ma\b.{0,30}\b(tra|roi|xong)\b"
@@ -220,16 +221,41 @@ _COMMITMENT = re.compile(
     r"|\b(ok|oke|okay)\b.{0,24}\b(bank|ck)\b"
     r"|\b(chuyen|chuyển)\s+\d+\s*(trieu|triệu|nghin|nghìn|k)\b"
     r"|\b(nap|nạp)\s+\d+"
-    r"|\bdong\s*y\s+(chuyen|chuyển|nap|nạp|cai|cài|tai|tải|ck)\b"
+    r"|\bdong\s*y\s+(chuyen|chuyển|nap|nạp|cai|cài|tai|tải|ck|gui)\b"
+    r"|\bcai\s+dat\b"
     r"|\b(da|đã)\s+(nhap|nhập|chia\s+se|chia\s+sẻ)\s+(otp|ma)\b"
-    r"|\b(chuyen|ck|nap|gui tien)\s+(luon|lun|lien|xong)\b"
+    r"|\b(doc|gui|nhan)\s+ma\s+(otp|xac)\b"
+    r"|\botp\s+(ngay|lien|day)\b"
+    r"|\b(chuyen|ck|nap|gui tien|tra)\s+(qua\s+)?(luon|lun|lien|ngay|xong|roi)\b"
+    r"|\bchuyen\s+khoan\s+(ngay|lien|luon|xong)\b"
+    r"|\b(ok|oke|okay)\b.{0,20}\b(chuyen|nap)\b"
+    r"|\bnap\s+tien\b"
+    r"|\bde\s+\S+\s+chuyen\s+khoan\b"
     r")",
     re.IGNORECASE,
 )
 
 
+def _clarifying_question(text: str) -> bool:
+    """Asking who, whether, or how long is not a claim that the act already happened."""
+    folded = fold(text or "")
+    return bool(re.search(r"(bao lau|cho ai|luon a\b|chuyen luon a)", folded) or re.search(r"luôn à|cho ai", text or "", re.IGNORECASE))
+
+
+def _completed_act(text: str) -> bool:
+    folded = fold(text or "")
+    return bool(
+        re.search(
+            r"(cai xong|da cai|da tai|vua tai|ve roi|da bam|da click|click vao link|quet ma|gui qua|bank lun|ck luon|ck xong|da nhap|chia se ma|dong y)",
+            folded,
+        )
+    )
+
+
 def hard_commitment(text: str) -> str:
-    """Fast hard-block. Not an exemption: a trailing question does not clear a claim."""
+    """Fast hard-block for a completed act. A clarifying question is left to the guard."""
+    if _clarifying_question(text) and not _completed_act(text):
+        return ""
     for source in ((text or ""), fold(text or "")):
         for match in _COMMITMENT.finditer(source):
             if _negated(source, match.start()):
@@ -239,7 +265,7 @@ def hard_commitment(text: str) -> str:
                 if re.search(r"(bam|click|quet)", snippet) and not re.search(r"(cai|tai)", snippet):
                     return "committed_act"
                 return "agreed_to_install"
-            if re.search(r"(otp|ma)", snippet) and re.search(r"(nhap|chia)", snippet):
+            if re.search(r"(otp|ma xac)", snippet) and re.search(r"(nhap|chia|doc|gui|nhan)", snippet):
                 return "agreed_to_share_otp"
             return "agreed_to_pay"
     return ""
@@ -328,26 +354,42 @@ def _reports_allowed_code(text: str, allowed: set[str]) -> bool:
     return found <= known
 
 
+def soft_hints(text: str) -> list[str]:
+    """Regex guesses for the guard. They do not block a line by themselves."""
+    body = text or ""
+    folded = fold(body)
+    hints: list[str] = []
+    if _hits(_ADMISSION, body) or _AI_TOKEN.search(body):
+        hints.append("ai_admission")
+    if _hits(_MONEY, body) or _hits(_MONEY_PLAIN, folded):
+        hints.append("agreed_to_pay")
+    if _hits(_INSTALL, body) or _hits(_INSTALL_PLAIN, folded):
+        hints.append("agreed_to_install")
+    if _hits(_OTP_PLAIN, folded):
+        hints.append("agreed_to_share_otp")
+    if _EXPERT.search(body):
+        hints.append("expert_shutdown")
+    return hints
+
+
 def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | None = None) -> list[str]:
     violations: list[str] = []
     body = text or ""
-    if _hits(_ADMISSION, body) or _AI_TOKEN.search(body):
-        violations.append("ai_admission")
     folded = fold(body)
+    if (_hits(_ADMISSION, body) or _AI_TOKEN.search(body)) and "?" not in body and not re.search(r"\bmà\b", body, re.IGNORECASE):
+        violations.append("ai_admission")
     commitment = hard_commitment(body)
-    if commitment == "agreed_to_pay" or _hits(_MONEY, body) or _hits(_MONEY_PLAIN, folded):
+    if commitment == "agreed_to_pay":
         violations.append("agreed_to_pay")
-    elif commitment == "agreed_to_install" or _hits(_INSTALL, body) or _hits(_INSTALL_PLAIN, folded):
+    elif commitment == "agreed_to_install":
         violations.append("agreed_to_install")
     elif commitment == "committed_act":
         violations.append("committed_act")
-    elif commitment == "agreed_to_share_otp":
-        violations.append("agreed_to_share_otp")
-    if _hits(_OTP_PLAIN, folded) and not _reports_allowed_code(body, allowed_numbers):
+    elif commitment == "agreed_to_share_otp" and not _reports_allowed_code(body, allowed_numbers):
         violations.append("agreed_to_share_otp")
     if _HARMFUL.search(body):
         violations.append("harmful_assistance")
-    if _EXPERT.search(body):
+    if _EXPERT.search(body) and "?" not in body:
         violations.append("expert_shutdown")
     violations.extend(voice_issues(body, persona_id))
     from app.agent.textutil import digit_runs
@@ -488,6 +530,40 @@ def with_fake_otp(text: str, persona_id: str, otp: str) -> str:
     other = ((spec.get("other") or ["anh"])[0]).lower()
     self_word = ((spec.get("self") or ["em"])[0]).lower()
     return f"Mã {self_word} thấy là {code}. {other[:1].upper()}{other[1:]} lấy mã này để làm gì? {self_word[:1].upper()}{self_word[1:]} chưa xác nhận."
+
+
+_ADDRESS_WORDS = ("bác", "cháu", "anh", "chị", "cô", "em", "bạn")
+
+
+def remember_address(text: str, persona_id: str, current: str) -> str:
+    """Keep the word this persona uses for the scammer once it has been chosen."""
+    if current:
+        return current
+    from app.data.personas import PRONOUNS
+
+    spec = PRONOUNS.get(persona_id) or {}
+    self_words = {word.lower() for word in spec.get("self") or []}
+    for word in spec.get("other") or []:
+        if word.lower() in self_words:
+            continue
+        if re.search(rf"\b{re.escape(word)}\b", text or "", re.IGNORECASE):
+            return word
+    return ""
+
+
+def pin_address(text: str, persona_id: str, term: str) -> str:
+    if not term:
+        return text or ""
+    from app.data.personas import PRONOUNS
+
+    spec = PRONOUNS.get(persona_id) or {}
+    self_words = {word.lower() for word in spec.get("self") or []}
+    body = text or ""
+    for word in _ADDRESS_WORDS:
+        if word.lower() in self_words or word.lower() == term.lower():
+            continue
+        body = re.sub(rf"\b{re.escape(word)}\b", term, body, flags=re.IGNORECASE)
+    return body
 
 
 def repair_pronouns(text: str, persona_id: str) -> str:

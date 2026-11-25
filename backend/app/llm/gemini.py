@@ -6,6 +6,7 @@ keeps a thinking budget. 503 and timeouts retry with a short backoff, then the
 next model in the chain (preferred, then the configured model, then 2.5-flash).
 """
 
+import logging
 import time
 
 from pydantic import BaseModel
@@ -14,6 +15,7 @@ from google.genai import types
 
 from app.llm.base import LLMError, extract_json
 
+log = logging.getLogger("gianan.embed")
 _BLOCKED_MODELS = ("gemini-2.5-flash-lite",)
 _RETRYABLE = ("503", "unavailable", "timeout", "timed out", "deadline", "429", "resource exhausted", "overloaded")
 _SWITCH = ("404", "not found", "not_found", "400", "invalid argument", "api version", "api_version")
@@ -162,6 +164,8 @@ class GeminiProvider:
         ]
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        if time.monotonic() < getattr(self, "embed_paused_until", 0):
+            raise LLMError("semantic search paused")
         # One text per call. gemini-embedding-2 returns a single vector for a batch,
         # which makes a backfill look successful and then fail the length check.
         if not texts:
@@ -177,6 +181,12 @@ class GeminiProvider:
         except LLMError:
             raise
         except Exception as exc:  # noqa: BLE001
+            if "429" in str(exc) or "resource" in str(exc).lower() or "exhausted" in str(exc).lower():
+                self.embed_paused_until = time.monotonic() + 600
+                if not getattr(self, "embed_pause_logged", False):
+                    log.warning("Embedding bị 429, tìm theo từ khóa trong 10 phút.")
+                    self.embed_pause_logged = True
+                raise LLMError("semantic search paused") from None
             raise LLMError(f"Gemini embedding lỗi: {exc}") from exc
         return vectors
 

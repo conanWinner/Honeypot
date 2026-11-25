@@ -5,6 +5,7 @@ same blend in Python so the ranking rules stay one piece of code.
 """
 
 import logging
+import time
 
 from sqlalchemy import select, text
 
@@ -30,6 +31,7 @@ _REASON_GROUPS = (
     ("giam dinh", ("tai khoan giam dinh", "giam dinh")),
     ("phi ship", ("phi ship", "phi phat sinh", "shipper")),
     ("trung thuong", ("trung thuong", "trung giai")),
+    ("tai nan", ("tai nan", "vien phi", "phau thuat", "benh vien", "tien vien")),
 )
 
 
@@ -126,11 +128,16 @@ def search_scripts(session, message: str, provider, k: int = 6, status: str = "p
         return []
     embedding = None
     vector_scores: dict[str, float] | None = None
-    if provider and not provider.is_mock:
+    if provider and not provider.is_mock and time.monotonic() < float(getattr(provider, "embed_paused_until", 0) or 0):
+        embedding = None
+    elif provider and not provider.is_mock:
         try:
             embedding = provider.embed([message])[0]
-        except Exception:
-            log.warning("Không tạo được embedding cho lượt này, tạm xếp theo từ khóa.", exc_info=True)
+        except Exception as exc:
+            if "paused" in str(exc):
+                log.warning("Tìm theo nghĩa đang tạm dừng, xếp theo từ khóa.")
+            else:
+                log.warning("Không tạo được embedding cho lượt này, tạm xếp theo từ khóa.")
             embedding = None
     if embedding is not None:
         found: dict[str, float] = {}

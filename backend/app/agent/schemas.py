@@ -180,7 +180,20 @@ class PersonaOutput(BaseModel):
         return _text(value)
 
 
-_CLAIMS = {"none", "paid", "transferred", "installed", "clicked", "scanned", "entered", "shared_code", "personal_data"}
+_CLAIMS = {
+    "none",
+    "paid",
+    "transferred",
+    "installed",
+    "clicked",
+    "scanned",
+    "entered",
+    "shared_code",
+    "personal_data",
+    "opened_app",
+    "followed_instructions",
+    "compliant",
+}
 
 
 class SafetyOutput(BaseModel):

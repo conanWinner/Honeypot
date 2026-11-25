@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import threading
+import time
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -140,10 +141,17 @@ def _assemble_sse(raw: str) -> str:
     return "".join(parts)
 
 
+def http_timeout(seconds: float) -> httpx.Timeout:
+    """One budget for the whole request. httpx otherwise applies the same number to every phase."""
+    seconds = max(0.4, float(seconds))
+    connect = min(2.0, seconds)
+    return httpx.Timeout(connect=connect, read=max(0.2, seconds - connect), write=min(3.0, seconds), pool=min(1.0, seconds))
+
+
 def post_chat(url: str, api_key: str, payload: dict, timeout: float = 40) -> tuple[int, str, str]:
     headers = request_headers(api_key)
     try:
-        response = httpx.post(url, headers=headers, json=payload, timeout=timeout)
+        response = httpx.post(url, headers=headers, json=payload, timeout=http_timeout(timeout))
     except httpx.TimeoutException as exc:
         raise LLMError(f"timeout calling router: {exc}") from exc
     except httpx.HTTPError as exc:
@@ -183,24 +191,30 @@ class OpenAIProvider:
         fallback_timeout: float | None = None,
     ) -> BaseModel:
         del thinking
-        # One shot per model. A schema failure or a timeout moves to the alternate
-        # small model instead of retrying the same slow call as plain JSON.
+        # One wall clock for schema, repair, and failover. A second call only starts
+        # if time is still left.
         budget = timeout if timeout and timeout > 0 else self.timeout
-        alt_budget = fallback_timeout if fallback_timeout and fallback_timeout > 0 else budget
+        del fallback_timeout
+        deadline = time.monotonic() + budget
         primary = (model or "").strip() or self.model
         alternate = (fallback_model or "").strip()
-        plan = [(primary, True, budget)]
+        plan = [(primary, True)]
         if alternate and alternate != primary:
-            plan.append((alternate, False, alt_budget))
+            plan.append((alternate, False))
         hint = schema_hint(schema)
         messages = [
             {"role": "system", "content": f"{system}\n\n{hint}"},
             {"role": "user", "content": user},
         ]
         last_error = "không rõ"
-        for name, use_schema, call_timeout in plan:
+        for name, use_schema in plan:
+            left = deadline - time.monotonic()
+            if left < 0.8:
+                last_error = "role deadline"
+                _record_failover(role, name, last_error)
+                break
             try:
-                text = self._complete_text(messages, temperature, schema, max_tokens, name, call_timeout, use_schema)
+                text = self._complete_text(messages, temperature, schema, max_tokens, name, left, use_schema)
             except LLMError as exc:
                 last_error = str(exc)
                 _record_failover(role, name, last_error)
@@ -209,6 +223,10 @@ class OpenAIProvider:
                 return parse_structured(schema, text)
             except (ValidationError, json.JSONDecodeError, ValueError) as exc:
                 last_error = str(exc)
+                left = deadline - time.monotonic()
+                if left < 0.8:
+                    _record_failover(role, name, last_error)
+                    continue
                 repaired = [
                     *messages,
                     {"role": "assistant", "content": (text or "")[:1500]},
@@ -218,7 +236,7 @@ class OpenAIProvider:
                     },
                 ]
                 try:
-                    text = self._complete_text(repaired, temperature, schema, max_tokens, name, call_timeout, False)
+                    text = self._complete_text(repaired, temperature, schema, max_tokens, name, left, False)
                     return parse_structured(schema, text)
                 except (LLMError, ValidationError, json.JSONDecodeError, ValueError) as again:
                     last_error = str(again)

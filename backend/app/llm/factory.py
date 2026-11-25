@@ -29,6 +29,7 @@ class SplitProvider:
         self.role_fallbacks = fallbacks or {}
         self.role_timeouts = timeouts or {}
         self.role_fallback_timeouts = fallback_timeouts or {}
+        self.turn_deadline = 25.0
         self.name = chat.name
         self.model = chat.model
         self.embed_model = getattr(embedder, "embed_model", "") or ""
@@ -78,9 +79,19 @@ class SplitProvider:
         return result
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        import time as _time
+
         if self.embeddings_mock:
             raise LLMError("Chưa cấu hình Gemini cho embedding.")
-        vectors = self._embedder.embed(texts)
+        paused_until = float(getattr(self._embedder, "embed_paused_until", 0) or 0)
+        if _time.monotonic() < paused_until:
+            self.embed_paused_until = paused_until
+            raise LLMError("semantic search paused")
+        try:
+            vectors = self._embedder.embed(texts)
+        except LLMError:
+            self.embed_paused_until = float(getattr(self._embedder, "embed_paused_until", 0) or 0)
+            raise
         self.embed_model = self._embedder.embed_model
         return vectors
 
@@ -160,7 +171,7 @@ def build_provider(settings: Settings):
         return MockProvider()
     chat = chain[0] if len(chain) == 1 else FallbackProvider(chain)
     embedder = gemini if gemini is not None else MockProvider()
-    return SplitProvider(
+    provider = SplitProvider(
         chat,
         embedder,
         role_models(settings),
@@ -168,3 +179,5 @@ def build_provider(settings: Settings):
         role_timeouts(settings),
         role_fallback_timeouts(settings),
     )
+    provider.turn_deadline = float(settings.turn_deadline)
+    return provider

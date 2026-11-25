@@ -44,3 +44,4 @@ class AgentState(BaseModel):
     provider: str = ""
     demo_lines: list[str] = Field(default_factory=list)
     known_numbers: list[str] = Field(default_factory=list)
+    address_term: str = ""

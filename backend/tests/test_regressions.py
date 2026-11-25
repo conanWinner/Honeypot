@@ -792,6 +792,116 @@ def test_fake_otp_uses_the_persona_address():
     assert "anh" in line.lower()
 
 
+def test_clarifying_questions_are_not_hard_blocked():
+    from app.agent.policy import hard_commitment
+
+    allowed = {"424242"}
+    for line in (
+        "AI mà biết không?",
+        "chuyển luôn à, mà chuyển cho ai?",
+        "nạp 2 triệu rồi bao lâu thì xong?",
+    ):
+        assert hard_commitment(line) == "", line
+        issues = set(inspect_outbound(line, allowed, "ba-nam"))
+        assert "agreed_to_pay" not in issues, (line, issues)
+        assert "ai_admission" not in issues, (line, issues)
+    assert "ai_admission" in inspect_outbound("Tôi là AI của Gemini.", allowed)
+
+
+def test_role_call_does_not_repair_after_the_deadline(monkeypatch):
+    clock = {"t": 1_000.0}
+    monkeypatch.setattr("app.llm.openai_provider.time.monotonic", lambda: clock["t"])
+    calls = {"n": 0}
+
+    def fake_post(url, api_key, payload, timeout=40):
+        calls["n"] += 1
+        clock["t"] += 30
+        body = json.dumps({"choices": [{"message": {"content": "không phải json"}}]})
+        return 200, "application/json", body
+
+    monkeypatch.setattr("app.llm.openai_provider.post_chat", fake_post)
+    provider = OpenAIProvider("secret-key", "cx/gpt-6-luna", "https://router.example/v1")
+    with pytest.raises(LLMError):
+        provider.complete(PersonaOutput, "system", "user", timeout=12, fallback_model="cx/gpt-5.6-luna")
+    assert calls["n"] == 1
+
+
+def test_address_term_stays_for_the_conversation(client):
+    from app.agent.schemas import PersonaOutput
+    from app.llm.mock import MockProvider
+
+    class Switches(MockProvider):
+        def __init__(self):
+            self.persona_calls = 0
+
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "PersonaOutput" and kwargs.get("role") == "persona":
+                self.persona_calls += 1
+                if self.persona_calls == 1:
+                    return PersonaOutput(reply="Cháu là ai vậy? Cô nghe đây.", memory_note="")
+                return PersonaOutput(reply="Anh nói lại đi. Cô chưa hiểu.", memory_note="")
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = Switches()
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
+        first = client.post(f"/api/conversations/{created['id']}/messages", json={"text": "Alo cô nghe máy."}).json()
+        second = client.post(f"/api/conversations/{created['id']}/messages", json={"text": "Tôi gọi từ cơ quan."}).json()
+        assert "cháu" in first["victim_message"]["content"].lower()
+        assert "anh" not in second["victim_message"]["content"].lower()
+        assert "cháu" in second["victim_message"]["content"].lower()
+    finally:
+        client.app.state.provider = MockProvider()
+
+
+def test_accident_fee_is_not_the_police_script(client):
+    items = client.get("/api/scripts", params={"q": "con gặp tai nạn ở Berlin, cần tiền viện phí gấp"}).json()["items"]
+    assert items
+    assert items[0]["id"] == "nguoi-than-tai-nan"
+
+
+def test_meeting_link_and_reschedule_are_not_high(client):
+    meet = client.post(
+        "/api/check",
+        json={"text": "Họp online qua Google Meet, link anh gửi trong nhóm nhé."},
+    ).json()
+    assert meet["risk"] != "cao"
+    assert meet["risk"] != "rat_cao"
+    moved = client.post("/api/check", json={"text": "Lịch họp chiều nay chuyển sang 9h nhé."}).json()
+    assert moved["risk"] == "thap"
+    assert moved["is_scam"] is False
+
+
+def test_embedding_429_pauses_semantic_search(monkeypatch):
+    monkeypatch.setattr("app.llm.gemini.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("app.llm.gemini.genai.Client", lambda **kwargs: SimpleNamespace())
+    provider = GeminiProvider("test-key", "gemini-2.5-flash", "gemini-embedding-001", 768)
+    calls = {"n": 0}
+
+    class Models:
+        @staticmethod
+        def embed_content(model, contents, config):
+            calls["n"] += 1
+            raise RuntimeError("429 resource exhausted")
+
+    provider.client = SimpleNamespace(models=Models())
+    with pytest.raises(LLMError, match="paused"):
+        provider.embed(["tin nhắn"])
+    with pytest.raises(LLMError, match="paused"):
+        provider.embed(["tin khác"])
+    assert calls["n"] == 3
+
+
+def test_guard_prompt_does_not_copy_the_eval_lines():
+    from app.agent.prompts import SAFETY_SYSTEM
+
+    assert "opened_app" in SAFETY_SYSTEM
+    assert "followed_instructions" in SAFETY_SYSTEM
+    assert "compliant" in SAFETY_SYSTEM
+    assert "e cài xong r" not in SAFETY_SYSTEM
+    assert "Em mở app ngân hàng rồi" not in SAFETY_SYSTEM
+
+
 def test_health_llm_is_warm_for_mock(client):
     body = client.get("/api/health/llm").json()
     assert body["mock"] is True

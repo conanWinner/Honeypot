@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     timeout_guard_fallback: float = 8
     timeout_extract_fallback: float = 20
     timeout_sim_fallback: float = 12
+    # Whole turn, including analyst, planner, persona, repair, and guard.
+    turn_deadline: float = 25
     # Reliable default. gemini-2.5-flash-lite returns 404 and is rejected in the provider.
     gemini_model: str = "gemini-2.5-flash"
     # Optional. Tried first; 503, timeout, or 404 falls through to gemini_model.

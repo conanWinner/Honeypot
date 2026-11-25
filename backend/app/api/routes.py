@@ -170,6 +170,13 @@ def health_llm(request: Request):
         }
     )
     report["failovers"] = failover_counts()
+    import time as _time
+
+    paused_until = float(getattr(request.app.state.provider, "embed_paused_until", 0) or 0)
+    embedder = getattr(request.app.state.provider, "_embedder", None)
+    if embedder is not None:
+        paused_until = max(paused_until, float(getattr(embedder, "embed_paused_until", 0) or 0))
+    report["semantic_search"] = "paused" if _time.monotonic() < paused_until else "ok"
     return report
 
 

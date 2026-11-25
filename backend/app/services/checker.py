@@ -76,7 +76,10 @@ def _everyday(text: str) -> bool:
     from app.agent.textutil import fold
 
     folded = fold(text or "")
-    if not re.search(r"(hop phong|hop luc|tien com|tien an|tien ca phe|\d+\s*k\s+tien)", folded):
+    if not re.search(
+        r"(hop phong|hop luc|hop online|google meet|lich hop|chuyen sang\s+\d|tien com|tien an|tien ca phe|\d+\s*k\s+tien)",
+        folded,
+    ):
         return False
     found = _surface(text)
     return not (found & {"prize", "phone", "link", "urgency", "otp", "account", "impersonation", "stranger"})

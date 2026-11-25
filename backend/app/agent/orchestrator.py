@@ -12,6 +12,7 @@ import logging
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime, timezone
 
 from app.agent.casefile import (
@@ -35,8 +36,11 @@ from app.agent.policy import (
     contains_guard_subject,
     holding_line,
     inspect_outbound,
+    soft_hints,
     is_extraction_ask,
     needs_guard,
+    pin_address,
+    remember_address,
     repair_pronouns,
     recommend_wrap,
     repeats_opening,
@@ -229,8 +233,19 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "checklist": state.checklist,
     }
     # Analyst and planner both only need the retrieval packet, so they run together.
-    # Persona still waits: it has to follow the goal the planner picks.
+    # Each role call, including repair and failover, stops at one wall-clock cap.
+    # The whole turn also stops at TURN_DEADLINE.
+    turn_end = time.monotonic() + float(getattr(provider, "turn_deadline", 25) or 25)
+    role_caps = getattr(provider, "role_timeouts", {}) or {}
+
+    def _cap(role: str) -> float:
+        role_cap = float(role_caps.get(role) or 12)
+        return max(0.0, min(role_cap, turn_end - time.monotonic()))
+
     def _ask(schema, system, user, temperature, role, max_tokens, thinking=False):
+        cap = _cap(role)
+        if cap < 0.8:
+            raise LLMError("turn deadline")
         return provider.complete(
             schema,
             system,
@@ -240,6 +255,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             model=None,
             role=role,
             max_tokens=max_tokens,
+            timeout=cap,
         )
 
     t0 = time.perf_counter()
@@ -263,15 +279,17 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             260,
         )
         degraded = False
+        analyst_cap = _cap("analyst")
+        planner_cap = _cap("planner")
         try:
-            analyst = analyst_future.result()
-        except LLMError as exc:
+            analyst = analyst_future.result(timeout=max(analyst_cap, 0.1))
+        except (LLMError, TimeoutError, FuturesTimeout) as exc:
             log.warning("analyst không trả lời, giữ mạch cũ: %s", type(exc).__name__)
             analyst = _degraded_analyst(state, candidates)
             degraded = True
         try:
-            plan = planner_future.result()
-        except LLMError as exc:
+            plan = planner_future.result(timeout=max(planner_cap, 0.1))
+        except (LLMError, TimeoutError, FuturesTimeout) as exc:
             log.warning("planner không trả lời, dùng mục tiêu đang mở: %s", type(exc).__name__)
             plan = _degraded_plan(state)
             degraded = True
@@ -475,6 +493,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "scammer_suspicious": inbound["scammer_suspicious"],
         "suspicion": suspicion,
         "persona_slug": persona.id,
+        "rule_hints": soft_hints(draft),
     }
     t0 = time.perf_counter()
     # The guard starts the moment the draft exists. A rewrite, if any, runs beside that
@@ -498,7 +517,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
                     180,
                 )
         if rewrite_future is not None:
-            spoken_again = rewrite_future.result()
+            spoken_again = rewrite_future.result(timeout=max(0.1, turn_end - time.monotonic()))
             redraft = (spoken_again.reply or "").strip()
             if redraft and len(critique_reply(redraft, persona.id, goal, allowed, pace, recent_replies)) <= len(notes):
                 spoken = spoken_again
@@ -507,9 +526,9 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
                 safety_ctx = {**safety_ctx, "reply": draft, "code_violations": violations}
                 verdict = _ask(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 220)
             else:
-                verdict = guard_future.result()
+                verdict = guard_future.result(timeout=max(0.1, turn_end - time.monotonic()))
         elif guard_future is not None:
-            verdict = guard_future.result()
+            verdict = guard_future.result(timeout=max(0.1, turn_end - time.monotonic()))
         else:
             verdict = SafetyOutput(approved=True, action="allow", notes="Persona chưa trả lời. Giữ câu trong vai.")
     finally:
@@ -555,6 +574,8 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             "action": action,
         }
 
+    state.address_term = remember_address(final, persona.id, state.address_term)
+    final = pin_address(final, persona.id, state.address_term)
     if goal == "read_fake_otp":
         final = with_fake_otp(final, persona.id, state.fake_otp)
         if state.fake_otp in final:

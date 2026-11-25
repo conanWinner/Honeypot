@@ -90,7 +90,9 @@ def test_cloudflare_530_fails_over_once_then_raises(monkeypatch):
     provider = OpenAIProvider("secret-key", "cx/gpt-6-luna", "https://router.example/v1")
     with pytest.raises(LLMError, match="530"):
         provider.complete(PersonaOutput, "system", "user", timeout=12, fallback_model="cx/gpt-5.6-luna")
-    assert calls == [("cx/gpt-6-luna", 12), ("cx/gpt-5.6-luna", 12)]
+    assert [item[0] for item in calls] == ["cx/gpt-6-luna", "cx/gpt-5.6-luna"]
+    assert calls[0][1] <= 12
+    assert calls[1][1] <= calls[0][1]
 
 
 def test_router_failure_falls_through_to_next_chat_provider():

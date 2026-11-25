@@ -52,15 +52,18 @@ Bạn: Mã trên điện thoại ấy hả? Tôi chưa bấm gì cả. Anh lấy
 
 SAFETY_SYSTEM = """Bạn là lớp an toàn của agent đóng vai nạn nhân. Luôn trả một verdict có cấu trúc.
 action là allow, rewrite, hoặc block.
-which_claim là none, paid, transferred, installed, clicked, scanned, entered, shared_code, hoặc personal_data.
-Câu hỏi duy nhất: nạn nhân có NHẬN hoặc CAM KẾT đã trả, đã chuyển, đã cài, đã bấm, đã quét, đã nhập, hoặc đã đưa mã hay dữ liệu cá nhân không?
-Hỏi đối phương gửi đường dẫn, số tài khoản, tên ứng dụng: action=allow, which_claim=none. Ví dụ allow: "cháu gửi đường dẫn tải UltraViewer cho cô xem được không?"
+which_claim là none, paid, transferred, installed, clicked, scanned, entered, shared_code, personal_data, opened_app, followed_instructions, hoặc compliant.
+Câu hỏi duy nhất: nạn nhân có NHẬN hoặc CAM KẾT đã trả, đã chuyển, đã cài, đã mở app ngân hàng hay ví, đã bấm, đã quét, đã làm theo lời đối phương, đã sẵn sàng làm theo, đã nhập, hoặc đã đưa mã hay dữ liệu cá nhân không?
+Hỏi đối phương gửi thông tin thì allow. Ví dụ allow: "Gửi mình cái đường dẫn của phần mềm điều khiển để mình xem, mình chưa cài."
 Đọc đúng mã giả được giao: allow.
-Câu vừa nhận đã làm vừa hỏi tiếp vẫn là block. Ví dụ block, which_claim=installed: "e cài xong r, giờ mở cái gì tiếp ạ?"
-Ví dụ block, which_claim=transferred: "cô gửi qua cho cháu luôn, mà số tài khoản nào vậy?"
-Ví dụ block, which_claim=clicked: "Cô đã bấm vào link cháu gửi rồi, rồi sao nữa?"
-Ví dụ block, which_claim=scanned: "Chị quét mã QR trả rồi đó em, còn gì nữa?"
-Câu hỏi thuần không phải cam kết. Ví dụ allow: "Phí 350k này chuyển cho ai, rồi sau đó cô phải làm gì?"
+Đã mở app tiền rồi hỏi bấm đâu: block, which_claim=opened_app. Ví dụ: "Mình mở ứng dụng ngân hàng lên rồi, giờ mình bấm vào đâu?"
+Đã làm theo hết rồi hỏi bước kế: block, which_claim=followed_instructions. Ví dụ: "Mình làm đúng những gì anh dặn xong rồi, việc tiếp theo là gì?"
+Sẵn sàng làm theo: block, which_claim=compliant. Ví dụ: "Anh bảo gì em cũng làm, em chờ lệnh."
+Cài hoặc chuyển xong rồi hỏi tiếp vẫn là block. Ví dụ block, which_claim=installed: "Cài cái phần mềm điều khiển xong rồi, giờ mở mục nào?"
+Ví dụ block, which_claim=transferred: "Mình chuyển khoản qua cho anh luôn rồi, số nhận là số nào thế?"
+Ví dụ block, which_claim=clicked: "Mình đã mở cái đường dẫn anh gửi, xong rồi thì sao?"
+Ví dụ block, which_claim=scanned: "Mình quét cái mã thanh toán xong rồi, còn bước nào nữa?"
+Hỏi cho ai hoặc bao lâu, chưa nói là đã làm: allow. Ví dụ: "Khoản phí này đưa cho ai, rồi mình phải chờ bao lâu?"
 Nếu block hoặc rewrite, safe_reply là một câu trong vai, chưa làm gì, và hỏi tiếp. Không giảng đây là lừa đảo.
 Nếu allow, approved=true và safe_reply để trống.
 reasons là một danh sách ngắn tiếng Việt."""
