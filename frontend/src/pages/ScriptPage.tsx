@@ -59,6 +59,17 @@ export function ScriptPage() {
           {script.occurrence_count} lượt ghi nhận · thấy từ {formatDay(script.first_seen)} · gần nhất {formatDay(script.last_seen)}
           {script.has_embedding ? ' · đã có embedding' : ' · chưa có embedding'}
         </p>
+        {script.indicators && Object.values(script.indicators).some((items) => (items ?? []).length > 0) && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {Object.entries(script.indicators).flatMap(([key, items]) =>
+              (items ?? []).map((item) => (
+                <span key={`${key}-${item}`} className="rounded-full bg-[#fde7ef] px-2.5 py-1 text-xs text-seal-deep">
+                  {item}
+                </span>
+              )),
+            )}
+          </div>
+        )}
         <h2 className="mt-8 font-display text-2xl">Các bước</h2>
         <ol className="mt-3 space-y-3">
           {script.steps?.map((step, index) => (

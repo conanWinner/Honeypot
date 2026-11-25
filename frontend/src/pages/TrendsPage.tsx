@@ -46,16 +46,23 @@ export function TrendsPage() {
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="dossier rounded-3xl p-5">
           <h2 className="font-display text-2xl">Theo loại</h2>
-          <ul className="mt-4 space-y-3">
+          <svg viewBox={`0 0 ${Math.max(data.categories.length, 1) * 36} 160`} className="mt-4 h-40 w-full">
+            {data.categories.map((item, index) => {
+              const height = (item.count / maxCategory) * 130
+              return (
+                <g key={item.id}>
+                  <rect x={index * 36 + 8} y={140 - height} width={18} height={height} rx={4} fill="#d6336c" />
+                  <text x={index * 36 + 17} y={156} textAnchor="middle" fontSize="8" fill="#5e564c">
+                    {item.count}
+                  </text>
+                </g>
+              )
+            })}
+          </svg>
+          <ul className="mt-2 space-y-1 text-xs text-ink-soft">
             {data.categories.map((item) => (
               <li key={item.id}>
-                <div className="flex justify-between text-sm">
-                  <span>{item.label}</span>
-                  <span>{item.count}</span>
-                </div>
-                <div className="mt-1 h-2 rounded-full bg-paper-deep">
-                  <div className="h-full rounded-full bg-seal" style={{ width: `${(item.count / maxCategory) * 100}%` }} />
-                </div>
+                {item.label} · {item.count}
               </li>
             ))}
           </ul>

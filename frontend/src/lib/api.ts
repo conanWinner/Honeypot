@@ -73,6 +73,14 @@ export type Script = {
   status: string
   novelty_note: string
   has_embedding: boolean
+  indicators?: {
+    phones?: string[]
+    bank_accounts?: string[]
+    urls?: string[]
+    apps?: string[]
+    brands?: string[]
+    pressure?: string[]
+  }
   variant_count: number
   steps?: Step[]
   parent?: { id: string; title: string }
@@ -115,6 +123,18 @@ export type Panel = {
   mock: boolean
   safety_action: string
   step_source: string
+  stage?: string
+  stage_label?: string
+  checklist?: { key: string; label: string; done: boolean; detail: string }[]
+  indicators?: {
+    phones: string[]
+    bank_accounts: string[]
+    urls: string[]
+    apps: string[]
+    brands: string[]
+    pressure: string[]
+  }
+  aggressiveness?: string
 }
 
 export type Conversation = {
@@ -165,5 +185,10 @@ export function panelFromMessage(message: Message | undefined): Panel | null {
     mock: Boolean(reasoning.mock),
     safety_action: reasoning.outbound_safety?.action ?? 'allow',
     step_source: reasoning.step_source ?? '',
+    stage: reasoning.stage,
+    stage_label: reasoning.stage_label,
+    checklist: reasoning.checklist,
+    indicators: reasoning.indicators,
+    aggressiveness: reasoning.aggressiveness,
   }
 }

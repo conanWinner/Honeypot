@@ -27,8 +27,9 @@ export function HomePage() {
             Biết mình đang bị lừa? Để một người giả đóng nạn nhân.
           </h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-ink-soft">
-            Giả Nạn nhận cuộc thoại, đóng vai người bị gọi, và kéo đối phương nói hết kịch bản. Mỗi cuộc thành một hồ sơ
-            có bước, cờ đỏ và lời khuyên, đưa vào thư viện để người khác khỏi mắc.
+            Theo khảo sát NCA, chỉ khoảng 32% nạn nhân trình báo. Phần lớn gác máy, mất tiền, và kịch bản biến mất.
+            Giả Nạn làm ngược lại: một người giả ở lại trong cuộc thoại, kéo đối phương nói hết các bước, rồi đưa hồ sơ
+            vào thư viện để người kế tiếp nhận ra trước khi chuyển khoản.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Button asChild variant="seal">
@@ -43,7 +44,12 @@ export function HomePage() {
           </div>
         </div>
         <aside className="dossier rounded-3xl p-5">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Đang có trong tủ</p>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Vấn đề</p>
+          <p className="mt-2 font-display text-5xl text-seal">32%</p>
+          <p className="mt-1 text-sm leading-6 text-ink-soft">
+            nạn nhân trình báo, theo khảo sát NCA. 68% còn lại không để lại kịch bản cho ai học.
+          </p>
+          <p className="mt-4 text-[11px] uppercase tracking-[0.16em] text-ink-soft">Đang có trong tủ</p>
           <dl className="mt-4 grid grid-cols-3 gap-3">
             {[
               ['Kịch bản', stats?.published_scripts],

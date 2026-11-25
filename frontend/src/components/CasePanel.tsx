@@ -1,25 +1,89 @@
 import type { Panel } from '../lib/api'
 import { GOAL_LABELS } from '../lib/utils'
 
+const STAGES = ['mo_dau', 'danh_tinh', 'ly_do', 'co_lap', 'tien', 'kenh_nhan', 'ep', 'nhanh', 'phuc_hoi', 'kep']
+const STAGE_SHORT: Record<string, string> = {
+  mo_dau: 'Mở',
+  danh_tinh: 'Danh',
+  ly_do: 'Lý do',
+  co_lap: 'Cô lập',
+  tien: 'Tiền',
+  kenh_nhan: 'Kênh',
+  ep: 'Ép',
+  nhanh: 'Nhánh',
+  phuc_hoi: 'Nghi',
+  kep: 'Khép',
+}
+
 export function CasePanel({ panel, reasoning }: { panel: Panel | null; reasoning?: unknown }) {
   const showReason = typeof window !== 'undefined' && localStorage.getItem('gianan-reason') === '1'
   if (!panel) {
     return (
       <aside className="dossier rounded-3xl p-5 text-sm leading-6 text-ink-soft">
-        Hồ sơ vụ hiện khi đối phương gửi câu đầu tiên. Bên này là bước đang khớp, cờ đỏ, nhánh mới và mục tiêu của agent.
+        Buồng lái hiện khi đối phương gửi câu đầu. Bên này là giai đoạn kịch bản, mục còn thiếu, và chỉ dấu vừa lộ.
       </aside>
     )
   }
+  const confidence = panel.matches[0]?.confidence ?? 0
+  const risk = Math.round(Math.max(confidence, panel.suspicion) * 100)
+  const stageIndex = Math.max(0, STAGES.indexOf(panel.stage || 'mo_dau'))
+  const chips = [
+    ...(panel.indicators?.phones ?? []).map((item) => `ĐT ${item}`),
+    ...(panel.indicators?.bank_accounts ?? []).map((item) => `TK ${item}`),
+    ...(panel.indicators?.urls ?? []),
+    ...(panel.indicators?.apps ?? []),
+    ...(panel.indicators?.brands ?? []),
+    ...(panel.indicators?.pressure ?? []),
+  ]
   return (
     <aside className="space-y-3">
+      <section className="dossier rounded-3xl p-5">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Buồng lái</p>
+          <p className="text-xs text-ink-soft">{panel.stage_label || 'Mở đầu'}</p>
+        </div>
+        <ol className="mt-3 flex gap-1">
+          {STAGES.map((stage, index) => (
+            <li
+              key={stage}
+              title={STAGE_SHORT[stage]}
+              className={`h-1.5 flex-1 rounded-full ${index <= stageIndex ? 'bg-seal' : 'bg-paper-deep'}`}
+            />
+          ))}
+        </ol>
+        <p className="mt-3 text-sm text-ink-soft">Mức khớp / nghi ngờ</p>
+        <div className="meter mt-1">
+          <span style={{ width: `${risk}%` }} />
+        </div>
+        <p className="mt-1 text-xs text-ink-soft">{risk}%</p>
+      </section>
+
       <section className="dossier rounded-3xl p-5">
         <p className="text-[11px] uppercase tracking-[0.16em] text-gold">Mục tiêu lượt này</p>
         <h2 className="mt-1 font-display text-2xl text-ink">{panel.goal.label || GOAL_LABELS[panel.goal.goal] || panel.goal.goal}</h2>
         <p className="mt-2 text-sm leading-6 text-ink-soft">{panel.goal.rationale}</p>
       </section>
 
+      <section className="dossier rounded-3xl p-5">
+        <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Bảng khai thác</p>
+        <ul className="mt-3 space-y-2">
+          {(panel.checklist ?? []).map((item) => (
+            <li key={item.key} className="flex items-start gap-2 text-sm">
+              <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full text-[10px] ${item.done ? 'bg-seal text-white' : 'bg-paper-deep text-ink-soft'}`}>
+                {item.done ? '✓' : ''}
+              </span>
+              <span>
+                <span className={item.done ? 'text-ink' : 'text-ink-soft'}>{item.label}</span>
+                {item.detail && <span className="mt-0.5 block text-xs text-ink-soft">{item.detail}</span>}
+              </span>
+            </li>
+          ))}
+          {(panel.checklist ?? []).length === 0 && <li className="text-sm text-ink-soft">Chưa có mục nào.</li>}
+        </ul>
+      </section>
+
       {panel.branch.kind === 'new' && (
-        <section className="rounded-3xl border border-seal/40 bg-[#f8e4dc] p-5">
+        <section className="rounded-3xl border border-seal/40 bg-[#fde7ef] p-5">
           <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Nhánh mới</p>
           <p className="mt-1 font-semibold">{panel.branch.hook}</p>
           <p className="mt-1 text-sm leading-6">{panel.branch.description}</p>
@@ -31,6 +95,18 @@ export function CasePanel({ panel, reasoning }: { panel: Panel | null; reasoning
           <p className="mt-1">{panel.branch.description}</p>
         </section>
       )}
+
+      <section className="dossier rounded-3xl p-5">
+        <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Chỉ dấu vừa lộ</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {chips.length === 0 && <p className="text-sm text-ink-soft">Chưa có số, link hay tên ứng dụng.</p>}
+          {chips.map((chip) => (
+            <span key={chip} className="rounded-full bg-[#fde7ef] px-2.5 py-1 text-xs text-seal-deep">
+              {chip}
+            </span>
+          ))}
+        </div>
+      </section>
 
       <section className="dossier rounded-3xl p-5">
         <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Bước trong kịch bản</p>
@@ -58,40 +134,6 @@ export function CasePanel({ panel, reasoning }: { panel: Panel | null; reasoning
           <p className="mt-3 rounded-2xl bg-[#e7f3ec] px-3 py-2 text-sm text-pine">Có thể khép: {panel.wrap_reason}</p>
         ) : (
           <p className="mt-3 text-sm text-ink-soft">{panel.wrap_reason || 'Chưa khép. Vẫn đang kéo kịch bản.'}</p>
-        )}
-      </section>
-
-      <section className="dossier rounded-3xl p-5">
-        <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Kịch bản khớp</p>
-        <ul className="mt-3 space-y-3">
-          {panel.matches.length === 0 && <li className="text-sm text-ink-soft">Chưa có ứng viên đủ gần.</li>}
-          {panel.matches.map((match) => (
-            <li key={match.script_id}>
-              <div className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="font-medium">{match.title}</span>
-                <span className="text-ink-soft">{Math.round(match.confidence * 100)}%</span>
-              </div>
-              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-paper-deep">
-                <div className="h-full bg-seal" style={{ width: `${Math.round(match.confidence * 100)}%` }} />
-              </div>
-              <p className="mt-1 text-xs text-ink-soft">{match.reason}</p>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="dossier rounded-3xl p-5">
-        <p className="text-[11px] uppercase tracking-[0.16em] text-danger">Cờ đỏ</p>
-        <ul className="mt-2 list-disc space-y-1 pl-4 text-sm leading-6">
-          {(panel.red_flags.length ? panel.red_flags : ['Chưa thấy cờ đỏ rõ ở lượt này.']).map((flag) => (
-            <li key={flag}>{flag}</li>
-          ))}
-        </ul>
-        {panel.suspicion >= 0.6 && (
-          <p className="mt-3 text-sm text-seal">Đối phương đang nghi đây không phải người. Agent sẽ lùi lại, không nhận mình là máy.</p>
-        )}
-        {panel.safety_action !== 'allow' && (
-          <p className="mt-2 text-sm text-pine">Lớp an toàn đã chặn câu gốc ({panel.safety_action}).</p>
         )}
       </section>
 

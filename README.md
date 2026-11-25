@@ -70,7 +70,7 @@ Thứ tự một lượt:
 6. Persona viết tin nhắn tiếng Việt theo hồ sơ giả và trí nhớ.
 7. An toàn đầu ra: luật là quyền phủ quyết, kể cả «trả liền», «chuyển liền», «ok em chuyển». Mô hình có thể viết lại. Câu vẫn phạm thì thay bằng câu an toàn trong vai. Cùng lúc kiểm tra cặp đại từ của persona và giọng tao/mày.
 
-Analyst và planner chạy song song vì cả hai chỉ cần gói tìm thư viện. Persona đợi mục tiêu. Bốn lần gọi mỗi lượt đều tắt thinking (`thinking_budget=0`, khoảng 0,7 giây trên `gemini-2.5-flash`) để một lượt ở dưới 4 giây. Chỉ lúc trích kịch bản cuối cuộc mới bật thinking. 503 và timeout được thử lại với backoff ngắn rồi chuyển model.
+Analyst và planner chạy song song vì cả hai chỉ cần gói tìm thư viện. Persona đợi mục tiêu. Nếu câu trả lời nghe như chuyên gia, sai đại từ, hoặc nhận trả tiền, persona viết lại một lần rồi lớp an toàn mới cho gửi. Mỗi lượt còn ghi giai đoạn kịch bản, bảng mục còn thiếu (danh tính, kênh, tiền, số tài khoản, link, ứng dụng, sức ép, thương hiệu) và chỉ dấu: số điện thoại, số tài khoản, URL, tên app. `AGENT_AGGRESSIVENESS` nhận `cautious`, `normal` hoặc `persistent`. Chat mặc định vẫn là model nhỏ `cx/gpt-6-luna`.
 
 Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một mình, shop, học phí…) mà kịch bản đang khớp và các biến thể của nó không có. Nếu thư viện đã có biến thể đó, UI báo «khớp nhánh đã có» và tiếp tục bám nhánh.
 

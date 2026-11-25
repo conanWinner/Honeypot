@@ -24,10 +24,10 @@ export function DemoPage() {
     return (
       <section className="mx-auto max-w-2xl">
         <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Cho giám khảo</p>
-        <h1 className="mt-2 font-display text-4xl">Một cuộc gọi công an, đi đến nhánh mới</h1>
+        <h1 className="mt-2 font-display text-4xl">Ba phút, một kịch bản đầy đủ</h1>
         <p className="mt-3 text-base leading-7 text-ink-soft">
-          Bạn là người gọi. Agent là bà Nguyễn Thị Năm, 68 tuổi, ở Hà Nội, con trai đang ở Đức. Bấm các câu gợi ý hoặc tự
-          gõ. Đi hết các bước, rồi xem kịch bản vừa trích rơi vào hàng chờ.
+          Dành cho video chấm. Bạn là người gọi. Agent là bà Nguyễn Thị Năm. Bấm «Tự đi nốt các câu gợi ý», nhìn buồng
+          lái đổi giai đoạn, rồi trích xuất. Khoảng hai phút rưỡi nếu không dừng giữa chừng.
         </p>
         <ol className="mt-4 list-decimal space-y-1 pl-5 text-sm leading-6">
           <li>Đối phương tự xưng công an và cô lập nạn nhân.</li>

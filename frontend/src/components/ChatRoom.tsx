@@ -6,6 +6,18 @@ import { sleep } from '../lib/utils'
 import { CasePanel } from './CasePanel'
 import { Button, Banner } from './ui'
 
+function DemoCoach({ sent }: { sent: number }) {
+  const beats = [
+    [0, '0:00 — Họ vừa gọi. Bà Năm sẽ hỏi họ là ai. Bạn chỉ cần gửi câu gợi ý.'],
+    [2, '0:40 — Họ đang cô lập nạn nhân. Đừng bấm trích xuất.'],
+    [4, '1:20 — Số tài khoản và phần mềm xuất hiện ở buồng lái.'],
+    [6, '2:00 — Nhánh con ở Đức, rồi chuyện sống một mình. Agent không khép.'],
+    [8, '2:30 — Bấm Trích xuất. Hồ sơ vào hàng chờ, duyệt để thấy trên thư viện.'],
+  ]
+  const line = [...beats].reverse().find(([at]) => sent >= Number(at))?.[1] ?? beats[0][1]
+  return <p className="border-b border-line bg-[#fde7ef] px-4 py-2 text-sm text-seal-deep">{line}</p>
+}
+
 type ExtractResult = { action: string; relation: string; script: Script }
 
 export function ChatRoom({ id }: { id: string }) {
@@ -132,7 +144,7 @@ export function ChatRoom({ id }: { id: string }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.8fr)]">
-      <section className="dossier flex min-h-[70vh] flex-col rounded-3xl">
+      <section className="dossier flex min-h-[70vh] flex-col overflow-hidden rounded-3xl">
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-4">
           <div>
             <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">
@@ -156,7 +168,8 @@ export function ChatRoom({ id }: { id: string }) {
             </Button>
           </div>
         </header>
-        <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        {conversation.is_demo && <DemoCoach sent={sentCount} />}
+        <div ref={scroller} className="thread flex-1 space-y-3 overflow-y-auto px-4 py-4">
           {messages.length === 0 && (
             <p className="rounded-2xl bg-paper-deep px-4 py-3 text-sm leading-6 text-ink-soft">
               Bạn đóng vai người đang lừa. Gõ câu đầu, hoặc dán tin nhắn họ đã gửi. {conversation.persona.display_name} sẽ
@@ -164,16 +177,21 @@ export function ChatRoom({ id }: { id: string }) {
             </p>
           )}
           {messages.map((message) => (
-            <div key={message.id} className={`flex ${message.role === 'victim' ? 'justify-end' : 'justify-start'}`}>
+            <div key={message.id} className={`bubble flex ${message.role === 'victim' ? 'justify-end' : 'justify-start'}`}>
               <div
-                className={`max-w-[85%] rounded-3xl px-4 py-3 text-sm leading-6 ${
-                  message.role === 'victim' ? 'bg-ink text-paper' : 'bg-paper-deep text-ink'
+                className={`max-w-[85%] px-3.5 py-2 text-sm leading-6 shadow-sm ${
+                  message.role === 'victim'
+                    ? 'rounded-2xl rounded-br-md bg-seal text-white'
+                    : 'rounded-2xl rounded-bl-md bg-white text-ink'
                 }`}
               >
-                <p className="mb-1 text-[11px] uppercase tracking-[0.14em] opacity-70">
+                <p className={`mb-0.5 text-[10px] uppercase tracking-[0.14em] ${message.role === 'victim' ? 'text-white/75' : 'text-ink-soft'}`}>
                   {message.role === 'victim' ? conversation.persona.display_name : 'Đối phương'}
                 </p>
                 {message.content}
+                <p className={`mt-1 text-right text-[10px] ${message.role === 'victim' ? 'text-white/70' : 'text-ink-soft'}`}>
+                  {new Date(message.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                </p>
               </div>
             </div>
           ))}
