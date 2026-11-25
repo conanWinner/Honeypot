@@ -46,6 +46,7 @@ class Script(Base):
     hooks: Mapped[list] = mapped_column(JSON)
     red_flags: Mapped[list] = mapped_column(JSON)
     advice: Mapped[str] = mapped_column(Text)
+    indicators: Mapped[dict] = mapped_column(JSON, default=lambda: {})
     sources: Mapped[list] = mapped_column(JSON)
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True))

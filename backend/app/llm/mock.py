@@ -165,6 +165,19 @@ class MockProvider:
             goal = "stall" if digits >= 8 else "ask_account_number"
         elif "không được kể" in message or "đừng nói" in message:
             goal = "emotional_hook"
+        elif context.get("aggressiveness") == "persistent" and context.get("next_gap") in {
+            "who",
+            "channel",
+            "payment",
+            "account",
+            "link",
+            "app",
+            "pressure",
+            "brand",
+        }:
+            from app.agent.casefile import GAP_GOAL
+
+            goal = GAP_GOAL[context["next_gap"]]
         elif turn <= 0 and "ask_identity" not in used:
             goal = "ask_identity"
         elif turn <= 1 and "ask_purpose" not in used:

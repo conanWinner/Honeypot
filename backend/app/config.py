@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     gemini_model_fallback: str = "gemini-2.5-flash"
     gemini_embed_model: str = "gemini-embedding-2"
     embed_dim: int = 768
+    # cautious | normal | persistent. Persistent pushes the planner toward the next open checklist item.
+    agent_aggressiveness: str = "normal"
     admin_token: str = ""
     log_level: str = "INFO"
 

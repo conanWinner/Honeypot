@@ -36,6 +36,19 @@ def make_session_factory(engine):
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
+def _ensure_column(engine, table: str, column: str, ddl: str) -> None:
+    from sqlalchemy import inspect
+
+    try:
+        names = {item["name"] for item in inspect(engine).get_columns(table)}
+    except Exception:
+        return
+    if column in names:
+        return
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+
+
 def init_database(engine) -> None:
     from app import models  # noqa: F401
 
@@ -43,6 +56,7 @@ def init_database(engine) -> None:
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(engine)
+    _ensure_column(engine, "scripts", "indicators", "JSON")
     if engine.dialect.name != "postgresql":
         return
     with engine.begin() as conn:

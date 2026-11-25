@@ -28,6 +28,11 @@ class AgentState(BaseModel):
     wrap_recommended: bool = False
     wrap_reason: str = ""
     suspicion: float = 0
+    suspicion_streak: int = 0
+    stage: str = "mo_dau"
+    checklist: list[dict] = Field(default_factory=list)
+    indicators: dict = Field(default_factory=dict)
+    aggressiveness: str = "normal"
     provider: str = ""
     demo_lines: list[str] = Field(default_factory=list)
     known_numbers: list[str] = Field(default_factory=list)

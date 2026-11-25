@@ -79,6 +79,7 @@ def script_public(script: Script, variant_count: int = 0, parent: Script | None 
         "occurrence_count": script.occurrence_count,
         "status": script.status,
         "novelty_note": script.novelty_note or "",
+        "indicators": script.indicators or {},
         "has_embedding": bool(script.embedding),
         "variant_count": variant_count,
     }
@@ -263,6 +264,7 @@ def finish_conversation(session, conversation, provider) -> dict:
         occurrence_count=1,
         status="pending",
         novelty_note=extracted.novelty_reason or novelty,
+        indicators=state.indicators or {},
     )
     session.add(created)
     if parent is not None and relation == "variant":

@@ -46,6 +46,7 @@ def require_admin(request: Request, x_admin_token: str = Header(default="")):
 class ConversationIn(BaseModel):
     persona_id: str
     channel: str = "web"
+    aggressiveness: str = ""
 
 
 class MessageIn(BaseModel):
@@ -190,7 +191,16 @@ def create_conversation(body: ConversationIn, request: Request, session=Depends(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     conversation_id = uuid.uuid4().hex[:16]
     provider = request.app.state.provider
-    state = AgentState(persona_slug=persona.id, channel=body.channel, fake_otp=_otp(conversation_id), provider=provider.name)
+    pace = body.aggressiveness if body.aggressiveness in {"cautious", "normal", "persistent"} else request.app.state.settings.agent_aggressiveness
+    if pace not in {"cautious", "normal", "persistent"}:
+        pace = "normal"
+    state = AgentState(
+        persona_slug=persona.id,
+        channel=body.channel,
+        fake_otp=_otp(conversation_id),
+        provider=provider.name,
+        aggressiveness=pace,
+    )
     conversation = Conversation(
         id=conversation_id,
         channel=body.channel,

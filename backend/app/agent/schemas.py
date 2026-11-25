@@ -76,6 +76,15 @@ class StepOut(BaseModel):
     phrases: list[str] = Field(default_factory=list)
 
 
+class IndicatorsOut(BaseModel):
+    phones: list[str] = Field(default_factory=list)
+    bank_accounts: list[str] = Field(default_factory=list)
+    urls: list[str] = Field(default_factory=list)
+    apps: list[str] = Field(default_factory=list)
+    brands: list[str] = Field(default_factory=list)
+    pressure: list[str] = Field(default_factory=list)
+
+
 class ExtractionOutput(BaseModel):
     title: str
     category: str = "other"
@@ -86,6 +95,7 @@ class ExtractionOutput(BaseModel):
     hooks: list[str] = Field(default_factory=list)
     red_flags: list[str] = Field(default_factory=list)
     advice: str
+    indicators: IndicatorsOut = Field(default_factory=IndicatorsOut)
     parent_id: str = ""
     relation: Literal["new_root", "variant", "duplicate"] = "new_root"
     novelty_reason: str = ""
