@@ -16,13 +16,18 @@ from datetime import datetime, timezone
 
 from app.agent.casefile import (
     STAGE_LABELS,
+    checklist_signature,
     choose_stage,
+    clamp_new_branch,
     critique_reply,
     cue_branch,
+    forced_ask,
     next_gap,
+    note_progress,
+    stabilize_family,
     update_casefile,
 )
-from app.agent.policy import assess_inbound, fallback_reply, inspect_outbound, recommend_wrap, typing_ms
+from app.agent.policy import assess_inbound, fallback_reply, inspect_outbound, recommend_wrap, repeats_opening, typing_ms
 from app.agent.prompts import ANALYST_SYSTEM, PERSONA_SYSTEM, PLANNER_SYSTEM, SAFETY_SYSTEM
 from app.agent.schemas import AnalystOutput, BranchOut, MatchOut, PersonaOutput, PlannerOutput, SafetyOutput
 from app.agent.state import AgentState, MatchSnap
@@ -105,11 +110,9 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         cue = cue_branch(text, script_blob(published[0]["script"]))
         if cue:
             hint = cue
+    before_checklist = checklist_signature(state)
     update_casefile(state, text)
-    if state.suspicion >= 0.7:
-        state.suspicion_streak += 1
-    else:
-        state.suspicion_streak = 0
+    note_progress(state, before_checklist)
     candidates = candidate_payload(published)
     by_id = {script.id: script for script in all_scripts}
 
@@ -167,23 +170,37 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     }
     # Analyst and planner both only need the retrieval packet, so they run together.
     # Persona still waits: it has to follow the goal the planner picks.
+    def _ask(schema, system, user, temperature, role, max_tokens, thinking=False):
+        return provider.complete(
+            schema,
+            system,
+            user,
+            temperature,
+            thinking,
+            model=None,
+            role=role,
+            max_tokens=max_tokens,
+        )
+
     t0 = time.perf_counter()
     with ThreadPoolExecutor(max_workers=2) as pool:
         analyst_future = pool.submit(
-            provider.complete,
+            _ask,
             AnalystOutput,
             ANALYST_SYSTEM,
             pack("Phân tích lượt mới nhất của đối phương.", analyst_ctx),
             0.2,
-            False,
+            "analyst",
+            420,
         )
         planner_future = pool.submit(
-            provider.complete,
+            _ask,
             PlannerOutput,
             PLANNER_SYSTEM,
             pack("Chọn mục tiêu cho câu trả lời kế tiếp.", planner_ctx),
-            0.4,
-            False,
+            0.3,
+            "planner",
+            260,
         )
         analyst = analyst_future.result()
         plan = planner_future.result()
@@ -233,6 +250,9 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         branch = BranchOut.model_validate(hint)
     else:
         branch = analyst.branch
+    kind, detected = clamp_new_branch(branch.kind, branch.detected, state.turn_index)
+    if kind != branch.kind or detected != branch.detected:
+        branch = branch.model_copy(update={"kind": kind, "detected": detected})
     if branch.kind == "known_variant" and branch.variant_script_id in by_id:
         variant = by_id[branch.variant_script_id]
         others = [item for item in kept if item.script_id != variant.id]
@@ -254,6 +274,24 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
 
     top = kept[0] if kept else None
     top_script = by_id.get(top.script_id) if top else None
+    raw_family = _family(top_script) if top_script else ""
+    stable_family = stabilize_family(state, raw_family)
+    if top and stable_family and stable_family != raw_family:
+        previous = next(
+            (item for item in reversed(state.match_history) if (item.family_id or item.script_id) == stable_family),
+            None,
+        )
+        if previous and previous.script_id in by_id:
+            top_script = by_id[previous.script_id]
+            top = top.model_copy(
+                update={
+                    "script_id": previous.script_id,
+                    "title": previous.title or top_script.title,
+                    "confidence": previous.confidence,
+                    "current_step_index": previous.step_index,
+                    "current_step_intent": previous.step_intent,
+                }
+            )
     snap = MatchSnap(
         script_id=top.script_id if top else "",
         family_id=_family(top_script) if top else "",
@@ -274,26 +312,26 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     if goal == "close_polite" and not wrap:
         goal = "probe_hook" if branch.kind == "new" else "ask_next_instruction"
         note = f"{note} Máy chủ giữ cuộc thoại vì chưa đủ điều kiện khép."
-    if (inbound["jailbreak"] or suspicion >= 0.7 or state.suspicion_streak >= 1) and goal not in (
-        "feign_confusion",
-        "emotional_hook",
-        "stall",
-    ):
+    real_suspicion = bool(inbound["jailbreak"] or suspicion >= 0.7)
+    if real_suspicion and goal not in ("feign_confusion", "emotional_hook", "stall"):
         goal = "feign_confusion"
         note = f"{note} Đối phương đang dò xem đây có phải máy. Lùi lại, hỏi họ là ai."
     gap = next_gap(state)
     from app.agent.casefile import GAP_GOAL
 
     if (
-        (state.aggressiveness or "normal") == "persistent"
+        not real_suspicion
+        and (state.aggressiveness or "normal") == "persistent"
         and gap
         and GAP_GOAL.get(gap)
         and branch.kind == "none"
-        and suspicion < 0.7
-        and not inbound["jailbreak"]
     ):
         goal = GAP_GOAL[gap]
         note = f"{note} Còn thiếu mục «{gap}» trên bảng khai thác."
+    asked = forced_ask(state, suspicion, bool(inbound["jailbreak"]), branch.kind)
+    if asked:
+        goal = asked
+        note = f"{note} Hai lượt không có thêm gì, hỏi mục còn thiếu."
     state.stage = choose_stage(state, branch.kind, wrap, suspicion)
     plan = plan.model_copy(update={"goal": goal, "rationale": note})
 
@@ -322,27 +360,31 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "otp_allowed": goal == "read_fake_otp",
         "jailbreak": inbound["jailbreak"],
     }
+    recent_replies = [message.content for message in conversation.messages if message.role == "victim"][-4:]
+    pace = state.aggressiveness or "normal"
     t0 = time.perf_counter()
-    spoken = provider.complete(PersonaOutput, PERSONA_SYSTEM, pack("Viết tin nhắn trả lời trong vai.", persona_ctx), 0.9, thinking=False)
+    spoken = _ask(PersonaOutput, PERSONA_SYSTEM, pack("Viết tin nhắn trả lời trong vai.", persona_ctx), 0.9, "persona", 180)
     persona_ms = int((time.perf_counter() - t0) * 1000)
     draft = (spoken.reply or "").strip()
-    notes = critique_reply(draft, persona.id, goal, _allowed_numbers(persona, state), state.aggressiveness or "normal")
+    allowed = _allowed_numbers(persona, state)
+    notes = critique_reply(draft, persona.id, goal, allowed, pace, recent_replies)
     if notes:
         persona_ctx["critique"] = notes
         t1 = time.perf_counter()
-        spoken_again = provider.complete(
+        spoken_again = _ask(
             PersonaOutput,
             PERSONA_SYSTEM,
             pack("Viết lại tin nhắn. Giữ người cả tin, hỏi tiếp, không dạy đời.", persona_ctx),
             0.7,
-            thinking=False,
+            "persona",
+            180,
         )
         persona_ms += int((time.perf_counter() - t1) * 1000)
         redraft = (spoken_again.reply or "").strip()
-        if redraft and len(critique_reply(redraft, persona.id, goal, _allowed_numbers(persona, state), "cautious")) <= len(notes):
+        if redraft and len(critique_reply(redraft, persona.id, goal, allowed, pace, recent_replies)) <= len(notes):
             spoken = spoken_again
             draft = redraft
-    violations = inspect_outbound(draft, _allowed_numbers(persona, state), persona.id)
+    violations = inspect_outbound(draft, allowed, persona.id)
     safety_ctx = {
         "reply": draft,
         "code_violations": violations,
@@ -354,7 +396,11 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "persona_slug": persona.id,
     }
     t0 = time.perf_counter()
-    verdict = provider.complete(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, thinking=False)
+    # The guard model only sees drafts the rules already dislike. A clean line skips that call.
+    if violations:
+        verdict = _ask(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 200)
+    else:
+        verdict = SafetyOutput(approved=True, action="allow", notes="Bản nháp sạch, không gọi lớp an toàn.")
     safety_ms = int((time.perf_counter() - t0) * 1000)
 
     action = "allow"
@@ -362,15 +408,15 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     model_flagged = (not verdict.approved) and bool(verdict.violations)
     if violations or model_flagged:
         candidate = (verdict.safe_reply or "").strip()
-        candidate_ok = bool(candidate) and candidate != draft and not inspect_outbound(candidate, _allowed_numbers(persona, state), persona.id)
+        candidate_ok = bool(candidate) and candidate != draft and not inspect_outbound(candidate, allowed, persona.id)
         if candidate_ok:
             final = candidate
             action = "rewrite"
         else:
-            final = fallback_reply(persona.id)
+            final = fallback_reply(persona.id, recent_replies)
             action = "fallback"
-    if not final:
-        final = fallback_reply(persona.id)
+    if not final or repeats_opening(final, recent_replies) or (recent_replies and final.strip() == recent_replies[-1].strip()):
+        final = fallback_reply(persona.id, recent_replies + [final])
         action = "fallback"
 
     if goal == "read_fake_otp" and state.fake_otp in final:

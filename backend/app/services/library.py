@@ -226,7 +226,16 @@ def finish_conversation(session, conversation, provider) -> dict:
     }
     from app.agent.orchestrator import pack
 
-    extracted = provider.complete(ExtractionOutput, EXTRACT_SYSTEM, pack("Trích kịch bản từ hội thoại.", context), 0.3, thinking=True)
+    extracted = provider.complete(
+        ExtractionOutput,
+        EXTRACT_SYSTEM,
+        pack("Trích kịch bản từ hội thoại.", context),
+        0.3,
+        thinking=True,
+        model=None,
+        role="extract",
+        max_tokens=900,
+    )
     # The server, not the model, decides duplicate versus a new branch.
     extracted.relation = relation
     extracted.parent_id = parent_id
@@ -305,6 +314,21 @@ def _merge_into(script: Script, extracted: ExtractionOutput, conversation_id: st
     sources.append({"type": "conversation", "ref": conversation_id})
     script.sources = sources
     script.updated_at = utcnow()
+
+
+def embed_script(session, script_id: str, provider) -> None:
+    """Give a newly published script a vector so library search can find it."""
+    if provider is None or getattr(provider, "is_mock", True) or getattr(provider, "embeddings_mock", True):
+        return
+    script = session.get(Script, script_id)
+    if script is None or script.embedding:
+        return
+    try:
+        vector = provider.embed([script_blob(script)])[0]
+    except Exception:
+        log.warning("Không tạo được embedding lúc duyệt kịch bản.", exc_info=True)
+        return
+    _write_embedding(session, script, vector)
 
 
 def set_status(session, script_id: str, status: str) -> dict | None:

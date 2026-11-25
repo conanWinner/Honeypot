@@ -102,7 +102,7 @@ def test_router_failure_falls_through_to_next_chat_provider():
         model = "cx/gpt-6-luna"
         is_mock = False
 
-        def complete(self, schema, system, user, temperature=0.4, thinking=False):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
             raise LLMError("router 530: cloudflare")
 
     class Ok:
@@ -110,7 +110,7 @@ def test_router_failure_falls_through_to_next_chat_provider():
         model = "gemini-2.5-flash"
         is_mock = False
 
-        def complete(self, schema, system, user, temperature=0.4, thinking=False):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
             return schema(reply="Cô nghe.", memory_note="n")
 
     provider = FallbackProvider([Boom(), Ok()])
@@ -129,7 +129,11 @@ def test_default_chat_order_is_router_then_gemini_embeddings_stay_gemini():
     provider = build_provider(settings)
     assert provider.is_mock is False
     assert provider.embeddings_mock is False
-    assert provider.embed_model == "gemini-embedding-2"
+    assert provider.embed_model == "gemini-embedding-001"
+    assert provider.role_models["persona"] == "cx/gpt-6-luna"
+    assert provider.role_models["analyst"] == "ag/gemini-3.8-flash-low"
+    assert provider.role_models["guard"] == "ag/gemini-3.8-flash-low"
+    assert provider.role_models["extract"] == "cx/gpt-5.6-luna"
     assert provider._chat.chain[0].name == "openai-compatible"
     assert provider._chat.chain[0].model == "cx/gpt-6-luna"
     assert provider._chat.chain[0].base_url == "https://router.example/v1"

@@ -75,7 +75,18 @@ class MockProvider:
     model = "mock"
     embed_model = "mock"
 
-    def complete(self, schema: type[BaseModel], system: str, user: str, temperature: float = 0.4, thinking: bool = False) -> BaseModel:
+    def complete(
+        self,
+        schema: type[BaseModel],
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        thinking: bool = False,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = None,
+    ) -> BaseModel:
+        del model, role, max_tokens
         context = read_context(user)
         name = schema.__name__
         if name == "AnalystOutput":

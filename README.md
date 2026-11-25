@@ -70,18 +70,21 @@ Thứ tự một lượt:
 6. Persona viết tin nhắn tiếng Việt theo hồ sơ giả và trí nhớ.
 7. An toàn đầu ra: luật là quyền phủ quyết, kể cả «trả liền», «chuyển liền», «ok em chuyển». Mô hình có thể viết lại. Câu vẫn phạm thì thay bằng câu an toàn trong vai. Cùng lúc kiểm tra cặp đại từ của persona và giọng tao/mày.
 
-Analyst và planner chạy song song vì cả hai chỉ cần gói tìm thư viện. Persona đợi mục tiêu. Nếu câu trả lời nghe như chuyên gia, sai đại từ, hoặc nhận trả tiền, persona viết lại một lần rồi lớp an toàn mới cho gửi. Mỗi lượt còn ghi giai đoạn kịch bản, bảng mục còn thiếu (danh tính, kênh, tiền, số tài khoản, link, ứng dụng, sức ép, thương hiệu) và chỉ dấu: số điện thoại, số tài khoản, URL, tên app. `AGENT_AGGRESSIVENESS` nhận `cautious`, `normal` hoặc `persistent`. Chat mặc định vẫn là model nhỏ `cx/gpt-6-luna`.
+Analyst và planner chạy song song vì cả hai chỉ cần gói tìm thư viện. Persona đợi mục tiêu. Lớp an toàn chỉ được gọi khi luật đã thấy câu nháp có vấn đề, để lượt sạch không phải chờ thêm một model. Nếu câu trả lời nghe như chuyên gia, sai đại từ, hoặc nhận trả tiền, persona viết lại một lần (cùng mức `AGENT_AGGRESSIVENESS` với câu gốc) rồi lớp an toàn mới cho gửi. Hai lượt không có thêm chỉ dấu thì agent hỏi mục còn thiếu (số tài khoản, link, ứng dụng, số tiền) thay vì giả vờ rối. Nghi ngờ chỉ làm agent lùi lại khi lượt hiện tại thật sự bị dò. Mỗi lượt còn ghi giai đoạn kịch bản, bảng mục còn thiếu và chỉ dấu: số điện thoại, số tài khoản, URL (kể cả tên miền trần), tên app. `AGENT_AGGRESSIVENESS` nhận `cautious`, `normal` hoặc `persistent`.
 
 Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một mình, shop, học phí…) mà kịch bản đang khớp và các biến thể của nó không có. Nếu thư viện đã có biến thể đó, UI báo «khớp nhánh đã có» và tiếp tục bám nhánh.
 
 ## Mô hình
 
-| Vai | Mặc định | Ghi chú |
+| Vai | Mặc định | Biến |
 | --- | --- | --- |
-| Chat | Router OpenAI-compatible, model `cx/gpt-6-luna` | `OPENAI_BASE_URL`, mặc định `https://rm7g66d.abc-tunnel.us/v1`. JSON được nhắc trong prompt, không dùng `json_schema` |
-| Chat dự phòng | `gemini-2.5-flash` | Khi router trả 5xx, Cloudflare 530, hoặc timeout |
-| Embedding | `gemini-embedding-2` hoặc `gemini-embedding-001` | Luôn Gemini, tách khỏi chat. Xin 768 chiều rồi chuẩn hóa |
-| Không khóa | Mock | Chỉ test tự động và banner «chưa cấu hình khóa» |
+| Persona | `cx/gpt-6-luna` | `MODEL_PERSONA` |
+| Analyst, planner, guard | `ag/gemini-3.8-flash-low` | `MODEL_ANALYST`, `MODEL_PLANNER`, `MODEL_GUARD` |
+| Trích kịch bản | `cx/gpt-5.6-luna` | `MODEL_EXTRACT` |
+| Chat dự phòng | `gemini-2.5-flash` | Khi router trả 4xx/5xx, Cloudflare 403/530, hoặc timeout |
+| Embedding | `gemini-embedding-001` | Luôn Gemini, từng câu một, 768 chiều, chuẩn hóa |
+
+Router nhận `response_format: json_schema` sinh từ model Pydantic. Nếu router trả 400 vì schema, client gửi lại chỉ bằng prompt. Mọi request có `User-Agent: gia-nan/1.0` để Cloudflare không chặn. Biến vai để trống thì dùng `OPENAI_MODEL`. Gemini chat gọi `v1beta`. `ag/gemini-3.8-flash-low` trả SSE kèm `reasoning_content`; client chỉ lấy `content`.
 
 `LLM_PROVIDER=auto` (và `openai-compatible`) gọi router trước, Gemini khi tunnel lỗi. `gemini` đảo thứ tự. `mock` chỉ cho test. Embedding không đi theo lựa chọn chat: có `GEMINI_API_KEY` thì dùng Gemini, không thì tìm theo từ khóa. Provider thật không rơi xuống mock giữa chừng.
 
@@ -92,18 +95,23 @@ Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một
 | `GEMINI_API_KEY` | Khóa Google AI Studio. Bắt buộc nếu muốn embedding, và là chat dự phòng |
 | `LLM_API_KEY` | Khóa router. `OPENAI_API_KEY` dùng thay nếu biến này trống. Không commit khóa |
 | `OPENAI_BASE_URL` | Mặc định `https://rm7g66d.abc-tunnel.us/v1` |
-| `OPENAI_MODEL` | Mặc định `cx/gpt-6-luna` |
+| `OPENAI_MODEL` | Mặc định `cx/gpt-6-luna`. Dùng khi một biến vai để trống |
+| `MODEL_PERSONA` | Mặc định `cx/gpt-6-luna` |
+| `MODEL_ANALYST` | Mặc định `ag/gemini-3.8-flash-low` |
+| `MODEL_PLANNER` | Mặc định `ag/gemini-3.8-flash-low` |
+| `MODEL_GUARD` | Mặc định `ag/gemini-3.8-flash-low` |
+| `MODEL_EXTRACT` | Mặc định `cx/gpt-5.6-luna` |
 | `LLM_PROVIDER` | `auto` hoặc `openai-compatible`: router rồi Gemini. `gemini`: ngược lại. `mock`: test |
 | `GEMINI_MODEL` | Mặc định `gemini-2.5-flash`. Không dùng `gemini-2.5-flash-lite` (404, bị đổi về 2.5-flash) |
 | `GEMINI_MODEL_PREFERRED` | Tuỳ chọn, ví dụ `gemini-3.5-flash`. 503, timeout hoặc 404 thì rơi về `GEMINI_MODEL` |
 | `GEMINI_MODEL_FALLBACK` | Mặc định `gemini-2.5-flash` |
-| `GEMINI_EMBED_MODEL` | Mặc định `gemini-embedding-2`. `gemini-embedding-001` cũng được, cùng chiều 768 |
+| `GEMINI_EMBED_MODEL` | Mặc định `gemini-embedding-001`, 768 chiều, chuẩn hóa. Mỗi câu một request |
 | `DATABASE_URL` | `postgresql+psycopg://...`. `postgres://` của Render/Railway được đổi sang driver psycopg |
 | `ADMIN_TOKEN` | Nếu đặt, hàng chờ duyệt cần header `X-Admin-Token`. Để trống thì cửa demo mở và UI nói rõ |
 
 ## Việc đã có
 
-- Hội thoại tiếp quản, persona chọn được, độ trễ gõ và dấu đang nhập.
+- Hội thoại tiếp quản, persona chọn được, độ trễ gõ và chữ «đang nhập» trong lúc chờ model.
 - Panel: kịch bản khớp, bước hiện tại, cờ đỏ, nhánh mới, mục tiêu, luận giải bật tắt.
 - Thư viện dạng cây, lọc, tìm, thẻ cảnh báo tải PNG.
 - Kiểm tra tin: mức rủi ro, bước kế, nút giao cho agent.
@@ -165,7 +173,7 @@ App web là Fly app thứ hai, build `frontend/Dockerfile`. Hai app không chung
 
 ## Thư viện mã nguồn mở
 
-Backend: FastAPI, Uvicorn, SQLAlchemy, psycopg, pgvector, Pydantic, pydantic-settings, google-genai, openai, pytest.
+Backend: FastAPI, Uvicorn, SQLAlchemy, psycopg, pgvector, Pydantic, pydantic-settings, google-genai, openai, httpx, pytest.
 
 Frontend: React, Vite, TypeScript, Tailwind CSS, Radix UI (Dialog, Slot), class-variance-authority, lucide-react, html-to-image, react-router.
 
@@ -175,7 +183,7 @@ Hạ tầng: Postgres 16 với pgvector, nginx.
 
 Đây là mục contest yêu cầu khai báo.
 
-- Chat chạy qua router tương thích OpenAI (`cx/gpt-6-luna` tại `OPENAI_BASE_URL`). Gemini (`gemini-2.5-flash`, embedding `gemini-embedding-2`) là dự phòng chat và là đường embedding.
+- Chat chạy qua router tương thích OpenAI tại `OPENAI_BASE_URL`. Persona `cx/gpt-6-luna`, analyst/planner/guard `ag/gemini-3.8-flash-low`, trích kịch bản `cx/gpt-5.6-luna`. Gemini `gemini-2.5-flash` là dự phòng chat. Embedding `gemini-embedding-001`.
 - Mã nguồn của repo này được viết với Cursor, mô hình Grok 4.7, trong một cloud agent. Không có khóa Gemini hay OpenAI trong môi trường lúc build, nên eval đã commit chạy bằng mock. Đường mô hình thật đã nối đủ schema JSON, embedding và fallback; cần khóa để kiểm lại bằng tay.
 
 ## Pha 2, chưa làm

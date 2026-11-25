@@ -12,9 +12,8 @@ timeouts are retried, then raised so the caller can fall back to Gemini.
 import json
 import re
 import time
-import urllib.error
-import urllib.request
 
+import httpx
 from pydantic import BaseModel, ValidationError
 
 from app.llm.base import LLMError, extract_json
@@ -23,11 +22,33 @@ _TRAILING_COMMA = re.compile(r",\s*([}\]])")
 
 
 def schema_hint(schema: type[BaseModel]) -> str:
+    body = schema.model_json_schema()
     fields = ", ".join(schema.model_fields)
     return (
         "Chỉ trả về một JSON object, không markdown, không lời dẫn. "
-        f"Đúng các trường: {fields}."
+        f"Đúng các trường: {fields}. "
+        f"Schema: {json.dumps(body, ensure_ascii=False)}"
     )
+
+
+def json_schema_format(schema: type[BaseModel]) -> dict:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": schema.__name__,
+            "schema": schema.model_json_schema(),
+            "strict": False,
+        },
+    }
+
+
+def request_headers(api_key: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "User-Agent": "gia-nan/1.0",
+    }
 
 
 def repair_json(text: str) -> str:
@@ -104,25 +125,14 @@ def _assemble_sse(raw: str) -> str:
 
 
 def post_chat(url: str, api_key: str, payload: dict, timeout: float = 40) -> tuple[int, str, str]:
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        },
-        method="POST",
-    )
+    headers = request_headers(api_key)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read().decode("utf-8", errors="replace")
-            return response.status, response.headers.get("Content-Type", ""), body
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        return exc.code, exc.headers.get("Content-Type", "") if exc.headers else "", body
-    except (TimeoutError, urllib.error.URLError) as exc:
+        response = httpx.post(url, headers=headers, json=payload, timeout=timeout)
+    except httpx.TimeoutException as exc:
         raise LLMError(f"timeout calling router: {exc}") from exc
+    except httpx.HTTPError as exc:
+        raise LLMError(f"timeout calling router: {exc}") from exc
+    return response.status_code, response.headers.get("content-type", ""), response.text
 
 
 def status_is_retryable(status: int) -> bool:
@@ -142,8 +152,21 @@ class OpenAIProvider:
         self.timeout = timeout
         self.embed_model = ""
 
-    def complete(self, schema: type[BaseModel], system: str, user: str, temperature: float = 0.4, thinking: bool = False) -> BaseModel:
-        del thinking  # The router does not use Gemini's thinking budget.
+    def complete(
+        self,
+        schema: type[BaseModel],
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        thinking: bool = False,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = None,
+    ) -> BaseModel:
+        del thinking, role
+        # Keep the default model on the instance. Analyst and planner run at the same
+        # time, so the model id for this call stays local.
+        chosen = (model or "").strip() or self.model
         hint = schema_hint(schema)
         messages = [
             {"role": "system", "content": f"{system}\n\n{hint}"},
@@ -151,7 +174,7 @@ class OpenAIProvider:
         ]
         last_error = "không rõ"
         for attempt in range(2):
-            text = self._complete_text(messages, temperature)
+            text = self._complete_text(messages, temperature, schema, max_tokens, chosen)
             try:
                 return parse_structured(schema, text)
             except (ValidationError, json.JSONDecodeError, ValueError) as exc:
@@ -168,33 +191,49 @@ class OpenAIProvider:
                     continue
         raise LLMError(f"Router không trả JSON hợp lệ: {last_error[:400]}")
 
-    def _complete_text(self, messages: list[dict], temperature: float) -> str:
-        payload = {
-            "model": self.model,
-            "temperature": temperature,
-            "stream": False,
-            "messages": messages,
-        }
+    def _complete_text(
+        self,
+        messages: list[dict],
+        temperature: float,
+        schema: type[BaseModel],
+        max_tokens: int | None,
+        model_name: str,
+    ) -> str:
+        formats: list[dict | None] = [json_schema_format(schema), None]
         url = f"{self.base_url}/chat/completions"
         last_error = ""
-        for attempt in range(3):
-            try:
-                status, content_type, body = post_chat(url, self.api_key, payload, self.timeout)
-            except LLMError as exc:
-                last_error = str(exc)
-                if attempt < 2:
-                    time.sleep(0.4 * (2**attempt))
-                    continue
-                raise
-            if status_is_retryable(status):
-                last_error = f"router {status}: {body[:180]}"
-                if attempt < 2:
-                    time.sleep(0.4 * (2**attempt))
-                    continue
-                raise LLMError(last_error)
-            if status >= 400:
-                raise LLMError(f"router {status}: {body[:300]}")
-            return assemble_message(body, content_type)
+        for response_format in formats:
+            payload: dict = {
+                "model": model_name,
+                "temperature": temperature,
+                "stream": False,
+                "messages": messages,
+            }
+            if max_tokens:
+                payload["max_tokens"] = max_tokens
+            if response_format:
+                payload["response_format"] = response_format
+            for attempt in range(3):
+                try:
+                    status, content_type, body = post_chat(url, self.api_key, payload, self.timeout)
+                except LLMError as exc:
+                    last_error = str(exc)
+                    if attempt < 2:
+                        time.sleep(0.4 * (2**attempt))
+                        continue
+                    raise
+                if status == 400 and response_format is not None:
+                    last_error = body[:180]
+                    break
+                if status_is_retryable(status):
+                    last_error = f"router {status}: {body[:180]}"
+                    if attempt < 2:
+                        time.sleep(0.4 * (2**attempt))
+                        continue
+                    raise LLMError(last_error)
+                if status >= 400:
+                    raise LLMError(f"router {status}: {body[:300]}")
+                return assemble_message(body, content_type)
         raise LLMError(last_error or "router không phản hồi")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -214,11 +253,30 @@ class FallbackProvider:
         self.model = chain[0].model
         self.embed_model = getattr(chain[0], "embed_model", "") or ""
 
-    def complete(self, schema: type[BaseModel], system: str, user: str, temperature: float = 0.4, thinking: bool = False) -> BaseModel:
+    def complete(
+        self,
+        schema: type[BaseModel],
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        thinking: bool = False,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = None,
+    ) -> BaseModel:
         errors: list[str] = []
         for provider in self.chain:
             try:
-                result = provider.complete(schema, system, user, temperature, thinking=thinking)
+                result = provider.complete(
+                    schema,
+                    system,
+                    user,
+                    temperature,
+                    thinking=thinking,
+                    model=model,
+                    role=role,
+                    max_tokens=max_tokens,
+                )
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{provider.name}: {exc}")
                 continue

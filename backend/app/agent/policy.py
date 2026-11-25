@@ -54,10 +54,12 @@ _EXPERT = re.compile(
     r"(đây là (chiêu |vụ )?lừa|không bao giờ (gọi|nhắn|hỏi)|ứng dụng chính thức|tổng đài chính thức|mã vận đơn qua ứng dụng)",
     re.IGNORECASE,
 )
+# Only a vocative ("cháu ơi") is an address. "cô có" and "anh nói" are ordinary words.
 _ADDRESS_FRAME = re.compile(
-    r"\b(bác|cháu|anh|chị|cô|em|mày)\s+(ơi|có|làm|nói|cho|biết)\b",
+    r"\b(bác|cháu|anh|chị|cô|em|mày)\s+ơi\b",
     re.IGNORECASE,
 )
+_QUESTION = re.compile(r"\b(nào|đâu|ai|gì|sao)\b", re.IGNORECASE)
 _CON_AS_SELF = re.compile(r"\bcon\b(?!\s+(trai|gái|cái|nuôi|của))", re.IGNORECASE)
 
 _INSTALL = re.compile(
@@ -107,15 +109,45 @@ _SUSPICION = (
 )
 
 
+def _clause_bounds(text: str, start: int) -> tuple[int, int]:
+    left = -1
+    for mark in ".,!?;\n":
+        left = max(left, text.rfind(mark, 0, start))
+    end = len(text)
+    for mark in ".!\n":
+        found = text.find(mark, start)
+        if found >= 0:
+            end = min(end, found)
+    question = text.find("?", start)
+    if question >= 0:
+        end = min(end, question + 1)
+    return left + 1, end
+
+
 def _negated(text: str, start: int) -> bool:
-    window = text[max(0, start - 16) : start].lower()
-    return any(tok in window for tok in ("không", "chưa", "chẳng", "đừng", "ko "))
+    """A negator counts only when it sits at the end of the same clause, right before the verb.
+
+    "Không sao, cô chuyển liền" is an agreement: the "không" belongs to the previous clause.
+    "Cô không trả liền" is a refusal.
+    """
+    left, _end = _clause_bounds(text, start)
+    prefix = text[left:start].lower()
+    return bool(re.search(r"(^|\s)(không|chưa|chẳng|đừng|ko)\s*$", prefix))
+
+
+def _is_question(text: str, start: int) -> bool:
+    _left, end = _clause_bounds(text, start)
+    clause = text[start:end]
+    if "?" in clause:
+        return True
+    return bool(_QUESTION.search(clause))
 
 
 def _hits(pattern: re.Pattern[str], text: str) -> bool:
     for match in pattern.finditer(text or ""):
-        if not _negated(text, match.start()):
-            return True
+        if _negated(text, match.start()) or _is_question(text, match.start()):
+            continue
+        return True
     return False
 
 
@@ -194,16 +226,62 @@ def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | Non
     return violations
 
 
-def fallback_reply(persona_slug: str) -> str:
-    lines = {
-        "ba-nam": "Cháu nói lạ quá. Cô không chuyển tiền, không đọc mã, cũng không cài cái gì hết. Cháu là ai thì nói rõ cho cô.",
-        "minh-sv": "khoan đã, mình không chuyển khoản và không cài app lạ. bạn nói lại từ đầu đi, mình chưa hiểu gì cả.",
-        "huong-shop": "Chị không chuyển tiền theo chat và không cài phần mềm lạ. Anh/chị là ai, làm bên nào, nói rõ cho chị.",
-        "tuan-vp": "Em chưa rõ anh/chị là ai. Em không chuyển khoản và không cài ứng dụng theo yêu cầu này.",
-        "lan-nt": "Tui không chuyển tiền, không cài ứng dụng gì hết. Nói rõ là ai, không thì tui thôi.",
-        "khoa-tx": "Khoan đã bác. Em không ck và không cài app lạ. Bác là ai nói lại đi.",
-    }
-    return lines.get(persona_slug, lines["tuan-vp"])
+_FALLBACKS = {
+    "ba-nam": [
+        "Cháu nói lại được không? Cô chưa hiểu gì cả.",
+        "Khoan đã cháu, cô đang nghe. Rồi sao nữa?",
+        "Cô chưa làm gì đâu. Cháu muốn cô làm bước nào?",
+    ],
+    "minh-sv": [
+        "Khoan, em chưa hiểu. Anh nói lại được không?",
+        "Em chưa làm gì. Rồi sao nữa?",
+        "Anh là ai vậy, em đang nghe đây.",
+    ],
+    "huong-shop": [
+        "Khoan đã, chị chưa hiểu. Anh nói lại được không?",
+        "Chị chưa làm gì hết. Rồi sao nữa?",
+        "Anh là ai, chị đang nghe.",
+    ],
+    "tuan-vp": [
+        "Khoan, em chưa hiểu. Anh nói lại từ đầu được không?",
+        "Em chưa làm gì. Rồi sao nữa?",
+        "Anh là ai vậy, em đang nghe.",
+    ],
+    "lan-nt": [
+        "Khoan, tui chưa hiểu. Bạn nói lại được không?",
+        "Tui chưa làm gì hết. Rồi sao nữa?",
+        "Bạn là ai, tui đang nghe.",
+    ],
+    "khoa-tx": [
+        "Khoan đã bác, em chưa hiểu. Bác nói lại được không?",
+        "Em chưa làm gì. Rồi sao nữa?",
+        "Bác là ai, em đang nghe.",
+    ],
+}
+
+
+def repeats_opening(text: str, recent: list[str] | None, width: int = 10) -> bool:
+    """True when this reply opens like one of the last few victim lines."""
+    opening = (text or "").strip().lower()
+    if len(opening) < width:
+        return False
+    head = opening[:width]
+    for old in (recent or [])[-4:]:
+        previous = (old or "").strip().lower()
+        if len(previous) >= width and previous[:width] == head:
+            return True
+    return False
+
+
+def fallback_reply(persona_slug: str, recent: list[str] | None = None) -> str:
+    options = _FALLBACKS.get(persona_slug) or _FALLBACKS["tuan-vp"]
+    recent_norm = [(item or "").strip().lower() for item in (recent or [])]
+    for line in options:
+        folded = line.strip().lower()
+        if folded in recent_norm or repeats_opening(line, recent):
+            continue
+        return line
+    return options[len(recent_norm) % len(options)]
 
 
 def typing_ms(text: str, persona_slug: str) -> int:

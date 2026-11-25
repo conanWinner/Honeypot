@@ -1,9 +1,25 @@
 """One-shot reading of a suspicious message or a short transcript."""
 
+import re
+
 from app.agent.orchestrator import pack
 from app.agent.prompts import ANALYST_SYSTEM
 from app.agent.schemas import AnalystOutput
 from app.services.matching import branch_hint, candidate_payload, search_scripts
+
+
+_BENIGN = re.compile(
+    r"(chúc mừng sinh nhật|sinh nhật vui|happy birthday|chúc mừng năm mới|chúc ngủ ngon|cuối tuần cafe)",
+    re.IGNORECASE,
+)
+_SCAM_CUE = re.compile(
+    r"(otp|chuyển khoản|chuyển tiền|tài khoản|stk|http|cài app|cài phần mềm|phí |công an|giám định|mã xác|bấm link|bấm vào)",
+    re.IGNORECASE,
+)
+
+
+def _looks_benign(text: str) -> bool:
+    return bool(_BENIGN.search(text or "")) and not _SCAM_CUE.search(text or "")
 
 
 def check_text(session, text: str, provider, persona=None) -> dict:
@@ -24,6 +40,10 @@ def check_text(session, text: str, provider, persona=None) -> dict:
             {"message": text, "history": [], "persona_hooks": [], "candidates": candidates, "branch_hint": hint, "inbound": {}, "turn_index": 0},
         ),
         0.2,
+        thinking=False,
+        model=None,
+        role="analyst",
+        max_tokens=420,
     )
     top_rank = ranked[0] if ranked else None
     confidence = float(top_rank["score"]) if top_rank else 0.0
@@ -39,6 +59,20 @@ def check_text(session, text: str, provider, persona=None) -> dict:
         level, label = "trung_binh", "Trung bình"
     else:
         level, label = "thap", "Thấp"
+    scam_cues = bool(_SCAM_CUE.search(text)) or hot
+    if _looks_benign(text):
+        level, label = "thap", "Thấp"
+        is_scam = False
+        verdict = "benign"
+    elif level in {"cao", "rat_cao"} or (scam_cues and confidence >= 0.55):
+        is_scam = True
+        verdict = "scam"
+    elif level == "thap" and not scam_cues:
+        is_scam = False
+        verdict = "benign"
+    else:
+        is_scam = False
+        verdict = "unclear"
 
     next_step = None
     advice = "Không chuyển tiền, không đọc mã OTP, không bấm đường dẫn trong tin nhắn. Kiểm tra lại trên ứng dụng chính thức mà bạn tự mở."
@@ -58,12 +92,19 @@ def check_text(session, text: str, provider, persona=None) -> dict:
                 "intent": f"Đây đã là bước cuối thường gặp: {current.get('intent')}",
                 "phrases": (current.get("phrases") or [])[:1],
             }
+    benign = verdict == "benign" and _looks_benign(text)
+    if benign:
+        matched = None
+        next_step = None
+        advice = "Tin này giống lời chúc hoặc trò chuyện thường. Không cần làm gì thêm."
     return {
         "risk": level,
         "risk_label": label,
+        "is_scam": is_scam,
+        "verdict": verdict,
         "confidence": round(confidence, 3),
-        "intent": analyst.scammer_intent,
-        "red_flags": analyst.red_flags,
+        "intent": "Lời nhắn thông thường." if benign else analyst.scammer_intent,
+        "red_flags": [] if benign else analyst.red_flags,
         "matched_script": matched,
         "next_step": next_step,
         "advice": advice,

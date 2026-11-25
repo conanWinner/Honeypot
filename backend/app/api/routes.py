@@ -16,7 +16,7 @@ from app.llm.base import LLMError
 from app.models import Conversation, Message, Persona, Script
 from app.services.checker import check_text
 from app.services.demo import DEMO
-from app.services.library import finish_conversation, get_script, list_scripts, script_public, set_status, variant_counts
+from app.services.library import embed_script, finish_conversation, get_script, list_scripts, script_public, set_status, variant_counts
 from app.services.trends import build_trends
 from app.taxonomy import CATEGORIES, CHANNELS, GOALS
 
@@ -342,11 +342,12 @@ def moderation(session=Depends(get_db), _: None = Depends(require_admin)):
 
 
 @router.post("/moderation/{script_id}/approve")
-def approve(script_id: str, session=Depends(get_db), _: None = Depends(require_admin)):
+def approve(script_id: str, request: Request, session=Depends(get_db), _: None = Depends(require_admin)):
     data = set_status(session, script_id, "published")
     if data is None:
         raise HTTPException(status_code=404, detail="Không thấy bản chờ duyệt.")
-    return data
+    embed_script(session, script_id, request.app.state.provider)
+    return get_script(session, script_id) or data
 
 
 @router.post("/moderation/{script_id}/reject")

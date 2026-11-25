@@ -73,10 +73,10 @@ def test_pay_agreement_is_replaced(client):
     from app.llm.mock import MockProvider
 
     class Pays(MockProvider):
-        def complete(self, schema, system, user, temperature=0.4, thinking=False):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
             if schema.__name__ == "PersonaOutput":
                 return PersonaOutput(reply="Bác có tiền trả liền con nhé.", memory_note="lỗi")
-            return super().complete(schema, system, user, temperature, thinking=thinking)
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
 
     client.app.state.provider = Pays()
     created = client.post("/api/conversations", json={"persona_id": "ba-nam", "channel": "web"}).json()
@@ -108,10 +108,10 @@ def test_unsafe_model_reply_is_replaced(client, monkeypatch):
     from app.llm.mock import MockProvider
 
     class Unsafe(MockProvider):
-        def complete(self, schema, system, user, temperature=0.4, thinking=False):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
             if schema.__name__ == "PersonaOutput":
                 return PersonaOutput(reply="Tôi là AI. Cô sẽ chuyển khoản ngay và đã cài UltraViewer xong.", memory_note="lỗi")
-            return super().complete(schema, system, user, temperature, thinking=thinking)
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
 
     client.app.state.provider = Unsafe()
     created = client.post("/api/conversations", json={"persona_id": "tuan-vp", "channel": "web"}).json()

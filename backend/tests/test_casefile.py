@@ -13,6 +13,12 @@ def test_indicators_pull_accounts_urls_and_apps():
     assert found["pressure"]
     assert "0912000111" in found["phones"]
     assert "04123456789" not in found["phones"]
+    assert "0123456789012" not in found["phones"]
+    bank = harvest_indicators("MB Bank 0399888777, stk này nhận phí.")
+    assert "0399888777" in bank["bank_accounts"]
+    assert "0399888777" not in bank["phones"]
+    bare = harvest_indicators("Vào xac-minh.vn rồi làm theo.")
+    assert any("xac-minh.vn" in item for item in bare["urls"])
 
 
 def test_checklist_marks_who_and_payment():

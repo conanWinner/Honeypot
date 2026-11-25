@@ -16,7 +16,7 @@ from app.llm.base import LLMError, extract_json
 
 _BLOCKED_MODELS = ("gemini-2.5-flash-lite",)
 _RETRYABLE = ("503", "unavailable", "timeout", "timed out", "deadline", "429", "resource exhausted", "overloaded")
-_SWITCH = ("404", "not found", "not_found")
+_SWITCH = ("404", "not found", "not_found", "400", "invalid argument", "api version", "api_version")
 
 
 def usable_model(name: str) -> str:
@@ -76,15 +76,28 @@ class GeminiProvider:
     ):
         self.models = model_chain(preferred_model, model, fallback_model)
         self.model = self.models[0]
-        self.embed_model = usable_model(embed_model) or "gemini-embedding-2"
+        self.embed_model = usable_model(embed_model) or "gemini-embedding-001"
         self.dim = dim
-        self.client = genai.Client(api_key=api_key)
+        # The stable Gemini API for generateContent on these models is v1beta.
+        # The SDK default (v1) returns 400 for every chat call.
+        self.client = genai.Client(api_key=api_key, http_options=types.HttpOptions(api_version="v1beta"))
 
-    def complete(self, schema: type[BaseModel], system: str, user: str, temperature: float = 0.4, thinking: bool = False) -> BaseModel:
+    def complete(
+        self,
+        schema: type[BaseModel],
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        thinking: bool = False,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = None,
+    ) -> BaseModel:
+        del model, role  # Router model ids must not be sent to the Gemini API.
         errors: list[str] = []
         for model_name in self.models:
             try:
-                parsed = self._complete_one(model_name, schema, system, user, temperature, thinking)
+                parsed = self._complete_one(model_name, schema, system, user, temperature, thinking, max_tokens)
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{model_name}: {exc}")
                 if not should_switch_model(exc):
@@ -94,8 +107,17 @@ class GeminiProvider:
             return parsed
         raise LLMError(f"Gemini không trả JSON hợp lệ: {errors[-1][:400]}")
 
-    def _complete_one(self, model_name: str, schema: type[BaseModel], system: str, user: str, temperature: float, thinking: bool) -> BaseModel:
-        configs = self._configs(schema, system, temperature, thinking)
+    def _complete_one(
+        self,
+        model_name: str,
+        schema: type[BaseModel],
+        system: str,
+        user: str,
+        temperature: float,
+        thinking: bool,
+        max_tokens: int | None = None,
+    ) -> BaseModel:
+        configs = self._configs(schema, system, temperature, thinking, max_tokens)
         last_error: Exception | None = None
         for index, config in enumerate(configs):
             attempts = 3 if index == 0 else 1
@@ -113,18 +135,20 @@ class GeminiProvider:
                     if is_retryable(exc) and attempt < attempts - 1:
                         time.sleep(0.4 * (2**attempt))
                         continue
-                    if is_retryable(exc) or should_switch_model(exc):
+                    if is_retryable(exc):
                         raise
                     break
         assert last_error is not None
         raise last_error
 
-    def _configs(self, schema: type[BaseModel], system: str, temperature: float, thinking: bool) -> list:
+    def _configs(self, schema: type[BaseModel], system: str, temperature: float, thinking: bool, max_tokens: int | None = None) -> list:
         base = {
             "system_instruction": system,
             "temperature": temperature,
             "response_mime_type": "application/json",
         }
+        if max_tokens:
+            base["max_output_tokens"] = max_tokens
         thinking_on = types.ThinkingConfig(thinking_budget=1024)
         thinking_off = types.ThinkingConfig(thinking_budget=0)
         chosen = thinking_on if thinking else thinking_off
@@ -135,19 +159,22 @@ class GeminiProvider:
         ]
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        # One text per call. gemini-embedding-2 returns a single vector for a batch,
+        # which makes a backfill look successful and then fail the length check.
         if not texts:
             return []
         vectors: list[list[float]] = []
         try:
-            for start in range(0, len(texts), 16):
-                chunk = texts[start : start + 16]
-                result = self._embed_with_retry(chunk)
-                for item in result.embeddings:
-                    vectors.append(normalize_embedding(list(item.values), self.dim))
+            for text in texts:
+                result = self._embed_with_retry([text])
+                embeddings = list(result.embeddings or [])
+                if not embeddings:
+                    raise LLMError("Gemini trả thiếu embedding.")
+                vectors.append(normalize_embedding(list(embeddings[0].values), self.dim))
+        except LLMError:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise LLMError(f"Gemini embedding lỗi: {exc}") from exc
-        if len(vectors) != len(texts):
-            raise LLMError("Gemini trả thiếu embedding.")
         return vectors
 
     def _embed_with_retry(self, chunk: list[str]):

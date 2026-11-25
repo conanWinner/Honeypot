@@ -23,12 +23,17 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://rm7g66d.abc-tunnel.us/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-cx/gpt-6-luna}
+      MODEL_PERSONA: ${MODEL_PERSONA:-cx/gpt-6-luna}
+      MODEL_ANALYST: ${MODEL_ANALYST:-ag/gemini-3.8-flash-low}
+      MODEL_PLANNER: ${MODEL_PLANNER:-ag/gemini-3.8-flash-low}
+      MODEL_GUARD: ${MODEL_GUARD:-ag/gemini-3.8-flash-low}
+      MODEL_EXTRACT: ${MODEL_EXTRACT:-cx/gpt-5.6-luna}
       LLM_PROVIDER: ${LLM_PROVIDER:-auto}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       GEMINI_MODEL_PREFERRED: ${GEMINI_MODEL_PREFERRED:-}
       GEMINI_MODEL_FALLBACK: ${GEMINI_MODEL_FALLBACK:-gemini-2.5-flash}
-      GEMINI_EMBED_MODEL: ${GEMINI_EMBED_MODEL:-gemini-embedding-2}
+      GEMINI_EMBED_MODEL: ${GEMINI_EMBED_MODEL:-gemini-embedding-001}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     ports:
       - "8091:8000"

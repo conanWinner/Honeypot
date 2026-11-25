@@ -7,7 +7,7 @@ regex already pulled out of the scammer's words.
 
 import re
 
-from app.agent.policy import inspect_outbound
+from app.agent.policy import inspect_outbound, repeats_opening
 from app.agent.state import AgentState
 
 STAGES: list[tuple[str, str]] = [
@@ -37,7 +37,16 @@ CHECKLIST = [
 ]
 
 _PHONE = re.compile(r"(?:\+84|0)(?:\d[\s.]?){8,10}\d")
-_URL = re.compile(r"https?://[^\s]+|www\.[^\s]+", re.IGNORECASE)
+_URL = re.compile(
+    r"https?://[^\s]+|www\.[^\s]+|(?<![\w@])(?:[a-z0-9-]+\.)+(?:vn|com|net|org|info|xyz|top|cc|io)(?:/[^\s]*)?",
+    re.IGNORECASE,
+)
+_BANK_CUE = re.compile(
+    r"(số tài khoản|số tk|\bstk\b|ngân hàng|\bbank\b|"
+    r"vietcombank|techcombank|bidv|agribank|vpbank|\bacb\b|tpbank|sacombank|vietinbank|"
+    r"\bmb\s*bank\b|mbbank|\bmsb\b|hdbank|\bocb\b|\bshb\b)",
+    re.IGNORECASE,
+)
 _CUE = re.compile(r"(?:tôi thấy|tôi biết|chúng tôi biết|bên tôi thấy)\s+([^.]{8,90})", re.IGNORECASE)
 _APPS = ("ultraviewer", "anydesk", "teamviewer", "zalo", "telegram", "vneid", "momo")
 _BRANDS = (
@@ -47,6 +56,8 @@ _BRANDS = (
     ("vietcombank", "Vietcombank"),
     ("techcombank", "Techcombank"),
     ("bidv", "BIDV"),
+    ("mb bank", "MB Bank"),
+    ("mbbank", "MB Bank"),
     ("momo", "MoMo"),
     ("viettel", "Viettel"),
     ("shopee", "Shopee"),
@@ -94,19 +105,36 @@ def _add(bucket: list[str], value: str) -> None:
         bucket.append(cleaned[:120])
 
 
+def _near_bank(body: str, start: int, end: int) -> bool:
+    window = body[max(0, start - 40) : min(len(body), end + 24)]
+    return bool(_BANK_CUE.search(window))
+
+
 def harvest_indicators(text: str) -> dict:
     found = empty_indicators()
     body = text or ""
     for match in _PHONE.finditer(body):
         if match.start() > 0 and body[match.start() - 1].isdigit():
             continue
+        if match.end() < len(body) and body[match.end()].isdigit():
+            continue
         digits = re.sub(r"\D", "", match.group(0))
-        if 9 <= len(digits) <= 12:
-            _add(found["phones"], digits)
-    for match in re.findall(r"\d[\d\s.]{8,}\d", body):
-        digits = re.sub(r"\D", "", match)
-        if len(digits) >= 10 and not (digits.startswith("0") and len(digits) <= 11):
+        if not (9 <= len(digits) <= 12):
+            continue
+        if _near_bank(body, match.start(), match.end()):
             _add(found["bank_accounts"], digits)
+            continue
+        _add(found["phones"], digits)
+    for match in re.finditer(r"\d[\d\s.]{8,}\d", body):
+        digits = re.sub(r"\D", "", match.group(0))
+        if len(digits) < 10:
+            continue
+        phone_shaped = digits.startswith("0") and len(digits) <= 11
+        if phone_shaped:
+            if _near_bank(body, match.start(), match.end()):
+                _add(found["bank_accounts"], digits)
+            continue
+        _add(found["bank_accounts"], digits)
     for match in _URL.findall(body):
         _add(found["urls"], match.strip(".,)"))
     lowered = body.lower()
@@ -173,6 +201,71 @@ def update_casefile(state: AgentState, message: str) -> None:
     state.checklist = [by_key[key] for key, _label in CHECKLIST]
 
 
+def checklist_signature(state: AgentState) -> tuple:
+    if not state.checklist:
+        return tuple()
+    return tuple((item["key"], bool(item["done"]), item.get("detail") or "") for item in state.checklist)
+
+
+def note_progress(state: AgentState, before: tuple) -> None:
+    """Count turns that added nothing to the checklist. Turn 0 never counts as stale."""
+    after = checklist_signature(state)
+    if state.turn_index > 0 and before == after:
+        state.stale_turns += 1
+    else:
+        state.stale_turns = 0
+
+
+def priority_gap(state: AgentState) -> str:
+    """The next fact worth asking for once the chat has stopped producing new ones."""
+    ensure_checklist(state)
+    by_key = {item["key"]: item for item in state.checklist}
+    for key in ("account", "link", "app", "payment"):
+        if key in by_key and not by_key[key]["done"]:
+            return key
+    return ""
+
+
+def forced_ask(state: AgentState, suspicion: float, jailbreak: bool, branch_kind: str) -> str:
+    """After two quiet turns, ask for the top missing checklist item. Stall only on real suspicion."""
+    if jailbreak or suspicion >= 0.7 or branch_kind == "new":
+        return ""
+    if state.stale_turns < 2:
+        return ""
+    return GAP_GOAL.get(priority_gap(state), "")
+
+
+def stabilize_family(state: AgentState, family_id: str) -> str:
+    """Stay on the current script family until another one wins two turns in a row."""
+    family_id = family_id or ""
+    current = state.stable_family or ""
+    if not family_id:
+        return current
+    if not current or family_id == current:
+        state.stable_family = family_id
+        state.pending_family = ""
+        state.pending_family_hits = 0
+        return family_id
+    if state.pending_family == family_id:
+        state.pending_family_hits += 1
+    else:
+        state.pending_family = family_id
+        state.pending_family_hits = 1
+    if state.pending_family_hits >= 2:
+        state.stable_family = family_id
+        state.pending_family = ""
+        state.pending_family_hits = 0
+        return family_id
+    return current
+
+
+def clamp_new_branch(kind: str, detected: bool, turn_index: int) -> tuple[str, bool]:
+    """A first or second turn is not a new branch. The opening line always looks 'new'."""
+    if kind == "new" and turn_index < 2:
+        return "none", False
+    return kind, detected
+
+
 def next_gap(state: AgentState) -> str:
     ensure_checklist(state)
     for item in state.checklist:
@@ -221,7 +314,14 @@ def choose_stage(state: AgentState, branch_kind: str, wrap: bool, suspicion: flo
     return "mo_dau"
 
 
-def critique_reply(text: str, persona_id: str, goal: str, allowed: set[str], aggressiveness: str) -> list[str]:
+def critique_reply(
+    text: str,
+    persona_id: str,
+    goal: str,
+    allowed: set[str],
+    aggressiveness: str,
+    recent: list[str] | None = None,
+) -> list[str]:
     """Notes for one rewrite. Empty means the line can go to the safety gate as-is."""
     issues = inspect_outbound(text or "", allowed, persona_id)
     notes: list[str] = []
@@ -237,4 +337,6 @@ def critique_reply(text: str, persona_id: str, goal: str, allowed: set[str], agg
         notes.append("Giữ đúng cặp đại từ của hồ sơ, lịch sự, không tao/mày.")
     if aggressiveness == "persistent" and goal.startswith("ask_") and "?" not in (text or "") and not notes:
         notes.append("Kết bằng một câu hỏi để họ phải nói bước tiếp theo.")
+    if repeats_opening(text or "", recent):
+        notes.append("Đừng mở đầu giống câu vừa rồi. Hỏi một chi tiết mới, đừng lặp 'cháu là ai'.")
     return notes

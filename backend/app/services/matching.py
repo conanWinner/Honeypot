@@ -109,25 +109,29 @@ def search_scripts(session, message: str, provider, k: int = 6, status: str = "p
             log.warning("Không tạo được embedding cho lượt này, tạm xếp theo từ khóa.", exc_info=True)
             embedding = None
     if embedding is not None:
-        vector_scores = {}
+        found: dict[str, float] = {}
         bind = session.get_bind()
         if bind.dialect.name == "postgresql":
             try:
-                vector_scores = _pg_scores(session, embedding, max(k * 4, 20))
+                found = _pg_scores(session, embedding, max(k * 4, 20))
             except Exception:
                 log.warning("Truy vấn pgvector lỗi, dùng cosine trong Python.", exc_info=True)
-                vector_scores = {}
-        if not vector_scores:
+                found = {}
+        if not found:
             for script in scripts:
                 if script.embedding:
-                    vector_scores[script.id] = max(0.0, cosine(embedding, script.embedding))
+                    found[script.id] = max(0.0, cosine(embedding, script.embedding))
+        # An empty map is not a vector result. Treating it as zeros halves every keyword score.
+        if found:
+            vector_scores = found
     ranked = []
     folded_message = fold(message)
     for script in scripts:
         kw = keyword_score(message, script_blob(script))
         step_index, step_score = best_step(message, script.steps or [])
         brand_boost = 0.08 if script.brand and fold(script.brand) in folded_message else 0.0
-        vec = None if vector_scores is None else vector_scores.get(script.id, 0.0)
+        # Missing embedding stays None so that script keeps its keyword score.
+        vec = None if vector_scores is None else vector_scores.get(script.id)
         if vec is None:
             score = 0.62 * kw + 0.38 * step_score + brand_boost
         else:

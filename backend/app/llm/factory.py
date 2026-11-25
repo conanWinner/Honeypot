@@ -14,9 +14,10 @@ from app.llm.openai_provider import FallbackProvider, OpenAIProvider
 class SplitProvider:
     """complete() follows the chat chain. embed() uses the embedding provider only."""
 
-    def __init__(self, chat, embedder):
+    def __init__(self, chat, embedder, roles: dict[str, str] | None = None):
         self._chat = chat
         self._embedder = embedder
+        self.role_models = roles or {}
         self.name = chat.name
         self.model = chat.model
         self.embed_model = getattr(embedder, "embed_model", "") or ""
@@ -26,8 +27,30 @@ class SplitProvider:
     def is_mock(self) -> bool:
         return bool(self._chat.is_mock)
 
-    def complete(self, schema, system: str, user: str, temperature: float = 0.4, thinking: bool = False):
-        result = self._chat.complete(schema, system, user, temperature, thinking=thinking)
+    def complete(
+        self,
+        schema,
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        thinking: bool = False,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = None,
+    ):
+        chosen = (model or "").strip()
+        if not chosen and role:
+            chosen = (self.role_models.get(role) or "").strip()
+        result = self._chat.complete(
+            schema,
+            system,
+            user,
+            temperature,
+            thinking=thinking,
+            model=chosen or None,
+            role=role,
+            max_tokens=max_tokens,
+        )
         self.name = self._chat.name
         self.model = self._chat.model
         return result
@@ -42,6 +65,15 @@ class SplitProvider:
 
 def router_api_key(settings: Settings) -> str:
     return (settings.llm_api_key or settings.openai_api_key or "").strip()
+
+
+def role_model(settings: Settings, role: str) -> str:
+    raw = (getattr(settings, f"model_{role}", "") or "").strip()
+    return raw or settings.openai_model
+
+
+def role_models(settings: Settings) -> dict[str, str]:
+    return {role: role_model(settings, role) for role in ("persona", "analyst", "planner", "guard", "extract")}
 
 
 def build_provider(settings: Settings):
@@ -74,4 +106,4 @@ def build_provider(settings: Settings):
         return MockProvider()
     chat = chain[0] if len(chain) == 1 else FallbackProvider(chain)
     embedder = gemini if gemini is not None else MockProvider()
-    return SplitProvider(chat, embedder)
+    return SplitProvider(chat, embedder, role_models(settings))

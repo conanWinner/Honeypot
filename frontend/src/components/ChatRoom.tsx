@@ -197,10 +197,13 @@ export function ChatRoom({ id }: { id: string }) {
           ))}
           {typing && (
             <div className="flex justify-end">
-              <div className="typing rounded-3xl bg-ink px-4 py-3 text-paper">
-                <span />
-                <span />
-                <span />
+              <div className="flex items-center gap-2 rounded-3xl bg-ink px-4 py-3 text-paper">
+                <div className="typing" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <span className="text-xs">đang nhập</span>
               </div>
             </div>
           )}

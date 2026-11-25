@@ -29,6 +29,10 @@ class AgentState(BaseModel):
     wrap_reason: str = ""
     suspicion: float = 0
     suspicion_streak: int = 0
+    stale_turns: int = 0
+    stable_family: str = ""
+    pending_family: str = ""
+    pending_family_hits: int = 0
     stage: str = "mo_dau"
     checklist: list[dict] = Field(default_factory=list)
     indicators: dict = Field(default_factory=dict)

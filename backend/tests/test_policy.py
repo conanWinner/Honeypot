@@ -50,6 +50,10 @@ def test_safety_blocks_admission_payment_and_install():
     ):
         assert "agreed_to_pay" in inspect_outbound(phrase, allowed), phrase
     assert "agreed_to_pay" not in inspect_outbound("Cô không trả liền và chưa chuyển.", allowed)
+    assert "agreed_to_pay" in inspect_outbound("Không sao, cô chuyển liền.", allowed)
+    assert "agreed_to_pay" not in inspect_outbound("Cô chuyển khoản nào vậy?", allowed)
+    assert "agreed_to_pay" not in inspect_outbound("Em chuyển khoản nào?", allowed)
+    assert inspect_outbound("Cô có nghe máy không?", allowed, "ba-nam") == []
     assert "rude_register" in inspect_outbound("tao không chuyển, tụi bây nói đi", allowed, "ba-nam")
     assert inspect_outbound("Cháu là ai vậy? Cô không lưu số này.", allowed, "ba-nam") == []
     assert "pronoun_mix" in inspect_outbound("Bác có tiền trả liền con.", allowed, "ba-nam")
@@ -62,9 +66,15 @@ def test_safety_blocks_admission_payment_and_install():
 
 def test_fallback_lines_match_their_persona():
     for slug in ("ba-nam", "minh-sv", "huong-shop", "tuan-vp", "lan-nt", "khoa-tx"):
-        line = fallback_reply(slug)
-        issues = inspect_outbound(line, set(), slug)
-        assert issues == [], (slug, line, issues)
+        used = []
+        for _ in range(4):
+            line = fallback_reply(slug, used)
+            issues = inspect_outbound(line, set(), slug)
+            assert issues == [], (slug, line, issues)
+            assert not used or line.strip() != used[-1].strip()
+            used.append(line)
+        assert "ứng dụng chính thức" not in " ".join(used)
+        assert "đây là lừa" not in " ".join(used).lower()
 
 
 def test_inbound_jailbreak_and_suspicion():

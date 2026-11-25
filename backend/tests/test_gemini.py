@@ -11,6 +11,7 @@ def test_default_model_is_2_5_flash():
     assert settings.gemini_model == "gemini-2.5-flash"
     assert settings.gemini_model_fallback == "gemini-2.5-flash"
     assert settings.embed_dim == 768
+    assert settings.gemini_embed_model == "gemini-embedding-001"
 
 
 def test_lite_model_is_replaced_and_preferred_is_first():

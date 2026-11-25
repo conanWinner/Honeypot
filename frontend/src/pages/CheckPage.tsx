@@ -6,6 +6,8 @@ import { api, type Persona } from '../lib/api'
 type CheckResult = {
   risk: string
   risk_label: string
+  is_scam?: boolean
+  verdict?: 'benign' | 'scam' | 'unclear'
   confidence: number
   intent: string
   red_flags: string[]
@@ -102,7 +104,9 @@ export function CheckPage() {
         {result && (
           <div className="space-y-3">
             <Banner tone={tone}>
-              Mức rủi ro: <b>{result.risk_label}</b> · độ gần {Math.round(result.confidence * 100)}%
+              Mức rủi ro: <b>{result.risk_label}</b>
+              {result.verdict === 'benign' ? ' · không thấy dấu hiệu lừa đảo' : result.verdict === 'scam' ? ' · có dấu hiệu lừa đảo' : ''}
+              {' '}· độ gần {Math.round(result.confidence * 100)}%
             </Banner>
             <section className="dossier rounded-3xl p-5">
               <p className="text-[11px] uppercase tracking-[0.14em] text-ink-soft">Ý định</p>
