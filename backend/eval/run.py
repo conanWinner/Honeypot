@@ -125,11 +125,16 @@ def _report(rows: list[dict], provider) -> str:
     coverage = [row["step_coverage"] for row in scored if row["step_coverage"] is not None]
     mean_coverage = round(sum(coverage) / len(coverage), 3) if coverage else 0
     mode = "mô hình thật" if not provider.is_mock else "mock (không có GEMINI_API_KEY hay OPENAI_API_KEY)"
+    from app.llm.factory import role_models
+
+    roles = getattr(provider, "role_models", None) or role_models(get_settings())
+    mix = ", ".join(f"{name}={model}" for name, model in roles.items())
     lines = [
         "# Báo cáo đánh giá agent Giả Nạn",
         "",
         f"- Thời điểm: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
         f"- Nhà cung cấp: {provider.name} / {provider.model}",
+        f"- Model theo vai: {mix}",
         f"- Chế độ: {mode}",
         f"- Số tình huống: {len(rows)}",
         "",

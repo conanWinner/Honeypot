@@ -19,6 +19,16 @@ def test_indicators_pull_accounts_urls_and_apps():
     assert "0399888777" not in bank["phones"]
     bare = harvest_indicators("Vào xac-minh.vn rồi làm theo.")
     assert any("xac-minh.vn" in item for item in bare["urls"])
+    wide = harvest_indicators("Quà ở quatet-tri-an.top và vip-qua.vip, gửi về site.cc.")
+    assert any(item.endswith(".top") or ".top" in item for item in wide["urls"])
+    assert any(".vip" in item for item in wide["urls"])
+    assert any(".cc" in item for item in wide["urls"])
+    bank = harvest_indicators("ACB 88886666 nhận học phí.")
+    assert "88886666" in bank["bank_accounts"]
+    hotline = harvest_indicators("Gọi tổng đài 1900545426 của ngân hàng ACB.")
+    assert "1900545426" in hotline["hotlines"]
+    assert "1900545426" in hotline["phones"]
+    assert "1900545426" not in hotline["bank_accounts"]
 
 
 def test_checklist_marks_who_and_payment():

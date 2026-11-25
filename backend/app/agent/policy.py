@@ -8,6 +8,7 @@ the opening turn.
 import re
 
 from app.agent.state import MatchSnap
+from app.agent.textutil import fold
 
 # "là ai" is the question "who are you", so the Latin token AI is matched case-sensitively.
 _ADMISSION = re.compile(
@@ -27,15 +28,18 @@ _AI_TOKEN = re.compile(r"\bAI\b")
 
 _MONEY = re.compile(
     r"("
-    r"(tôi|em|cô|mình|tui|cháu|con|bác|chị)\s+(sẽ\s+|vừa\s+|đã\s+|để\s+)?(chuyển|trả)\s+(khoản|tiền|liền|ngay|luôn|giúp)"
+    r"(tôi|em|cô|mình|tui|cháu|con|bác|chị)\s+(sẽ\s+|vừa\s+|đã\s+|để\s+)?(chuyển|trả|gửi|nạp)\s+(khoản|tiền|liền|ngay|luôn|giúp|qua)"
     r"|trả\s+liền"
     r"|chuyển\s+liền"
     r"|chuyển\s+ngay"
     r"|chuyển\s+luôn"
     r"|chuyển\s+khoản\s+ngay"
-    r"|ck\s+(ngay|liền)"
+    r"|gửi\s+tiền"
+    r"|nạp\s+(tiền|\d|luôn|liền|ngay)"
+    r"|đồng\s+ý\s+(nạp|chuyển|gửi|ck)"
+    r"|ck\s+(ngay|liền|luôn|xong|rồi)"
     r"|đã\s+ck\s+rồi"
-    r"|(em|mình|tui|con)\s+ck\s+(rồi|ngay|liền)"
+    r"|(em|mình|tui|con)\s+ck\s+(rồi|ngay|liền|luôn)?"
     r"|để\s+(bác|anh|chị|em|cô|cháu|con|mình|tui)\s+chuyển"
     r"|ok\s+(em\s+|con\s+|mình\s+|tui\s+)?chuyển"
     r"|có\s+tiền\s+trả"
@@ -43,6 +47,28 @@ _MONEY = re.compile(
     r"|chuyển\s+cho\s+(anh|chị|bác|cháu|con)"
     r")",
     re.IGNORECASE,
+)
+# Teencode and no-diacritics, matched on folded text: bank, ck, nap, gui tien.
+_MONEY_PLAIN = re.compile(
+    r"("
+    r"\b(gui|chuyen)\s+tien\b"
+    r"|chuyen\s+khoan"
+    r"|\bnap\s+(tien|\d|luon|lien|ngay|xong|roi)"
+    r"|dong\s+y\s+(nap|chuyen|gui|ck|bank)"
+    r"|\bck\s+(ngay|lien|luon|xong|roi)\b"
+    r"|\b(e|em|co|minh|tui|chau|con)\s+(ck|bank)\b"
+    r"|\bbank\s+(lun|luon|ngay|lien|roi|xong)\b"
+    r"|\b(ok|oke|okay)\b.{0,20}\b(bank|ck|chuyen|gui|nap)\b"
+    r"|vua\s+(ck|bank|chuyen|gui|nap)\b"
+    r")"
+)
+_OTP_PLAIN = re.compile(
+    r"("
+    r"\b(gui|doc|nhan|bao|dua)\s+(ma\s+otp|otp|ma\s+xac)"
+    r"|ma\s+otp"
+    r"|\botp\s+(ngay|lien|day|luon|roi)\b"
+    r"|\b(ok|oke)\b.{0,20}\b(otp|ma\s+xac)\b"
+    r")"
 )
 
 _RUDE = re.compile(r"\b(tao|mày|tụi bây|chúng mày)\b", re.IGNORECASE)
@@ -59,16 +85,31 @@ _ADDRESS_FRAME = re.compile(
     r"\b(bác|cháu|anh|chị|cô|em|mày)\s+ơi\b",
     re.IGNORECASE,
 )
-_QUESTION = re.compile(r"\b(nào|đâu|ai|gì|sao)\b", re.IGNORECASE)
-_CON_AS_SELF = re.compile(r"\bcon\b(?!\s+(trai|gái|cái|nuôi|của))", re.IGNORECASE)
+_QUESTION = re.compile(r"\b(nào|nao|đâu|dau|ai|gì|gi|sao)\b", re.IGNORECASE)
+# "con đang học / con trai" is the child. "con chuyển" is the speaker.
+_CON_FAMILY = re.compile(
+    r"\bcon\s+(trai|gái|gai|cái|cai|nuôi|nuoi|của|cua|tôi|toi|em|cô|co|đang|dang|ở|o|bên|học|hoc|làm|lam)\b",
+    re.IGNORECASE,
+)
+_CON_AS_SELF = re.compile(r"\bcon\b(?!\s+(trai|gái|gai|cái|cai|nuôi|nuoi|của|cua))", re.IGNORECASE)
 
 _INSTALL = re.compile(
     r"("
-    r"(tôi|em|cô|mình|tui|cháu)\s+(sẽ\s+|vừa\s+|đã\s+)?cài\s+(rồi|ngay|xong|ultraviewer|anydesk|teamviewer|app|phần mềm)"
-    r"|đã\s+cài\s+(ultraviewer|anydesk|teamviewer|xong|rồi)"
-    r"|cài\s+(ultraviewer|anydesk|teamviewer)\s+(rồi|xong)"
-    r")",
+    r"(tôi|em|cô|mình|tui|cháu)\s+(sẽ\s+|vừa\s+|đã\s+)?(cài|tải)\s+(rồi|ngay|xong|về|ultraviewer|anydesk|teamviewer|app|phần mềm)"
+    r"|đã\s+(cài|tải)\s+(ultraviewer|anydesk|teamviewer|xong|rồi|về)"
+    r"|(cài|tải)\s+(ultraviewer|anydesk|teamviewer)\s*(rồi|xong|về)?"
+    r"|vừa\s+tải\s+(ultraviewer|anydesk|teamviewer|app|phần mềm|về)"
+    r")"
+    ,
     re.IGNORECASE,
+)
+_INSTALL_PLAIN = re.compile(
+    r"("
+    r"\b(tai|cai)\s+(anydesk|ultraviewer|teamviewer|app|phan mem|ung dung|roi|xong|ve)\b"
+    r"|vua\s+(tai|cai)\s+\w+"
+    r"|(anydesk|ultraviewer|teamviewer).{0,24}(roi|xong|ve roi)"
+    r"|dong\s+y\s+(cai|tai)"
+    r")"
 )
 
 _HARMFUL = re.compile(
@@ -132,7 +173,7 @@ def _negated(text: str, start: int) -> bool:
     """
     left, _end = _clause_bounds(text, start)
     prefix = text[left:start].lower()
-    return bool(re.search(r"(^|\s)(không|chưa|chẳng|đừng|ko)\s*$", prefix))
+    return bool(re.search(r"(^|\s)(không|khong|chưa|chua|chẳng|chang|đừng|dung|ko)\s*$", prefix))
 
 
 def _is_question(text: str, start: int) -> bool:
@@ -168,6 +209,22 @@ def assess_inbound(text: str) -> dict:
     }
 
 
+def _con_is_family(text: str, persona_id: str | None) -> bool:
+    """'con' is the child when the persona's profile talks about a son or daughter and the sentence does too."""
+    if _CON_FAMILY.search(text or "") or _CON_FAMILY.search(fold(text or "")):
+        if not persona_id:
+            return True
+        from app.data.personas import PERSONAS
+
+        persona = next((item for item in PERSONAS if item["id"] == persona_id), None)
+        if persona is None:
+            return True
+        relative = fold((persona.get("fake_profile") or {}).get("relative") or "")
+        hooks = " ".join(persona.get("hooks") or [])
+        return "con" in relative or "con" in fold(hooks)
+    return False
+
+
 def voice_issues(text: str, persona_id: str | None) -> list[str]:
     """Light check: rude register, or a pronoun pair that is not this persona's."""
     from app.data.personas import PRONOUNS
@@ -182,7 +239,10 @@ def voice_issues(text: str, persona_id: str | None) -> list[str]:
     allowed_self = {word.lower() for word in spec.get("self") or []}
     allowed_other = {word.lower() for word in spec.get("other") or []}
     for match in _SELF_FRAME.finditer(body):
-        if match.group(1).lower() not in allowed_self:
+        word = match.group(1).lower()
+        if word == "con" and _con_is_family(body, persona_id):
+            continue
+        if word not in allowed_self:
             issues.append("pronoun_mix")
             break
     if "pronoun_mix" not in issues:
@@ -190,7 +250,12 @@ def voice_issues(text: str, persona_id: str | None) -> list[str]:
             if match.group(1).lower() not in allowed_other:
                 issues.append("pronoun_mix")
                 break
-    if spec.get("forbid_con_as_self") and "pronoun_mix" not in issues and _CON_AS_SELF.search(body):
+    if (
+        spec.get("forbid_con_as_self")
+        and "pronoun_mix" not in issues
+        and _CON_AS_SELF.search(body)
+        and not _con_is_family(body, persona_id)
+    ):
         issues.append("pronoun_mix")
     for word in spec.get("forbid_words") or []:
         if re.search(rf"\b{re.escape(word)}\b", body, re.IGNORECASE):
@@ -205,10 +270,13 @@ def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | Non
     body = text or ""
     if _hits(_ADMISSION, body) or _AI_TOKEN.search(body):
         violations.append("ai_admission")
-    if _hits(_MONEY, body):
+    folded = fold(body)
+    if _hits(_MONEY, body) or _hits(_MONEY_PLAIN, folded):
         violations.append("agreed_to_pay")
-    if _hits(_INSTALL, body):
+    if _hits(_INSTALL, body) or _hits(_INSTALL_PLAIN, folded):
         violations.append("agreed_to_install")
+    if _hits(_OTP_PLAIN, folded):
+        violations.append("agreed_to_share_otp")
     if _HARMFUL.search(body):
         violations.append("harmful_assistance")
     if _EXPERT.search(body):
@@ -258,6 +326,62 @@ _FALLBACKS = {
         "Bác là ai, em đang nghe.",
     ],
 }
+
+
+_GUARD_TOPIC = re.compile(
+    r"("
+    r"tien|trieu|nghin|ngan|vnd|"
+    r"otp|ma otp|ma xac|"
+    r"anydesk|ultraviewer|teamviewer|"
+    r"\b(bank|chuyen|ck|nap|stk)\b|"
+    r"tai khoan|duong dan|\blink\b|"
+    r"\d{6,}"
+    r")"
+)
+_ASK_KEEP = re.compile(
+    r"(tài khoản|tai khoan|stk|link|đường dẫn|duong dan|http|anydesk|ultraviewer|teamviewer|ứng dụng|ung dung|cài|otp|\?)",
+    re.IGNORECASE,
+)
+
+VIOLATION_LABELS = {
+    "agreed_to_pay": "Câu nháp đồng ý chuyển, nạp hoặc gửi tiền",
+    "agreed_to_install": "Câu nháp nhận đã tải hoặc cài ứng dụng",
+    "agreed_to_share_otp": "Câu nháp gửi hoặc đọc mã OTP",
+    "ai_admission": "Câu nháp nhận mình là máy",
+    "expert_shutdown": "Câu nháp giảng như chuyên gia",
+    "pronoun_mix": "Sai cặp đại từ của hồ sơ",
+    "rude_register": "Giọng thô",
+    "unknown_number": "Có số không nằm trong hồ sơ giả",
+    "harmful_assistance": "Câu nháp hướng dẫn gây hại",
+    "repeated_opening": "Mở đầu trùng câu vừa nói",
+}
+
+
+def needs_guard(text: str) -> bool:
+    """Money, an amount, an app, a code, a long number, or a link: the model guard must see the draft."""
+    folded = fold(text or "")
+    if _GUARD_TOPIC.search(folded):
+        return True
+    return bool(re.search(r"https?://|www\.|(?<![\w@])[a-z0-9-]+\.[a-z]{2,24}", text or "", re.IGNORECASE))
+
+
+def rewrite_opening(text: str, recent: list[str] | None) -> str:
+    """Change a repeated opening and keep the rest, especially a question that asks for an account, link, or app."""
+    raw = (text or "").strip()
+    if not raw or not repeats_opening(raw, recent):
+        return raw
+    pieces = re.split(r"(?<=[?.!])\s+", raw, maxsplit=1)
+    if len(pieces) == 2 and pieces[1].strip():
+        return pieces[1].strip()
+    rest = raw[10:].lstrip(" ,:;–-")
+    if not rest:
+        return raw
+    if rest[0].isalpha():
+        rest = rest[0].lower() + rest[1:]
+    rewritten = f"Khoan đã, {rest}"
+    if _ASK_KEEP.search(raw) and not _ASK_KEEP.search(rewritten):
+        return raw
+    return rewritten
 
 
 def repeats_opening(text: str, recent: list[str] | None, width: int = 10) -> bool:

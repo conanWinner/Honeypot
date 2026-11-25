@@ -15,7 +15,7 @@ const STAGE_SHORT: Record<string, string> = {
   kep: 'Khép',
 }
 
-export function CasePanel({ panel, reasoning }: { panel: Panel | null; reasoning?: unknown }) {
+export function CasePanel({ panel, reasoning, explain = false }: { panel: Panel | null; reasoning?: unknown; explain?: boolean }) {
   const showReason = typeof window !== 'undefined' && localStorage.getItem('gianan-reason') === '1'
   if (!panel) {
     return (
@@ -28,7 +28,10 @@ export function CasePanel({ panel, reasoning }: { panel: Panel | null; reasoning
   const risk = Math.round(Math.max(confidence, panel.suspicion) * 100)
   const stageIndex = Math.max(0, STAGES.indexOf(panel.stage || 'mo_dau'))
   const chips = [
-    ...(panel.indicators?.phones ?? []).map((item) => `ĐT ${item}`),
+    ...(panel.indicators?.hotlines ?? []).map((item) => `Tổng đài ${item}`),
+    ...(panel.indicators?.phones ?? [])
+      .filter((item) => !(panel.indicators?.hotlines ?? []).includes(item))
+      .map((item) => `ĐT ${item}`),
     ...(panel.indicators?.bank_accounts ?? []).map((item) => `TK ${item}`),
     ...(panel.indicators?.urls ?? []),
     ...(panel.indicators?.apps ?? []),
@@ -136,6 +139,19 @@ export function CasePanel({ panel, reasoning }: { panel: Panel | null; reasoning
           <p className="mt-3 text-sm text-ink-soft">{panel.wrap_reason || 'Chưa khép. Vẫn đang kéo kịch bản.'}</p>
         )}
       </section>
+
+      {explain && panel.rejected_draft && (
+        <section className="rounded-3xl border border-seal/30 bg-[#fff7fa] p-5">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Vì sao Agent nói vậy</p>
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-sm leading-6">
+            {panel.rejected_draft.labels.map((label) => (
+              <li key={label}>{label}</li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs uppercase tracking-[0.12em] text-ink-soft">Câu nháp bị giữ lại</p>
+          <p className="mt-1 text-sm leading-6 text-ink-soft">{panel.rejected_draft.text}</p>
+        </section>
+      )}
 
       {showReason && reasoning != null && (
         <section className="dossier rounded-3xl p-5">

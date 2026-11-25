@@ -37,10 +37,16 @@ CHECKLIST = [
 ]
 
 _PHONE = re.compile(r"(?:\+84|0)(?:\d[\s.]?){8,10}\d")
-_URL = re.compile(
-    r"https?://[^\s]+|www\.[^\s]+|(?<![\w@])(?:[a-z0-9-]+\.)+(?:vn|com|net|org|info|xyz|top|cc|io)(?:/[^\s]*)?",
+_URL = re.compile(r"https?://[^\s]+|www\.[^\s]+", re.IGNORECASE)
+_DOMAIN = re.compile(
+    r"(?<![\w@])((?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+([a-z]{2,24}))(?:/[^\s]*)?",
     re.IGNORECASE,
 )
+# Syllables that show up after a dot in ordinary Vietnamese, not as a public suffix.
+_NOT_TLD = {
+    "anh", "chi", "em", "oi", "nhe", "nha", "nay", "mai", "sao", "dau", "gi",
+    "html", "php", "jpg", "jpeg", "png", "pdf", "doc", "txt", "js", "css", "json",
+}
 _BANK_CUE = re.compile(
     r"(số tài khoản|số tk|\bstk\b|ngân hàng|\bbank\b|"
     r"vietcombank|techcombank|bidv|agribank|vpbank|\bacb\b|tpbank|sacombank|vietinbank|"
@@ -96,7 +102,7 @@ def empty_checklist() -> list[dict]:
 
 
 def empty_indicators() -> dict:
-    return {"phones": [], "bank_accounts": [], "urls": [], "apps": [], "brands": [], "pressure": []}
+    return {"phones": [], "bank_accounts": [], "urls": [], "apps": [], "brands": [], "pressure": [], "hotlines": []}
 
 
 def _add(bucket: list[str], value: str) -> None:
@@ -108,6 +114,16 @@ def _add(bucket: list[str], value: str) -> None:
 def _near_bank(body: str, start: int, end: int) -> bool:
     window = body[max(0, start - 40) : min(len(body), end + 24)]
     return bool(_BANK_CUE.search(window))
+
+
+def _hotline(digits: str) -> bool:
+    return bool(re.fullmatch(r"1[89]00\d{4,8}", digits))
+
+
+def _remember_url(found: dict, raw: str) -> None:
+    cleaned = raw.strip(".,);]")
+    if cleaned:
+        _add(found["urls"], cleaned)
 
 
 def harvest_indicators(text: str) -> dict:
@@ -125,18 +141,30 @@ def harvest_indicators(text: str) -> dict:
             _add(found["bank_accounts"], digits)
             continue
         _add(found["phones"], digits)
-    for match in re.finditer(r"\d[\d\s.]{8,}\d", body):
+    for match in re.finditer(r"\d[\d\s.]{4,}\d", body):
         digits = re.sub(r"\D", "", match.group(0))
+        if _hotline(digits):
+            _add(found["hotlines"], digits)
+            _add(found["phones"], digits)
+            continue
+        if _near_bank(body, match.start(), match.end()) and 6 <= len(digits) <= 19:
+            _add(found["bank_accounts"], digits)
+            continue
         if len(digits) < 10:
             continue
         phone_shaped = digits.startswith("0") and len(digits) <= 11
         if phone_shaped:
-            if _near_bank(body, match.start(), match.end()):
-                _add(found["bank_accounts"], digits)
             continue
-        _add(found["bank_accounts"], digits)
+        if len(digits) <= 19:
+            _add(found["bank_accounts"], digits)
     for match in _URL.findall(body):
-        _add(found["urls"], match.strip(".,)"))
+        _remember_url(found, match)
+    for match in _DOMAIN.finditer(body):
+        tld = match.group(2).lower()
+        label = match.group(1).split(".")[-2]
+        if tld in _NOT_TLD or len(label) < 2:
+            continue
+        _remember_url(found, match.group(0))
     lowered = body.lower()
     for app in _APPS:
         if app in lowered:

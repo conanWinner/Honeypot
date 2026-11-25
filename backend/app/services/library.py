@@ -110,9 +110,12 @@ def list_scripts(session, q: str = "", category: str = "", channel: str = "", st
     rows = list(session.scalars(stmt).all())
     counts = variant_counts(session)
     if q.strip():
-        from app.services.matching import keyword_score
+        from app.services.matching import keyword_score, reason_delta
 
-        scored = [(keyword_score(q, script_blob(row)) + (0.05 if q.lower() in (row.title or "").lower() else 0), row) for row in rows]
+        scored = [
+            (keyword_score(q, script_blob(row)) + reason_delta(q, row) + (0.05 if q.lower() in (row.title or "").lower() else 0), row)
+            for row in rows
+        ]
         scored = [item for item in scored if item[0] > 0.08]
         scored.sort(key=lambda item: item[0], reverse=True)
         rows = [row for _, row in scored]
@@ -245,7 +248,7 @@ def finish_conversation(session, conversation, provider) -> dict:
     extracted.channel = _clean_channel(extracted.channel or conversation.channel)
 
     if relation == "duplicate" and parent is not None:
-        _merge_into(parent, extracted, conversation.id)
+        _merge_into(parent, extracted, conversation.id, state.indicators)
         conversation.status = "ended"
         conversation.extracted_script_id = parent.id
         conversation.updated_at = utcnow()
@@ -273,12 +276,13 @@ def finish_conversation(session, conversation, provider) -> dict:
         occurrence_count=1,
         status="pending",
         novelty_note=extracted.novelty_reason or novelty,
-        indicators=state.indicators or {},
+        indicators=_combine_indicators({}, extracted, state.indicators),
     )
     session.add(created)
     if parent is not None and relation == "variant":
         parent.occurrence_count += 1
         parent.last_seen = utcnow()
+        parent.indicators = _combine_indicators(parent.indicators, extracted, state.indicators)
     if not provider.is_mock:
         try:
             vector = provider.embed([script_blob(created)])[0]
@@ -292,7 +296,16 @@ def finish_conversation(session, conversation, provider) -> dict:
     return {"action": "queued", "script": get_script(session, created.id), "relation": relation}
 
 
-def _merge_into(script: Script, extracted: ExtractionOutput, conversation_id: str) -> None:
+def _combine_indicators(base: dict | None, extracted: ExtractionOutput, harvested: dict | None) -> dict:
+    from app.agent.casefile import merge_indicators
+
+    extra = {}
+    if extracted is not None and getattr(extracted, "indicators", None) is not None:
+        extra = extracted.indicators.model_dump()
+    return merge_indicators(merge_indicators(base, extra), harvested or {})
+
+
+def _merge_into(script: Script, extracted: ExtractionOutput, conversation_id: str, harvested: dict | None = None) -> None:
     script.occurrence_count += 1
     script.last_seen = utcnow()
     known = set()
@@ -313,6 +326,7 @@ def _merge_into(script: Script, extracted: ExtractionOutput, conversation_id: st
     sources = list(script.sources or [])
     sources.append({"type": "conversation", "ref": conversation_id})
     script.sources = sources
+    script.indicators = _combine_indicators(script.indicators, extracted, harvested)
     script.updated_at = utcnow()
 
 

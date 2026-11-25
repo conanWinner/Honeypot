@@ -304,14 +304,14 @@ export function ChatRoom({ id }: { id: string }) {
         </div>
       </section>
       <div className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto">
-        <CasePanel panel={panel} reasoning={showReason ? reasoning : undefined} />
+        <CasePanel panel={panel} reasoning={showReason ? reasoning : undefined} explain={conversation.is_demo || import.meta.env.DEV} />
       </div>
       <Dialog.Root open={sheet} onOpenChange={setSheet}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
           <Dialog.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-paper p-4">
             <Dialog.Title className="mb-3 font-display text-xl">Hồ sơ vụ</Dialog.Title>
-            <CasePanel panel={panel} reasoning={showReason ? reasoning : undefined} />
+            <CasePanel panel={panel} reasoning={showReason ? reasoning : undefined} explain={conversation.is_demo || import.meta.env.DEV} />
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

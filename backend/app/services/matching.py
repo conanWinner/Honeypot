@@ -24,6 +24,30 @@ def script_blob(script: Script) -> str:
     return "\n".join(parts)
 
 
+_REASON_GROUPS = (
+    ("hoc phi", ("hoc phi", "tien hoc", "nop hoc", "hoc phi ky")),
+    ("coc nha", ("phong tro", "giu phong", "tien coc", "tien nha", "dat coc", "thu coc")),
+    ("giam dinh", ("tai khoan giam dinh", "giam dinh")),
+    ("phi ship", ("phi ship", "phi phat sinh", "shipper")),
+    ("trung thuong", ("trung thuong", "trung giai")),
+)
+
+
+def reason_delta(message: str, script) -> float:
+    """Claimed entity and payment reason outweigh a generic overlap on 'chuyển khoản'."""
+    msg = fold(message)
+    identity = fold(f"{getattr(script, 'title', '')} {getattr(script, 'brand', '')} {getattr(script, 'summary', '')} {' '.join(getattr(script, 'hooks', None) or [])}")
+    msg_groups = [name for name, phrases in _REASON_GROUPS if any(phrase in msg for phrase in phrases)]
+    if not msg_groups:
+        return 0.0
+    id_groups = [name for name, phrases in _REASON_GROUPS if any(phrase in identity for phrase in phrases)]
+    if any(name in id_groups for name in msg_groups):
+        return 0.34
+    if id_groups:
+        return -0.28
+    return 0.0
+
+
 def keyword_score(message: str, document: str) -> float:
     msg = tokenize(message)
     doc = tokenize(document)
@@ -136,6 +160,7 @@ def search_scripts(session, message: str, provider, k: int = 6, status: str = "p
             score = 0.62 * kw + 0.38 * step_score + brand_boost
         else:
             score = 0.48 * vec + 0.30 * kw + 0.22 * step_score + brand_boost
+        score += reason_delta(message, script)
         ranked.append(
             {
                 "script": script,
@@ -190,6 +215,59 @@ def branch_hint(message: str, persona, ranked: list[dict], scripts: list[Script]
         "description": f"Đối phương khai thác hoàn cảnh riêng («{hook}») chưa có trong kịch bản đang khớp.",
         "variant_script_id": "",
     }
+
+
+def settle_new_branch(kind: str, hook: str, detected: bool, description: str, message: str, scripts: list, root_id: str) -> dict | None:
+    """A new-branch flag has to miss the matched root and every variant of that root."""
+    if kind != "new":
+        return None
+    family = [script for script in scripts if script.id == root_id or (script.parent_id or "") == root_id]
+    if not family:
+        return None
+    # Match the claimed hook, not the whole turn. A long turn always shares "chuyển" with the root.
+    needle = (hook or "").strip() or (message or "").strip()
+    carriers = [script for script in family if _family_covers(script, needle)]
+    if not carriers:
+        return None
+    root = next((script for script in carriers if script.id == root_id), None)
+    if root is not None:
+        return {"detected": False, "kind": "none", "hook": "", "description": "", "variant_script_id": ""}
+    child = next((script for script in carriers if script.parent_id), None)
+    if child is not None:
+        return {
+            "detected": True,
+            "kind": "known_variant",
+            "hook": hook or needle[:80],
+            "description": description or f"Khớp nhánh đã có trong thư viện: {child.title}",
+            "variant_script_id": child.id,
+        }
+    return {"detected": False, "kind": "none", "hook": "", "description": "", "variant_script_id": ""}
+
+
+def _family_covers(script, text: str) -> bool:
+    if not (text or "").strip():
+        return False
+    blob = script_blob(script)
+    if contains_phrase(blob, text):
+        return True
+    msg = tokenize(text)
+    doc = tokenize(blob)
+    if len(msg) >= 2 and len(msg & doc) / len(msg) >= 0.55:
+        return True
+    folded_msg = fold(text)
+    for phrase in (script.hooks or []) + [script.title or "", script.summary or ""]:
+        folded_phrase = fold(phrase)
+        if len(folded_phrase) >= 8 and folded_phrase in folded_msg:
+            return True
+    for step in script.steps or []:
+        for phrase in step.get("phrases") or []:
+            folded_phrase = fold(phrase)
+            if len(folded_phrase) >= 10 and (folded_phrase in folded_msg or folded_msg in folded_phrase):
+                return True
+            words = [word for word in tokenize(phrase) if len(word) > 3]
+            if words and sum(word in msg for word in words) / len(words) >= 0.6:
+                return True
+    return False
 
 
 def candidate_payload(ranked: list[dict]) -> list[dict]:

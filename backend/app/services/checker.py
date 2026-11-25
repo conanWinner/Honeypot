@@ -8,18 +8,57 @@ from app.agent.schemas import AnalystOutput
 from app.services.matching import branch_hint, candidate_payload, search_scripts
 
 
-_BENIGN = re.compile(
-    r"(chúc mừng sinh nhật|sinh nhật vui|happy birthday|chúc mừng năm mới|chúc ngủ ngon|cuối tuần cafe)",
-    re.IGNORECASE,
+_BENIGN = (
+    "chuc mung sinh nhat",
+    "sinh nhat vui",
+    "happy birthday",
+    "chuc ngu ngon",
+    "chuc mung nam moi",
+    "cuoi tuan cafe",
+    "me oi",
+    "toi nay con ve",
+    "con ve muon",
 )
-_SCAM_CUE = re.compile(
-    r"(otp|chuyển khoản|chuyển tiền|tài khoản|stk|http|cài app|cài phần mềm|phí |công an|giám định|mã xác|bấm link|bấm vào)",
-    re.IGNORECASE,
-)
+_PRIZE = ("trung thuong", "trung giai", "trung iphone", "qua tri an", "nhan thuong", "qua tang", "iphone")
+_MONEY_WORD = ("chuyen khoan", "chuyen tien", "nap tien", "hoc phi", "tien coc", "trieu", "stk")
 
 
-def _looks_benign(text: str) -> bool:
-    return bool(_BENIGN.search(text or "")) and not _SCAM_CUE.search(text or "")
+def _surface(text: str) -> set[str]:
+    from app.agent.casefile import harvest_indicators
+    from app.agent.textutil import fold
+
+    folded = fold(text or "")
+    found = harvest_indicators(text or "")
+    cues: set[str] = set()
+    if found["phones"] or found["hotlines"] or re.search(r"(?<!\d)0\d{8,10}", folded):
+        cues.add("phone")
+    if found["urls"] or "http" in folded or "www." in folded or ("zalo" in folded and re.search(r"\d{8,}", folded)):
+        cues.add("link")
+    if any(word in folded for word in _MONEY_WORD) or found["bank_accounts"]:
+        cues.add("money")
+    if any(word in folded for word in _PRIZE):
+        cues.add("prize")
+    return cues
+
+
+def _model_says_benign(analyst, hot: bool) -> bool:
+    from app.agent.textutil import fold
+
+    if analyst.red_flags or hot or float(analyst.scammer_suspicion or 0) >= 0.4:
+        return False
+    raw = (analyst.scammer_intent or "").lower()
+    folded = fold(raw)
+    # "chuyện" and "chuyển" fold to the same letters, so keep the diacritics for single words.
+    if any(word in raw for word in ("otp", "chuyển", "cài", "trúng", "thưởng", "lừa", "phí", "giám định", "nạp", "link")):
+        return False
+    return not any(phrase in folded for phrase in ("chuyen khoan", "chuyen tien", "nap tien", "gui tien", "trung thuong", "cai app"))
+
+
+def _plain_note(text: str) -> bool:
+    from app.agent.textutil import fold
+
+    folded = fold(text or "")
+    return any(phrase in folded for phrase in _BENIGN)
 
 
 def check_text(session, text: str, provider, persona=None) -> dict:
@@ -59,15 +98,30 @@ def check_text(session, text: str, provider, persona=None) -> dict:
         level, label = "trung_binh", "Trung bình"
     else:
         level, label = "thap", "Thấp"
-    scam_cues = bool(_SCAM_CUE.search(text)) or hot
-    if _looks_benign(text):
+    surface = _surface(text)
+    model_benign = _model_says_benign(analyst, hot)
+    plain = _plain_note(text)
+    # A greeting does not wash a prize, a phone, a link, or a demand for money.
+    if surface & {"prize", "phone", "link", "money"} and not (plain and model_benign and not surface):
+        if "prize" in surface or ("phone" in surface and "link" in surface):
+            level, label = ("cao", "Cao") if level == "thap" else (level, label)
+            is_scam = True
+            verdict = "scam"
+        elif level in {"cao", "rat_cao"} or confidence >= 0.45:
+            is_scam = True
+            verdict = "scam"
+        else:
+            level, label = "trung_binh", "Trung bình"
+            is_scam = True
+            verdict = "scam"
+    elif plain and model_benign and not surface:
         level, label = "thap", "Thấp"
         is_scam = False
         verdict = "benign"
-    elif level in {"cao", "rat_cao"} or (scam_cues and confidence >= 0.55):
+    elif level in {"cao", "rat_cao"} or (hot and confidence >= 0.55):
         is_scam = True
         verdict = "scam"
-    elif level == "thap" and not scam_cues:
+    elif level == "thap" and not surface and model_benign:
         is_scam = False
         verdict = "benign"
     else:
@@ -92,7 +146,7 @@ def check_text(session, text: str, provider, persona=None) -> dict:
                 "intent": f"Đây đã là bước cuối thường gặp: {current.get('intent')}",
                 "phrases": (current.get("phrases") or [])[:1],
             }
-    benign = verdict == "benign" and _looks_benign(text)
+    benign = verdict == "benign" and plain and model_benign and not surface
     if benign:
         matched = None
         next_step = None

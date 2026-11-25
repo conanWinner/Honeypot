@@ -234,8 +234,9 @@ class IndicatorsOut(BaseModel):
     apps: list[str] = Field(default_factory=list)
     brands: list[str] = Field(default_factory=list)
     pressure: list[str] = Field(default_factory=list)
+    hotlines: list[str] = Field(default_factory=list)
 
-    @field_validator("phones", "bank_accounts", "urls", "apps", "brands", "pressure", mode="before")
+    @field_validator("phones", "bank_accounts", "urls", "apps", "brands", "pressure", "hotlines", mode="before")
     @classmethod
     def _lists(cls, value):
         return _str_list(value)

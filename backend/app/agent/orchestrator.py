@@ -27,14 +27,24 @@ from app.agent.casefile import (
     stabilize_family,
     update_casefile,
 )
-from app.agent.policy import assess_inbound, fallback_reply, inspect_outbound, recommend_wrap, repeats_opening, typing_ms
+from app.agent.policy import (
+    VIOLATION_LABELS,
+    assess_inbound,
+    fallback_reply,
+    inspect_outbound,
+    needs_guard,
+    recommend_wrap,
+    repeats_opening,
+    rewrite_opening,
+    typing_ms,
+)
 from app.agent.prompts import ANALYST_SYSTEM, PERSONA_SYSTEM, PLANNER_SYSTEM, SAFETY_SYSTEM
 from app.agent.schemas import AnalystOutput, BranchOut, MatchOut, PersonaOutput, PlannerOutput, SafetyOutput
 from app.agent.state import AgentState, MatchSnap
 from app.agent.textutil import digit_runs
 from app.data.personas import PRONOUNS
 from app.models import Message, TurnLog
-from app.services.matching import branch_hint, candidate_payload, script_blob, search_scripts
+from app.services.matching import branch_hint, candidate_payload, script_blob, search_scripts, settle_new_branch
 from app.taxonomy import GOALS
 
 log = logging.getLogger("gianan.agent")
@@ -107,7 +117,12 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     all_scripts = list(session.scalars(select(Script).where(Script.status == "published")).all())
     hint = branch_hint(text, persona, published, all_scripts)
     if hint.get("kind") in ("", "none") and published:
-        cue = cue_branch(text, script_blob(published[0]["script"]))
+        lead = published[0]["script"]
+        root_id = lead.parent_id or lead.id
+        family_blob = "\n".join(
+            script_blob(script) for script in all_scripts if script.id == root_id or (script.parent_id or "") == root_id
+        )
+        cue = cue_branch(text, family_blob or script_blob(lead))
         if cue:
             hint = cue
     before_checklist = checklist_signature(state)
@@ -244,12 +259,16 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         step_source = "retrieval"
     kept.sort(key=lambda item: item.confidence, reverse=True)
 
-    if hint["kind"] == "new":
-        branch = BranchOut.model_validate(hint)
-    elif hint["kind"] == "known_variant" and analyst.branch.kind in ("none", "known_variant"):
+    if hint["kind"] in ("new", "known_variant"):
         branch = BranchOut.model_validate(hint)
     else:
         branch = analyst.branch
+    if branch.kind == "new" and published:
+        lead = published[0]["script"]
+        root_id = lead.parent_id or lead.id
+        settled = settle_new_branch(branch.kind, branch.hook, branch.detected, branch.description, text, all_scripts, root_id)
+        if settled:
+            branch = BranchOut.model_validate(settled)
     kind, detected = clamp_new_branch(branch.kind, branch.detected, state.turn_index)
     if kind != branch.kind or detected != branch.detected:
         branch = branch.model_copy(update={"kind": kind, "detected": detected})
@@ -396,11 +415,11 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "persona_slug": persona.id,
     }
     t0 = time.perf_counter()
-    # The guard model only sees drafts the rules already dislike. A clean line skips that call.
-    if violations:
+    # Rules miss teencode. Any draft about money, a code, an app, a number, or a link still goes to the guard.
+    if violations or needs_guard(draft):
         verdict = _ask(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 200)
     else:
-        verdict = SafetyOutput(approved=True, action="allow", notes="Bản nháp sạch, không gọi lớp an toàn.")
+        verdict = SafetyOutput(approved=True, action="allow", notes="Bản nháp không đụng tiền, mã, ứng dụng hay link.")
     safety_ms = int((time.perf_counter() - t0) * 1000)
 
     action = "allow"
@@ -415,9 +434,26 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         else:
             final = fallback_reply(persona.id, recent_replies)
             action = "fallback"
-    if not final or repeats_opening(final, recent_replies) or (recent_replies and final.strip() == recent_replies[-1].strip()):
-        final = fallback_reply(persona.id, recent_replies + [final])
+    if repeats_opening(final, recent_replies):
+        rewritten = rewrite_opening(final, recent_replies)
+        if rewritten and rewritten != final:
+            final = rewritten
+            if action == "allow":
+                action = "rewrite"
+    if not final:
+        final = fallback_reply(persona.id, recent_replies)
         action = "fallback"
+    rejected = None
+    if final.strip() != draft.strip():
+        codes = list(dict.fromkeys([*violations, *(verdict.violations or [])]))
+        if repeats_opening(draft, recent_replies) and "repeated_opening" not in codes:
+            codes.append("repeated_opening")
+        rejected = {
+            "text": draft,
+            "reasons": codes or ["safety"],
+            "labels": [VIOLATION_LABELS.get(code, code) for code in (codes or ["safety"])],
+            "action": action,
+        }
 
     if goal == "read_fake_otp" and state.fake_otp in final:
         state.otp_reads += 1
@@ -462,6 +498,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             "action": action,
             "code_violations": violations,
             "model": verdict.model_dump(),
+            "rejected_draft": rejected,
         },
         "wrap": {"recommended": wrap, "reason": wrap_reason},
         "retrieval": [
@@ -548,6 +585,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "provider": provider.name,
         "mock": provider.is_mock,
         "safety_action": action,
+        "rejected_draft": rejected,
         "step_source": step_source,
         "stage": state.stage,
         "stage_label": STAGE_LABELS.get(state.stage, state.stage),

@@ -706,4 +706,28 @@ SCRIPTS: list[dict] = [
         "last_seen": "2026-10-25",
         "occurrence_count": 31,
     },
+    {
+        "id": "hoc-phi-gia-truong",
+        "parent_id": None,
+        "title": "Giả nhà trường đòi đóng học phí",
+        "category": "other",
+        "channel": "zalo",
+        "brand": "Nhà trường",
+        "summary": "Tin nhắn xưng phòng tài vụ hoặc giáo vụ, báo học phí kỳ này còn nợ, gửi số tài khoản cá nhân để sinh viên hoặc phụ huynh chuyển gấp kẻo bị cấm thi.",
+        "steps": [
+            _s("scammer", "Xưng phòng tài vụ nhà trường", "phòng tài vụ nhà trường nhắc học phí kỳ này", "em còn nợ học phí nên chưa được thi"),
+            _s("scammer", "Đòi chuyển học phí", "nộp học phí vào số tài khoản này trước hôm nay", "chuyển khoản học phí xong gửi biên lai"),
+            _s("scammer", "Giục vì lịch thi", "không đóng học phí sẽ bị xóa tên khỏi danh sách thi", "học phí chỉ nhận chuyển khoản"),
+        ],
+        "hooks": ["Sợ bị cấm thi", "Tin người tự xưng nhà trường"],
+        "red_flags": [
+            "Nhà trường không thu học phí qua số tài khoản cá nhân trong tin nhắn",
+            "Giục đóng ngay để kịp lịch thi",
+        ],
+        "advice": "Hỏi lại phòng đào tạo bằng số điện thoại trên website trường. Không chuyển học phí theo tin nhắn.",
+        "sources": _src("Giả danh nhà trường thu học phí"),
+        "first_seen": "2026-03-02",
+        "last_seen": "2026-11-01",
+        "occurrence_count": 14,
+    },
 ]

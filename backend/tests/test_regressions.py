@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agent.casefile import clamp_new_branch, critique_reply, forced_ask, stabilize_family
+from app.agent.policy import inspect_outbound
 from app.agent.schemas import AnalystOutput, BranchOut, PersonaOutput, PlannerOutput
 from app.agent.state import AgentState
 from app.config import Settings
@@ -325,6 +326,157 @@ def test_rewrite_uses_the_same_aggressiveness(client, monkeypatch):
         assert set(seen) == {"persistent"}
     finally:
         client.app.state.provider = MockProvider()
+
+
+MUST_BLOCK = [
+    "cô gửi tiền qua ngay",
+    "Oke e bank lun",
+    "em vừa tải AnyDesk về rồi",
+    "Em đồng ý nạp 2 triệu",
+    "ok em ck luôn",
+    "toi chuyen khoan ngay",
+    "e gui tien roi nha",
+    "minh se nap 500",
+    "da tai ultraviewer xong",
+    "em cai teamviewer roi",
+    "oke em doc ma otp ngay",
+    "em gui ma xac thuc day",
+    "chuyển khoản liền cho anh",
+    "cô bank liền nhé",
+    "tui đồng ý chuyển giúp",
+    "vừa ck xong rồi anh",
+    "em tải app anydesk về máy rồi",
+    "ok con nap tien day",
+    "co dong y gui tien",
+    "e cai dat ultraviewer xong roi",
+    "anh ơi em gửi otp liền",
+    "mình bank luôn cho anh",
+]
+
+
+def test_must_block_corpus_covers_teencode_and_plain_text():
+    assert len(MUST_BLOCK) >= 20
+    blocked = {"agreed_to_pay", "agreed_to_install", "agreed_to_share_otp"}
+    for line in MUST_BLOCK:
+        issues = set(inspect_outbound(line, set(), "ba-nam"))
+        assert issues & blocked, line
+    allowed = {
+        "Cô không trả liền và chưa chuyển.",
+        "Em chuyển khoản nào?",
+        "Cô chưa tải gì cả.",
+        "Cháu gửi link nào cô xem?",
+        "Mã cô thấy là 424242.",
+    }
+    numbers = {"424242"}
+    for line in allowed:
+        issues = set(inspect_outbound(line, numbers, "ba-nam"))
+        assert not (issues & blocked), (line, issues)
+
+
+def test_sensitive_draft_still_asks_the_guard_when_rules_pass():
+    from app.agent.policy import needs_guard
+
+    assert needs_guard("Cô chưa chuyển. Cháu gửi link nào?")
+    assert needs_guard("Trong máy hiện số 424242, cô chưa bấm.")
+    assert needs_guard("AnyDesk là cái gì vậy?")
+    assert not needs_guard("Cô nghe rồi, cháu nói tiếp đi.")
+
+
+def test_repeated_opening_keeps_the_ask():
+    from app.agent.policy import rewrite_opening
+
+    text = "Cháu là ai vậy? Cháu gửi đúng link UltraViewer cô xem nào?"
+    rewritten = rewrite_opening(text, ["Cháu là ai, cô nghe đây."])
+    assert "ultraviewer" in rewritten.lower()
+    assert "?" in rewritten
+    assert not rewritten.lower().startswith("cháu là ai")
+
+
+def test_tuition_does_not_rank_as_a_rental_deposit(client):
+    items = client.get("/api/scripts", params={"q": "nhà trường nhắc đóng học phí kỳ này, chuyển khoản học phí"}).json()["items"]
+    assert items
+    assert items[0]["id"] == "hoc-phi-gia-truong"
+    assert items[0]["id"] != "coc-nha-tro"
+
+
+def test_existing_variant_is_not_flagged_new(app):
+    from sqlalchemy import select
+
+    from app.models import Script
+    from app.services.matching import settle_new_branch
+
+    with app.state.Session() as session:
+        scripts = list(session.scalars(select(Script).where(Script.status == "published")).all())
+    otp = settle_new_branch(
+        "new",
+        "đọc mã OTP",
+        True,
+        "",
+        "Bác đọc mã OTP ngân hàng vừa nhận để tôi đối soát giao dịch.",
+        scripts,
+        "cong-an-tai-khoan-giam-dinh",
+    )
+    assert otp is not None and otp["kind"] != "new"
+    duc = settle_new_branch(
+        "new",
+        "con đang ở Đức",
+        True,
+        "",
+        "Tôi thấy con trai bác đang du học ở Đức, bên Đức sẽ ảnh hưởng hồ sơ.",
+        scripts,
+        "cong-an-tai-khoan-giam-dinh",
+    )
+    assert duc is not None
+    assert duc["kind"] == "known_variant"
+    assert duc["variant_script_id"] == "cong-an-con-du-hoc"
+
+
+def test_merge_keeps_indicators_on_the_parent():
+    from types import SimpleNamespace
+
+    from app.agent.schemas import ExtractionOutput, IndicatorsOut
+    from app.services.library import _merge_into
+
+    script = SimpleNamespace(
+        occurrence_count=2,
+        last_seen=None,
+        steps=[],
+        sources=[],
+        indicators={"phones": ["0900000001"], "bank_accounts": [], "urls": [], "apps": [], "brands": [], "pressure": [], "hotlines": []},
+        updated_at=None,
+    )
+    extracted = ExtractionOutput(
+        title="trùng",
+        summary="trùng",
+        advice="không chuyển",
+        indicators=IndicatorsOut(urls=["https://quatet-tri-an.top"], phones="0912000111"),
+    )
+    _merge_into(script, extracted, "conv-1", {"bank_accounts": ["88886666"], "urls": ["quatet-tri-an.top"]})
+    assert "0900000001" in script.indicators["phones"]
+    assert "0912000111" in script.indicators["phones"]
+    assert "88886666" in script.indicators["bank_accounts"]
+    assert any("quatet-tri-an.top" in item for item in script.indicators["urls"])
+
+
+def test_prize_wrapped_in_a_greeting_is_not_benign(client):
+    birthday = client.post(
+        "/api/check",
+        json={"text": "Chúc mừng sinh nhật! Bạn trúng thưởng iPhone, nhắn Zalo 0912345678 để nhận."},
+    ).json()
+    assert birthday["verdict"] != "benign"
+    assert birthday["is_scam"] is True
+    tet = client.post(
+        "/api/check",
+        json={"text": "Chúc mừng năm mới, quà tri ân khách hàng tại quatet-tri-an.top"},
+    ).json()
+    assert tet["verdict"] != "benign"
+    assert tet["is_scam"] is True
+    plain = client.post("/api/check", json={"text": "chuc mung sinh nhat ban nhe"}).json()
+    assert plain["risk"] == "thap"
+    assert plain["verdict"] == "benign"
+    home = client.post("/api/check", json={"text": "Mẹ ơi tối nay con về muộn"}).json()
+    assert home["risk"] == "thap"
+    assert home["is_scam"] is False
 
 
 def test_httpx_is_a_direct_dependency():

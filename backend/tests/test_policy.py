@@ -54,6 +54,8 @@ def test_safety_blocks_admission_payment_and_install():
     assert "agreed_to_pay" not in inspect_outbound("Cô chuyển khoản nào vậy?", allowed)
     assert "agreed_to_pay" not in inspect_outbound("Em chuyển khoản nào?", allowed)
     assert inspect_outbound("Cô có nghe máy không?", allowed, "ba-nam") == []
+    assert "pronoun_mix" not in inspect_outbound("Cô nghe nói con đang học bên Đức, cô lo.", allowed, "ba-nam")
+    assert "pronoun_mix" not in inspect_outbound("Con trai cô đang ở Đức.", allowed, "ba-nam")
     assert "rude_register" in inspect_outbound("tao không chuyển, tụi bây nói đi", allowed, "ba-nam")
     assert inspect_outbound("Cháu là ai vậy? Cô không lưu số này.", allowed, "ba-nam") == []
     assert "pronoun_mix" in inspect_outbound("Bác có tiền trả liền con.", allowed, "ba-nam")

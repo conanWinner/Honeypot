@@ -133,8 +133,15 @@ export type Panel = {
     apps: string[]
     brands: string[]
     pressure: string[]
+    hotlines?: string[]
   }
   aggressiveness?: string
+  rejected_draft?: {
+    text: string
+    reasons: string[]
+    labels: string[]
+    action: string
+  } | null
 }
 
 export type Conversation = {
@@ -190,5 +197,6 @@ export function panelFromMessage(message: Message | undefined): Panel | null {
     checklist: reasoning.checklist,
     indicators: reasoning.indicators,
     aggressiveness: reasoning.aggressiveness,
+    rejected_draft: reasoning.outbound_safety?.rejected_draft ?? null,
   }
 }
