@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,6 +16,31 @@ from app.llm.factory import build_provider
 from app.services.library import backfill_embeddings, seed
 
 log = logging.getLogger("gianan")
+
+
+def _warm_llm(provider, background: bool) -> dict:
+    """One short router ping so the first real turn does not pay the cold start."""
+    report = {"ok": True, "mock": bool(provider.is_mock), "latency_ms": 0, "model": getattr(provider, "model", ""), "error": "", "warming": background}
+
+    def run() -> None:
+        started = time.perf_counter()
+        try:
+            from app.agent.schemas import PersonaOutput
+
+            provider.complete(PersonaOutput, "Trả một JSON ngắn.", "ping", 0, role="persona", max_tokens=16, timeout=8)
+            report["ok"] = True
+            report["error"] = ""
+        except Exception as exc:  # noqa: BLE001
+            report["ok"] = False
+            report["error"] = str(exc)[:180]
+        report["latency_ms"] = int((time.perf_counter() - started) * 1000)
+        report["model"] = getattr(provider, "model", "")
+        report["warming"] = False
+
+    if not background:
+        return report
+    threading.Thread(target=run, name="llm-warmup", daemon=True).start()
+    return report
 
 
 def _backfill(factory, provider) -> None:
@@ -50,6 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             seed(session)
             session.commit()
         _backfill(factory, app.state.provider)
+        app.state.llm_health = _warm_llm(app.state.provider, background=not app.state.provider.is_mock)
         yield
         engine.dispose()
 

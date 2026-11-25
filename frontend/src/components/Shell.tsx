@@ -1,7 +1,7 @@
 import { ClipboardCheck, Library, LineChart, MessageSquareText, ScanSearch, Shield } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { api, type Health } from '../lib/api'
+import { api, type Health, type LlmHealth } from '../lib/api'
 import { cn } from '../lib/utils'
 import { Banner } from './ui'
 
@@ -15,12 +15,16 @@ const links = [
 
 export function Shell() {
   const [health, setHealth] = useState<Health | null>(null)
+  const [llm, setLlm] = useState<LlmHealth | null>(null)
   const [offline, setOffline] = useState(false)
 
   useEffect(() => {
     api<Health>('/api/health')
       .then(setHealth)
       .catch(() => setOffline(true))
+    api<LlmHealth>('/api/health/llm')
+      .then(setLlm)
+      .catch(() => setLlm(null))
   }, [])
 
   return (
@@ -73,6 +77,12 @@ export function Shell() {
           <Banner tone="ok">
             Đang dùng mô hình thật: {health.llm.provider} · {health.llm.model}. Embedding: {health.embeddings.ready}/
             {health.embeddings.published} kịch bản.
+            {llm && !llm.mock && (
+              <span>
+                {' '}
+                Router {llm.warming ? 'đang làm nóng' : llm.ok ? `đã nóng ${llm.latency_ms} ms` : 'chưa trả lời'}.
+              </span>
+            )}
           </Banner>
         )}
       </div>

@@ -92,8 +92,10 @@ class GeminiProvider:
         model: str | None = None,
         role: str = "",
         max_tokens: int | None = None,
+        timeout: float | None = None,
+        fallback_model: str | None = None,
     ) -> BaseModel:
-        del model, role  # Router model ids must not be sent to the Gemini API.
+        del model, role, timeout, fallback_model  # Router model ids must not be sent to the Gemini API.
         errors: list[str] = []
         for model_name in self.models:
             try:

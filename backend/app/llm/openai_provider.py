@@ -11,7 +11,6 @@ timeouts are retried, then raised so the caller can fall back to Gemini.
 
 import json
 import re
-import time
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -162,24 +161,35 @@ class OpenAIProvider:
         model: str | None = None,
         role: str = "",
         max_tokens: int | None = None,
+        timeout: float | None = None,
+        fallback_model: str | None = None,
     ) -> BaseModel:
         del thinking, role
-        # Keep the default model on the instance. Analyst and planner run at the same
-        # time, so the model id for this call stays local.
-        chosen = (model or "").strip() or self.model
+        # One shot per model. A schema failure or a timeout moves to the alternate
+        # small model instead of retrying the same slow call as plain JSON.
+        budget = timeout if timeout and timeout > 0 else self.timeout
+        primary = (model or "").strip() or self.model
+        alternate = (fallback_model or "").strip()
+        plan = [(primary, True)]
+        if alternate and alternate != primary:
+            plan.append((alternate, False))
         hint = schema_hint(schema)
         messages = [
             {"role": "system", "content": f"{system}\n\n{hint}"},
             {"role": "user", "content": user},
         ]
         last_error = "không rõ"
-        for attempt in range(2):
-            text = self._complete_text(messages, temperature, schema, max_tokens, chosen)
+        for name, use_schema in plan:
+            try:
+                text = self._complete_text(messages, temperature, schema, max_tokens, name, budget, use_schema)
+            except LLMError as exc:
+                last_error = str(exc)
+                continue
             try:
                 return parse_structured(schema, text)
             except (ValidationError, json.JSONDecodeError, ValueError) as exc:
                 last_error = str(exc)
-                messages = [
+                repaired = [
                     *messages,
                     {"role": "assistant", "content": (text or "")[:1500]},
                     {
@@ -187,7 +197,11 @@ class OpenAIProvider:
                         "content": f"JSON không hợp lệ ({exc}). Trả lại đúng một JSON object, không markdown.",
                     },
                 ]
-                if attempt == 0:
+                try:
+                    text = self._complete_text(repaired, temperature, schema, max_tokens, name, budget, False)
+                    return parse_structured(schema, text)
+                except (LLMError, ValidationError, json.JSONDecodeError, ValueError) as again:
+                    last_error = str(again)
                     continue
         raise LLMError(f"Router không trả JSON hợp lệ: {last_error[:400]}")
 
@@ -198,43 +212,28 @@ class OpenAIProvider:
         schema: type[BaseModel],
         max_tokens: int | None,
         model_name: str,
+        timeout: float,
+        use_schema: bool,
     ) -> str:
-        formats: list[dict | None] = [json_schema_format(schema), None]
         url = f"{self.base_url}/chat/completions"
-        last_error = ""
-        for response_format in formats:
-            payload: dict = {
-                "model": model_name,
-                "temperature": temperature,
-                "stream": False,
-                "messages": messages,
-            }
-            if max_tokens:
-                payload["max_tokens"] = max_tokens
-            if response_format:
-                payload["response_format"] = response_format
-            for attempt in range(3):
-                try:
-                    status, content_type, body = post_chat(url, self.api_key, payload, self.timeout)
-                except LLMError as exc:
-                    last_error = str(exc)
-                    if attempt < 2:
-                        time.sleep(0.4 * (2**attempt))
-                        continue
-                    raise
-                if status == 400 and response_format is not None:
-                    last_error = body[:180]
-                    break
-                if status_is_retryable(status):
-                    last_error = f"router {status}: {body[:180]}"
-                    if attempt < 2:
-                        time.sleep(0.4 * (2**attempt))
-                        continue
-                    raise LLMError(last_error)
-                if status >= 400:
-                    raise LLMError(f"router {status}: {body[:300]}")
-                return assemble_message(body, content_type)
-        raise LLMError(last_error or "router không phản hồi")
+        payload: dict = {
+            "model": model_name,
+            "temperature": temperature,
+            "stream": False,
+            "messages": messages,
+        }
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
+        if use_schema:
+            payload["response_format"] = json_schema_format(schema)
+        status, content_type, body = post_chat(url, self.api_key, payload, timeout)
+        if status == 400 and use_schema:
+            raise LLMError(f"router schema {status}: {body[:180]}")
+        if status_is_retryable(status):
+            raise LLMError(f"router {status}: {body[:180]}")
+        if status >= 400:
+            raise LLMError(f"router {status}: {body[:300]}")
+        return assemble_message(body, content_type)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         raise LLMError("Embedding đi qua Gemini, không qua router.")
@@ -263,6 +262,8 @@ class FallbackProvider:
         model: str | None = None,
         role: str = "",
         max_tokens: int | None = None,
+        timeout: float | None = None,
+        fallback_model: str | None = None,
     ) -> BaseModel:
         errors: list[str] = []
         for provider in self.chain:
@@ -276,6 +277,8 @@ class FallbackProvider:
                     model=model,
                     role=role,
                     max_tokens=max_tokens,
+                    timeout=timeout,
+                    fallback_model=fallback_model,
                 )
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{provider.name}: {exc}")

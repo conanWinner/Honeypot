@@ -21,6 +21,8 @@ _BENIGN = (
 )
 _PRIZE = ("trung thuong", "trung giai", "trung iphone", "qua tri an", "nhan thuong", "qua tang", "iphone")
 _MONEY_WORD = ("chuyen khoan", "chuyen tien", "nap tien", "hoc phi", "tien coc", "trieu", "stk")
+_URGENCY = ("khan cap", "ngay lap tuc", "trong 15 phut", "trong vai phut", "bi bat ngay", "het han ngay")
+_OTP_CUE = ("otp", "ma xac thuc", "ma otp")
 
 
 def _surface(text: str) -> set[str]:
@@ -38,6 +40,10 @@ def _surface(text: str) -> set[str]:
         cues.add("money")
     if any(word in folded for word in _PRIZE):
         cues.add("prize")
+    if any(word in folded for word in _URGENCY):
+        cues.add("urgency")
+    if any(word in folded for word in _OTP_CUE):
+        cues.add("otp")
     return cues
 
 
@@ -101,8 +107,9 @@ def check_text(session, text: str, provider, persona=None) -> dict:
     surface = _surface(text)
     model_benign = _model_says_benign(analyst, hot)
     plain = _plain_note(text)
-    # A greeting does not wash a prize, a phone, a link, or a demand for money.
-    if surface & {"prize", "phone", "link", "money"} and not (plain and model_benign and not surface):
+    # A clock time (8h) or a room number (302) is not a phone or an account.
+    hard = surface & {"prize", "phone", "link", "money", "urgency", "otp"}
+    if hard:
         if "prize" in surface or ("phone" in surface and "link" in surface):
             level, label = ("cao", "Cao") if level == "thap" else (level, label)
             is_scam = True
@@ -114,14 +121,14 @@ def check_text(session, text: str, provider, persona=None) -> dict:
             level, label = "trung_binh", "Trung bình"
             is_scam = True
             verdict = "scam"
-    elif plain and model_benign and not surface:
+    elif model_benign:
         level, label = "thap", "Thấp"
         is_scam = False
         verdict = "benign"
     elif level in {"cao", "rat_cao"} or (hot and confidence >= 0.55):
         is_scam = True
         verdict = "scam"
-    elif level == "thap" and not surface and model_benign:
+    elif level == "thap":
         is_scam = False
         verdict = "benign"
     else:
@@ -146,7 +153,7 @@ def check_text(session, text: str, provider, persona=None) -> dict:
                 "intent": f"Đây đã là bước cuối thường gặp: {current.get('intent')}",
                 "phrases": (current.get("phrases") or [])[:1],
             }
-    benign = verdict == "benign" and plain and model_benign and not surface
+    benign = verdict == "benign" and model_benign and not hard and (plain or not hot)
     if benign:
         matched = None
         next_step = None

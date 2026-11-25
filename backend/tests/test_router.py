@@ -59,7 +59,6 @@ def test_trailing_comma_is_repaired():
 
 
 def test_validation_retries_once(monkeypatch):
-    monkeypatch.setattr("app.llm.openai_provider.time.sleep", lambda *_a, **_k: None)
     calls = {"n": 0}
 
     def fake_post(url, api_key, payload, timeout=40):
@@ -78,22 +77,20 @@ def test_validation_retries_once(monkeypatch):
     assert calls["n"] == 2
 
 
-def test_cloudflare_530_is_retried_then_raised(monkeypatch):
-    monkeypatch.setattr("app.llm.openai_provider.time.sleep", lambda *_a, **_k: None)
-    calls = {"n": 0}
+def test_cloudflare_530_fails_over_once_then_raises(monkeypatch):
+    calls = []
 
     def fake_post(url, api_key, payload, timeout=40):
-        calls["n"] += 1
+        calls.append((payload["model"], timeout))
         assert api_key == "secret-key"
-        assert payload["model"] == "cx/gpt-6-luna"
         assert payload["stream"] is False
         return 530, "text/html", "cloudflare"
 
     monkeypatch.setattr("app.llm.openai_provider.post_chat", fake_post)
     provider = OpenAIProvider("secret-key", "cx/gpt-6-luna", "https://router.example/v1")
     with pytest.raises(LLMError, match="530"):
-        provider.complete(PersonaOutput, "system", "user")
-    assert calls["n"] == 3
+        provider.complete(PersonaOutput, "system", "user", timeout=12, fallback_model="cx/gpt-5.6-luna")
+    assert calls == [("cx/gpt-6-luna", 12), ("cx/gpt-5.6-luna", 12)]
 
 
 def test_router_failure_falls_through_to_next_chat_provider():

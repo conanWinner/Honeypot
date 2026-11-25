@@ -19,6 +19,7 @@ from app.agent.casefile import (
     checklist_signature,
     choose_stage,
     clamp_new_branch,
+    stabilize_branch,
     critique_reply,
     cue_branch,
     forced_ask,
@@ -32,11 +33,13 @@ from app.agent.policy import (
     assess_inbound,
     fallback_reply,
     inspect_outbound,
+    is_extraction_ask,
     needs_guard,
     recommend_wrap,
     repeats_opening,
     rewrite_opening,
     typing_ms,
+    with_fake_otp,
 )
 from app.agent.prompts import ANALYST_SYSTEM, PERSONA_SYSTEM, PLANNER_SYSTEM, SAFETY_SYSTEM
 from app.agent.schemas import AnalystOutput, BranchOut, MatchOut, PersonaOutput, PlannerOutput, SafetyOutput
@@ -272,6 +275,16 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     kind, detected = clamp_new_branch(branch.kind, branch.detected, state.turn_index)
     if kind != branch.kind or detected != branch.detected:
         branch = branch.model_copy(update={"kind": kind, "detected": detected})
+    raw_branch = branch
+    stable_kind, stable_variant = stabilize_branch(state, branch.kind, branch.variant_script_id)
+    if stable_kind != branch.kind or (stable_kind == "known_variant" and stable_variant and stable_variant != branch.variant_script_id):
+        branch = branch.model_copy(
+            update={
+                "kind": stable_kind,
+                "detected": stable_kind != "none",
+                "variant_script_id": stable_variant or branch.variant_script_id,
+            }
+        )
     if branch.kind == "known_variant" and branch.variant_script_id in by_id:
         variant = by_id[branch.variant_script_id]
         others = [item for item in kept if item.script_id != variant.id]
@@ -378,8 +391,10 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "fake_otp": state.fake_otp if goal == "read_fake_otp" else "",
         "otp_allowed": goal == "read_fake_otp",
         "jailbreak": inbound["jailbreak"],
+        "recent_openings": [],
     }
     recent_replies = [message.content for message in conversation.messages if message.role == "victim"][-4:]
+    persona_ctx["recent_openings"] = [item.strip().split("\n", 1)[0][:48] for item in recent_replies[-3:]]
     pace = state.aggressiveness or "normal"
     t0 = time.perf_counter()
     spoken = _ask(PersonaOutput, PERSONA_SYSTEM, pack("Viết tin nhắn trả lời trong vai.", persona_ctx), 0.9, "persona", 180)
@@ -389,21 +404,10 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     notes = critique_reply(draft, persona.id, goal, allowed, pace, recent_replies)
     if notes:
         persona_ctx["critique"] = notes
-        t1 = time.perf_counter()
-        spoken_again = _ask(
-            PersonaOutput,
-            PERSONA_SYSTEM,
-            pack("Viết lại tin nhắn. Giữ người cả tin, hỏi tiếp, không dạy đời.", persona_ctx),
-            0.7,
-            "persona",
-            180,
-        )
-        persona_ms += int((time.perf_counter() - t1) * 1000)
-        redraft = (spoken_again.reply or "").strip()
-        if redraft and len(critique_reply(redraft, persona.id, goal, allowed, pace, recent_replies)) <= len(notes):
-            spoken = spoken_again
-            draft = redraft
     violations = inspect_outbound(draft, allowed, persona.id)
+    if not violations and is_extraction_ask(draft):
+        # The guard model has been rewriting "gửi đường dẫn UltraViewer cho cô xem" as an install.
+        pass
     safety_ctx = {
         "reply": draft,
         "code_violations": violations,
@@ -415,15 +419,57 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "persona_slug": persona.id,
     }
     t0 = time.perf_counter()
-    # Rules miss teencode. Any draft about money, a code, an app, a number, or a link still goes to the guard.
-    if violations or needs_guard(draft):
-        verdict = _ask(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 200)
-    else:
-        verdict = SafetyOutput(approved=True, action="allow", notes="Bản nháp không đụng tiền, mã, ứng dụng hay link.")
+    # Rules miss teencode. Money, a code, an app, a number, or a link still goes to the guard.
+    # When a rewrite is also due, the guard runs beside it instead of after it.
+    need_guard = bool(violations or needs_guard(draft)) and not (not violations and is_extraction_ask(draft))
+    guard_future = None
+    rewrite_future = None
+    pool = ThreadPoolExecutor(max_workers=2) if need_guard or notes else None
+    try:
+        if pool is not None and need_guard:
+            guard_future = pool.submit(
+                _ask, SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 200
+            )
+        if pool is not None and notes:
+            rewrite_future = pool.submit(
+                _ask,
+                PersonaOutput,
+                PERSONA_SYSTEM,
+                pack("Viết lại tin nhắn. Giữ người cả tin, hỏi tiếp, không dạy đời.", persona_ctx),
+                0.7,
+                "persona",
+                180,
+            )
+        elif notes:
+            rewrite_future = None
+        if rewrite_future is not None:
+            spoken_again = rewrite_future.result()
+            persona_ms += int((time.perf_counter() - t0) * 1000)
+            redraft = (spoken_again.reply or "").strip()
+            if redraft and len(critique_reply(redraft, persona.id, goal, allowed, pace, recent_replies)) <= len(notes):
+                spoken = spoken_again
+                draft = redraft
+                violations = inspect_outbound(draft, allowed, persona.id)
+                safety_ctx = {**safety_ctx, "reply": draft, "code_violations": violations}
+                need_guard = bool(violations or needs_guard(draft)) and not (not violations and is_extraction_ask(draft))
+                guard_future = None
+        if need_guard and guard_future is not None and safety_ctx.get("reply") == draft:
+            verdict = guard_future.result()
+        elif need_guard:
+            verdict = _ask(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 200)
+        else:
+            if guard_future is not None:
+                guard_future.result()
+            verdict = SafetyOutput(approved=True, action="allow", notes="Câu hỏi xin chỉ dấu, hoặc bản nháp không đụng tiền, mã, ứng dụng hay link.")
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=True)
     safety_ms = int((time.perf_counter() - t0) * 1000)
 
     action = "allow"
     final = draft
+    if not violations and is_extraction_ask(draft):
+        verdict = SafetyOutput(approved=True, action="allow", notes="Câu hỏi xin đường dẫn, tài khoản hoặc tên ứng dụng. Giữ nguyên.")
     model_flagged = (not verdict.approved) and bool(verdict.violations)
     if violations or model_flagged:
         candidate = (verdict.safe_reply or "").strip()
@@ -455,21 +501,24 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             "action": action,
         }
 
-    if goal == "read_fake_otp" and state.fake_otp in final:
-        state.otp_reads += 1
+    if goal == "read_fake_otp":
+        final = with_fake_otp(final, persona.id, state.fake_otp)
+        if state.fake_otp in final:
+            state.otp_reads += 1
     if spoken.memory_note:
         state.memory.append(spoken.memory_note)
         state.memory = state.memory[-12:]
     if analyst.extracted_fact:
         state.extracted_facts.append(analyst.extracted_fact)
         state.extracted_facts = state.extracted_facts[-20:]
-    if branch.detected:
+    logged_branch = raw_branch if raw_branch.detected and raw_branch.kind == "new" else branch
+    if logged_branch.detected:
         state.branch_events.append(
             {
-                "kind": branch.kind,
-                "hook": branch.hook,
-                "description": branch.description,
-                "variant_script_id": branch.variant_script_id,
+                "kind": logged_branch.kind,
+                "hook": logged_branch.hook,
+                "description": logged_branch.description,
+                "variant_script_id": logged_branch.variant_script_id,
                 "script_id": snap.script_id,
                 "family_id": snap.family_id,
             }

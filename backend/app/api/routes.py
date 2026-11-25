@@ -152,6 +152,19 @@ def health(request: Request, session=Depends(get_db)):
     }
 
 
+@router.get("/health/llm")
+def health_llm(request: Request):
+    report = getattr(request.app.state, "llm_health", None) or {
+        "ok": False,
+        "mock": True,
+        "latency_ms": None,
+        "model": "",
+        "error": "Chưa có ping.",
+        "warming": False,
+    }
+    return report
+
+
 @router.get("/meta")
 def meta():
     return {

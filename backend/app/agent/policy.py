@@ -88,28 +88,41 @@ _ADDRESS_FRAME = re.compile(
 _QUESTION = re.compile(r"\b(nào|nao|đâu|dau|ai|gì|gi|sao)\b", re.IGNORECASE)
 # "con đang học / con trai" is the child. "con chuyển" is the speaker.
 _CON_FAMILY = re.compile(
-    r"\bcon\s+(trai|gái|gai|cái|cai|nuôi|nuoi|của|cua|tôi|toi|em|cô|co|đang|dang|ở|o|bên|học|hoc|làm|lam)\b",
+    r"("
+    r"\bcon\s+(trai|gái|gai|cái|cai|nuôi|nuoi|của|cua|tôi|toi|em|cô|co|đang|dang|ở|o|bên|học|hoc|làm|lam)\b"
+    r"|\b(về|ve|của|cua|cho|với|voi|thằng|thang|đứa|dua)\s+con\b"
+    r")",
     re.IGNORECASE,
 )
 _CON_AS_SELF = re.compile(r"\bcon\b(?!\s+(trai|gái|gai|cái|cai|nuôi|nuoi|của|cua))", re.IGNORECASE)
 
+# "cái app" is a determiner, not an install. Require a completion verb or "cài đặt".
 _INSTALL = re.compile(
     r"("
-    r"(tôi|em|cô|mình|tui|cháu)\s+(sẽ\s+|vừa\s+|đã\s+)?(cài|tải)\s+(rồi|ngay|xong|về|ultraviewer|anydesk|teamviewer|app|phần mềm)"
-    r"|đã\s+(cài|tải)\s+(ultraviewer|anydesk|teamviewer|xong|rồi|về)"
-    r"|(cài|tải)\s+(ultraviewer|anydesk|teamviewer)\s*(rồi|xong|về)?"
-    r"|vừa\s+tải\s+(ultraviewer|anydesk|teamviewer|app|phần mềm|về)"
+    r"(tôi|em|cô|mình|tui|cháu)\s+(sẽ\s+|vừa\s+|đã\s+)(cài|tải)\b"
+    r"|đã\s+(cài|tải)\b"
+    r"|vừa\s+(cài|tải)\b"
+    r"|(cài|tải)\s+(rồi|xong|về)\b"
+    r"|(cài|tải)\s+(ultraviewer|anydesk|teamviewer|app|phần mềm)\s+(rồi|xong|về)"
+    r"|cài\s+đặt"
+    r"|đồng\s+ý\s+(cài|tải)"
     r")"
     ,
     re.IGNORECASE,
 )
 _INSTALL_PLAIN = re.compile(
     r"("
-    r"\b(tai|cai)\s+(anydesk|ultraviewer|teamviewer|app|phan mem|ung dung|roi|xong|ve)\b"
-    r"|vua\s+(tai|cai)\s+\w+"
-    r"|(anydesk|ultraviewer|teamviewer).{0,24}(roi|xong|ve roi)"
-    r"|dong\s+y\s+(cai|tai)"
+    r"\bcai\s+dat\b"
+    r"|\b(da|vua)\s+(cai|tai)\b"
+    r"|\b(cai|tai)\s+(roi|xong|ve)\b"
+    r"|\b(cai|tai)\s+(anydesk|ultraviewer|teamviewer|app|phan mem|ung dung)\s+(roi|xong|ve)\b"
+    r"|(anydesk|ultraviewer|teamviewer).{0,30}\b(roi|xong)\b"
+    r"|dong\s+y\s+(cai|tai)\b"
     r")"
+)
+_ASK_THEM = re.compile(
+    r"(đường dẫn|duong dan|\blink\b|tài khoản|tai khoan|\bstk\b|ultraviewer|anydesk|teamviewer)",
+    re.IGNORECASE,
 )
 
 _HARMFUL = re.compile(
@@ -265,6 +278,14 @@ def voice_issues(text: str, persona_id: str | None) -> list[str]:
     return issues
 
 
+def _reports_allowed_code(text: str, allowed: set[str]) -> bool:
+    found = set(re.findall(r"\d{4,8}", text or ""))
+    if not found:
+        return False
+    known = {item for item in allowed if item and item.isdigit()}
+    return found <= known
+
+
 def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | None = None) -> list[str]:
     violations: list[str] = []
     body = text or ""
@@ -275,7 +296,7 @@ def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | Non
         violations.append("agreed_to_pay")
     if _hits(_INSTALL, body) or _hits(_INSTALL_PLAIN, folded):
         violations.append("agreed_to_install")
-    if _hits(_OTP_PLAIN, folded):
+    if _hits(_OTP_PLAIN, folded) and not _reports_allowed_code(body, allowed_numbers):
         violations.append("agreed_to_share_otp")
     if _HARMFUL.search(body):
         violations.append("harmful_assistance")
@@ -355,6 +376,33 @@ VIOLATION_LABELS = {
     "harmful_assistance": "Câu nháp hướng dẫn gây hại",
     "repeated_opening": "Mở đầu trùng câu vừa nói",
 }
+
+
+def is_extraction_ask(text: str) -> bool:
+    """Asking the scammer to send a link, account, or app name is the point of the turn."""
+    raw = text or ""
+    folded = fold(raw)
+    if "?" not in raw and "khong" not in folded and "nao" not in folded:
+        return False
+    if _hits(_INSTALL, raw) or _hits(_INSTALL_PLAIN, folded) or _hits(_MONEY, raw) or _hits(_MONEY_PLAIN, folded):
+        return False
+    return bool(_ASK_THEM.search(raw) or _ASK_THEM.search(folded))
+
+
+def with_fake_otp(text: str, persona_id: str, otp: str) -> str:
+    """When the planner asked for the fake code, the reply has to contain that code and no real one."""
+    code = (otp or "").strip()
+    if not code or code in (text or ""):
+        return text or ""
+    tails = {
+        "ba-nam": f"Mã cô thấy là {code}. Cháu lấy mã này để làm gì?",
+        "minh-sv": f"máy em hiện mã {code}. anh lấy mã này làm gì, em chưa xác nhận",
+        "huong-shop": f"App hiện mã {code}. Anh/chị dùng mã này để làm gì? Chị chưa xác nhận.",
+        "tuan-vp": f"Máy em hiện mã {code}. Anh/chị dùng để đối soát việc gì? Em chưa xác nhận.",
+        "lan-nt": f"Máy hiện mã {code}. Lấy mã này làm gì, tui chưa bấm đồng ý.",
+        "khoa-tx": f"ví hiện mã {code}. bác lấy làm gì, em chưa xác nhận",
+    }
+    return tails.get(persona_id, f"Mã hiện lên là {code}.")
 
 
 def needs_guard(text: str) -> bool:

@@ -36,6 +36,15 @@ export type Health = {
   admin_open: boolean
 }
 
+export type LlmHealth = {
+  ok: boolean
+  mock: boolean
+  latency_ms: number | null
+  model: string
+  error: string
+  warming: boolean
+}
+
 export type Persona = {
   id: string
   label: string

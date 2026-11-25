@@ -84,7 +84,7 @@ Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một
 | Chat dự phòng | `gemini-2.5-flash` | Khi router trả 4xx/5xx, Cloudflare 403/530, hoặc timeout |
 | Embedding | `gemini-embedding-001` | Luôn Gemini, từng câu một, 768 chiều, chuẩn hóa |
 
-Router nhận `response_format: json_schema` sinh từ model Pydantic. Nếu router trả 400 vì schema, client gửi lại chỉ bằng prompt. Mọi request có `User-Agent: gia-nan/1.0` để Cloudflare không chặn. Biến vai để trống thì dùng `OPENAI_MODEL`. Gemini chat gọi `v1beta`. `ag/gemini-3.8-flash-low` trả SSE kèm `reasoning_content`; client chỉ lấy `content`.
+Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi một lần sang model nhỏ của vai đó (persona, analyst và guard sang `cx/gpt-5.6-luna`), rồi mới tới Gemini. Không gọi lại cùng model. Mỗi vai có trần thời gian: persona 12 giây, analyst và planner 10, guard 8, trích 30. `GET /api/health/llm` là ping làm nóng lúc khởi động. Mọi request có `User-Agent: gia-nan/1.0`. Biến vai để trống thì dùng `OPENAI_MODEL`. Gemini chat gọi `v1beta`.
 
 `LLM_PROVIDER=auto` (và `openai-compatible`) gọi router trước, Gemini khi tunnel lỗi. `gemini` đảo thứ tự. `mock` chỉ cho test. Embedding không đi theo lựa chọn chat: có `GEMINI_API_KEY` thì dùng Gemini, không thì tìm theo từ khóa. Provider thật không rơi xuống mock giữa chừng.
 
@@ -101,6 +101,11 @@ Router nhận `response_format: json_schema` sinh từ model Pydantic. Nếu rou
 | `MODEL_PLANNER` | Mặc định `ag/gemini-3.8-flash-low` |
 | `MODEL_GUARD` | Mặc định `ag/gemini-3.8-flash-low` |
 | `MODEL_EXTRACT` | Mặc định `cx/gpt-5.6-luna` |
+| `MODEL_*_FALLBACK` | Một model nhỏ thay vai khi lần gọi chính hết giờ. Persona, analyst, planner, guard mặc định `cx/gpt-5.6-luna` |
+| `TIMEOUT_PERSONA` | Mặc định 12 giây |
+| `TIMEOUT_ANALYST` / `TIMEOUT_PLANNER` | Mặc định 10 giây |
+| `TIMEOUT_GUARD` | Mặc định 8 giây |
+| `TIMEOUT_EXTRACT` | Mặc định 30 giây |
 | `LLM_PROVIDER` | `auto` hoặc `openai-compatible`: router rồi Gemini. `gemini`: ngược lại. `mock`: test |
 | `GEMINI_MODEL` | Mặc định `gemini-2.5-flash`. Không dùng `gemini-2.5-flash-lite` (404, bị đổi về 2.5-flash) |
 | `GEMINI_MODEL_PREFERRED` | Tuỳ chọn, ví dụ `gemini-3.5-flash`. 503, timeout hoặc 404 thì rơi về `GEMINI_MODEL` |

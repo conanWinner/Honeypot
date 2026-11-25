@@ -26,7 +26,6 @@ def test_request_headers_include_user_agent_and_accept():
 
 
 def test_post_chat_sends_schema_then_prompt_only_on_400(monkeypatch):
-    monkeypatch.setattr("app.llm.openai_provider.time.sleep", lambda *_a, **_k: None)
     calls = []
 
     class Response:
@@ -44,12 +43,21 @@ def test_post_chat_sends_schema_then_prompt_only_on_400(monkeypatch):
 
     monkeypatch.setattr("app.llm.openai_provider.httpx.post", fake_post)
     provider = OpenAIProvider("secret-key", "cx/gpt-6-luna", "https://router.example/v1")
-    parsed = provider.complete(PlannerOutput, "system", "user", model="ag/gemini-3.8-flash-low", max_tokens=260)
+    parsed = provider.complete(
+        PlannerOutput,
+        "system",
+        "user",
+        model="ag/gemini-3.8-flash-low",
+        max_tokens=260,
+        timeout=10,
+        fallback_model="cx/gpt-5.6-luna",
+    )
     assert parsed.goal == "ask_link"
     assert calls[0][0]["User-Agent"] == "gia-nan/1.0"
     assert calls[0][1]["response_format"]["type"] == "json_schema"
     assert calls[0][1]["model"] == "ag/gemini-3.8-flash-low"
     assert calls[0][1]["max_tokens"] == 260
+    assert calls[1][1]["model"] == "cx/gpt-5.6-luna"
     assert "response_format" not in calls[1][1]
     assert provider.model == "cx/gpt-6-luna"
 
@@ -477,6 +485,89 @@ def test_prize_wrapped_in_a_greeting_is_not_benign(client):
     home = client.post("/api/check", json={"text": "Mẹ ơi tối nay con về muộn"}).json()
     assert home["risk"] == "thap"
     assert home["is_scam"] is False
+
+
+def test_branch_label_needs_two_turns_to_flip():
+    from app.agent.casefile import stabilize_branch
+
+    state = AgentState(persona_slug="ba-nam", fake_otp="111111")
+    assert stabilize_branch(state, "known_variant", "cong-an-con-du-hoc") == ("known_variant", "cong-an-con-du-hoc")
+    assert stabilize_branch(state, "new", "") == ("known_variant", "cong-an-con-du-hoc")
+    assert stabilize_branch(state, "new", "") == ("new", "")
+
+
+def test_indicators_normalize_before_dedupe():
+    from app.agent.casefile import harvest_indicators, merge_indicators
+
+    found = harvest_indicators("Cài UltraViewer. Gọi 0901.234.567.")
+    assert "ultraviewer" in found["apps"]
+    assert "0901234567" in found["phones"]
+    merged = merge_indicators({"apps": ["UltraViewer"], "phones": ["0901234567"]}, {"apps": ["ultraviewer "], "phones": ["0901 234 567"]})
+    assert merged["apps"].count("ultraviewer") == 1
+    assert merged["phones"].count("0901234567") == 1
+
+
+def test_everyday_notes_are_benign_without_diacritics(client):
+    for text in (
+        "Chuc mung sinh nhat ban nhe, cuoi tuan cafe",
+        "Me oi toi nay con ve muon",
+        "Mai 8h hop phong 302",
+    ):
+        body = client.post("/api/check", json={"text": text}).json()
+        assert body["risk"] == "thap", text
+        assert body["verdict"] == "benign", text
+        assert body["is_scam"] is False
+
+
+def test_fake_otp_is_read_when_the_planner_asks(client):
+    from app.agent.schemas import PersonaOutput
+    from app.llm.mock import MockProvider
+
+    class Refuses(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "PersonaOutput" and '"otp_allowed": true' in user:
+                return PersonaOutput(reply="Cô không đọc mã đâu.", memory_note="")
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = Refuses()
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
+        otp = created["fake_otp"]
+        assert otp.isdigit() and len(otp) == 6
+        for _ in range(2):
+            body = client.post(
+                f"/api/conversations/{created['id']}/messages",
+                json={"text": "Đọc mã OTP ngân hàng cho tôi đối soát."},
+            ).json()
+        assert otp in body["victim_message"]["content"]
+        assert body["panel"]["goal"]["goal"] == "read_fake_otp"
+    finally:
+        client.app.state.provider = MockProvider()
+
+
+def test_role_timeouts_and_fallbacks():
+    from app.config import Settings
+    from app.llm.factory import build_provider
+
+    settings = Settings(
+        llm_api_key="router-key",
+        gemini_api_key="gem-key",
+        llm_provider="auto",
+        openai_base_url="https://router.example/v1",
+    )
+    provider = build_provider(settings)
+    assert provider.role_timeouts["persona"] == 12
+    assert provider.role_timeouts["guard"] == 8
+    assert provider.role_timeouts["extract"] == 30
+    assert provider.role_fallbacks["persona"] == "cx/gpt-5.6-luna"
+    assert provider.role_fallbacks["analyst"] == "cx/gpt-5.6-luna"
+    assert provider.role_fallbacks["guard"] == "cx/gpt-5.6-luna"
+
+
+def test_health_llm_is_warm_for_mock(client):
+    body = client.get("/api/health/llm").json()
+    assert body["mock"] is True
+    assert body["ok"] is True
 
 
 def test_httpx_is_a_direct_dependency():

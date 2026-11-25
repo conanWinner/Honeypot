@@ -105,8 +105,19 @@ def empty_indicators() -> dict:
     return {"phones": [], "bank_accounts": [], "urls": [], "apps": [], "brands": [], "pressure": [], "hotlines": []}
 
 
-def _add(bucket: list[str], value: str) -> None:
-    cleaned = " ".join(value.split())
+def normalize_indicator(kind: str, value: str) -> str:
+    text = " ".join(str(value or "").split()).strip(".,);]")
+    if kind in {"phones", "bank_accounts", "hotlines"}:
+        return re.sub(r"\D", "", text)
+    if kind == "apps":
+        return re.sub(r"[^a-z0-9]+", "", text.lower())
+    if kind == "urls":
+        return text.lower()
+    return text[:120]
+
+
+def _add(bucket: list[str], value: str, kind: str = "") -> None:
+    cleaned = normalize_indicator(kind, value) if kind else " ".join(str(value or "").split())
     if cleaned and cleaned not in bucket:
         bucket.append(cleaned[:120])
 
@@ -121,9 +132,7 @@ def _hotline(digits: str) -> bool:
 
 
 def _remember_url(found: dict, raw: str) -> None:
-    cleaned = raw.strip(".,);]")
-    if cleaned:
-        _add(found["urls"], cleaned)
+    _add(found["urls"], raw, "urls")
 
 
 def harvest_indicators(text: str) -> dict:
@@ -138,17 +147,17 @@ def harvest_indicators(text: str) -> dict:
         if not (9 <= len(digits) <= 12):
             continue
         if _near_bank(body, match.start(), match.end()):
-            _add(found["bank_accounts"], digits)
+            _add(found["bank_accounts"], digits, "bank_accounts")
             continue
-        _add(found["phones"], digits)
+        _add(found["phones"], digits, "phones")
     for match in re.finditer(r"\d[\d\s.]{4,}\d", body):
         digits = re.sub(r"\D", "", match.group(0))
         if _hotline(digits):
-            _add(found["hotlines"], digits)
-            _add(found["phones"], digits)
+            _add(found["hotlines"], digits, "hotlines")
+            _add(found["phones"], digits, "phones")
             continue
         if _near_bank(body, match.start(), match.end()) and 6 <= len(digits) <= 19:
-            _add(found["bank_accounts"], digits)
+            _add(found["bank_accounts"], digits, "bank_accounts")
             continue
         if len(digits) < 10:
             continue
@@ -156,7 +165,7 @@ def harvest_indicators(text: str) -> dict:
         if phone_shaped:
             continue
         if len(digits) <= 19:
-            _add(found["bank_accounts"], digits)
+            _add(found["bank_accounts"], digits, "bank_accounts")
     for match in _URL.findall(body):
         _remember_url(found, match)
     for match in _DOMAIN.finditer(body):
@@ -168,13 +177,13 @@ def harvest_indicators(text: str) -> dict:
     lowered = body.lower()
     for app in _APPS:
         if app in lowered:
-            _add(found["apps"], app)
+            _add(found["apps"], app, "apps")
     for needle, label in _BRANDS:
         if needle in lowered:
-            _add(found["brands"], label)
+            _add(found["brands"], label, "brands")
     for needle, label in _PRESSURE:
         if needle in lowered:
-            _add(found["pressure"], label)
+            _add(found["pressure"], label, "pressure")
     who = _WHO.search(body)
     if who:
         found["who"] = who.group(0)[:80]
@@ -186,7 +195,7 @@ def merge_indicators(base: dict | None, extra: dict) -> dict:
     source = base or {}
     for key in merged:
         for item in list(source.get(key) or []) + list(extra.get(key) or []):
-            _add(merged[key], str(item))
+            _add(merged[key], str(item), key)
     return merged
 
 
@@ -285,6 +294,37 @@ def stabilize_family(state: AgentState, family_id: str) -> str:
         state.pending_family_hits = 0
         return family_id
     return current
+
+
+def stabilize_branch(state: AgentState, kind: str, variant_id: str = "") -> tuple[str, str]:
+    """Keep the branch label until a different one wins two turns in a row.
+
+    The first real label is shown immediately. A one-turn flicker back to none,
+    or from a known variant to new, does not change what the cockpit shows.
+    """
+    kind = kind or "none"
+    current = state.stable_branch or "none"
+    if current == "none" or kind == current:
+        state.stable_branch = kind
+        if kind == "known_variant":
+            state.stable_variant = variant_id or state.stable_variant
+        elif kind == "none":
+            state.stable_variant = ""
+        state.pending_branch = ""
+        state.pending_branch_hits = 0
+        return state.stable_branch, state.stable_variant or ""
+    if state.pending_branch == kind:
+        state.pending_branch_hits += 1
+    else:
+        state.pending_branch = kind
+        state.pending_branch_hits = 1
+    if state.pending_branch_hits >= 2:
+        state.stable_branch = kind
+        state.stable_variant = variant_id if kind == "known_variant" else ""
+        state.pending_branch = ""
+        state.pending_branch_hits = 0
+        return kind, state.stable_variant
+    return current, state.stable_variant or ""
 
 
 def clamp_new_branch(kind: str, detected: bool, turn_index: int) -> tuple[str, bool]:

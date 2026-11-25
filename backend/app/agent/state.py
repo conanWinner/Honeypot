@@ -33,6 +33,10 @@ class AgentState(BaseModel):
     stable_family: str = ""
     pending_family: str = ""
     pending_family_hits: int = 0
+    stable_branch: str = "none"
+    stable_variant: str = ""
+    pending_branch: str = ""
+    pending_branch_hits: int = 0
     stage: str = "mo_dau"
     checklist: list[dict] = Field(default_factory=list)
     indicators: dict = Field(default_factory=dict)

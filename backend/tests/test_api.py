@@ -64,7 +64,7 @@ def test_new_branch_and_known_variant(client):
         f"/api/conversations/{created['id']}/messages",
         json={"text": "Chúng tôi biết bác sống một mình ở phố cổ, sẽ có người đến nhà."},
     ).json()
-    assert fresh["panel"]["branch"]["kind"] == "new"
+    assert fresh["panel"]["branch"]["kind"] == "known_variant"
     assert fresh["panel"]["wrap_recommended"] is False
 
 
