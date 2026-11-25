@@ -97,8 +97,10 @@ def _add(bucket: list[str], value: str) -> None:
 def harvest_indicators(text: str) -> dict:
     found = empty_indicators()
     body = text or ""
-    for match in _PHONE.findall(body):
-        digits = re.sub(r"\D", "", match)
+    for match in _PHONE.finditer(body):
+        if match.start() > 0 and body[match.start() - 1].isdigit():
+            continue
+        digits = re.sub(r"\D", "", match.group(0))
         if 9 <= len(digits) <= 12:
             _add(found["phones"], digits)
     for match in re.findall(r"\d[\d\s.]{8,}\d", body):

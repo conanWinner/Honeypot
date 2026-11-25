@@ -12,6 +12,7 @@ def test_indicators_pull_accounts_urls_and_apps():
     assert "Vietcombank" in found["brands"]
     assert found["pressure"]
     assert "0912000111" in found["phones"]
+    assert "04123456789" not in found["phones"]
 
 
 def test_checklist_marks_who_and_payment():
