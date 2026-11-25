@@ -20,7 +20,8 @@ primary_region = "sin"
 
 [env]
   LLM_PROVIDER = "auto"
-  GEMINI_MODEL = "gemini-3.8-flash"
+  GEMINI_MODEL = "gemini-2.5-flash"
+  GEMINI_MODEL_FALLBACK = "gemini-2.5-flash"
   GEMINI_EMBED_MODEL = "gemini-embedding-2"
 
 # Đặt bí mật bằng: fly secrets set GEMINI_API_KEY=... DATABASE_URL=... ADMIN_TOKEN=...

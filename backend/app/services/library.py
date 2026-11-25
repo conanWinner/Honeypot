@@ -225,7 +225,7 @@ def finish_conversation(session, conversation, provider) -> dict:
     }
     from app.agent.orchestrator import pack
 
-    extracted = provider.complete(ExtractionOutput, EXTRACT_SYSTEM, pack("Trích kịch bản từ hội thoại.", context), 0.3)
+    extracted = provider.complete(ExtractionOutput, EXTRACT_SYSTEM, pack("Trích kịch bản từ hội thoại.", context), 0.3, thinking=True)
     # The server, not the model, decides duplicate versus a new branch.
     extracted.relation = relation
     extracted.parent_id = parent_id

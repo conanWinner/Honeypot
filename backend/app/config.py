@@ -13,7 +13,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     # auto | gemini | openai | mock
     llm_provider: str = "auto"
-    gemini_model: str = "gemini-3.8-flash"
+    # Reliable default. gemini-2.5-flash-lite returns 404 and is rejected in the provider.
+    gemini_model: str = "gemini-2.5-flash"
+    # Optional. Tried first; 503, timeout, or 404 falls through to gemini_model.
+    gemini_model_preferred: str = ""
+    gemini_model_fallback: str = "gemini-2.5-flash"
     gemini_embed_model: str = "gemini-embedding-2"
     openai_model: str = "gpt-6-luna"
     openai_embed_model: str = "text-embedding-3-small"

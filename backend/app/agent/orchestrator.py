@@ -11,6 +11,7 @@ import json
 import logging
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from app.agent.policy import assess_inbound, fallback_reply, inspect_outbound, recommend_wrap, typing_ms
@@ -18,6 +19,7 @@ from app.agent.prompts import ANALYST_SYSTEM, PERSONA_SYSTEM, PLANNER_SYSTEM, SA
 from app.agent.schemas import AnalystOutput, BranchOut, MatchOut, PersonaOutput, PlannerOutput, SafetyOutput
 from app.agent.state import AgentState, MatchSnap
 from app.agent.textutil import digit_runs
+from app.data.personas import PRONOUNS
 from app.models import Message, TurnLog
 from app.services.matching import branch_hint, candidate_payload, search_scripts
 from app.taxonomy import GOALS
@@ -107,9 +109,66 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "inbound": inbound,
         "turn_index": state.turn_index,
     }
+    provisional = candidates[0] if candidates else None
+    provisional_branch = BranchOut.model_validate(hint)
+    provisional_top = None
+    if provisional:
+        provisional_top = MatchOut(
+            script_id=provisional["script_id"],
+            title=provisional["title"],
+            confidence=float(provisional["retrieval_score"]),
+            current_step_index=int(provisional["heuristic_step_index"]),
+            current_step_intent=_step_intent(provisional, int(provisional["heuristic_step_index"])),
+            reason="Ước lượng từ thư viện, trước khi mô hình rerank.",
+        )
+    provisional_script = by_id.get(provisional_top.script_id) if provisional_top else None
+    provisional_snap = MatchSnap(
+        script_id=provisional_top.script_id if provisional_top else "",
+        family_id=_family(provisional_script) if provisional_top else "",
+        title=provisional_top.title if provisional_top else "",
+        confidence=provisional_top.confidence if provisional_top else 0,
+        step_index=provisional_top.current_step_index if provisional_top else 0,
+        step_intent=provisional_top.current_step_intent if provisional_top else "",
+        branch_kind=provisional_branch.kind,
+    )
+    provisional_wrap, _provisional_reason = recommend_wrap(state.match_history + [provisional_snap])
+    planner_ctx = {
+        "message": text,
+        "turn_index": state.turn_index,
+        "wrap_allowed": provisional_wrap,
+        "branch": provisional_branch.model_dump(),
+        "suspicion": _clamp(inbound["suspicion_level"]),
+        "jailbreak": inbound["jailbreak"],
+        "goals_used": state.goals_used,
+        "otp_prompts": state.otp_prompts,
+        "memory": state.memory[-6:],
+        "persona_slug": persona.id,
+        "top_match": provisional_top.model_dump() if provisional_top else None,
+    }
+    # Analyst and planner both only need the retrieval packet, so they run together.
+    # Persona still waits: it has to follow the goal the planner picks.
     t0 = time.perf_counter()
-    analyst = provider.complete(AnalystOutput, ANALYST_SYSTEM, pack("Phân tích lượt mới nhất của đối phương.", analyst_ctx), 0.2)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        analyst_future = pool.submit(
+            provider.complete,
+            AnalystOutput,
+            ANALYST_SYSTEM,
+            pack("Phân tích lượt mới nhất của đối phương.", analyst_ctx),
+            0.2,
+            False,
+        )
+        planner_future = pool.submit(
+            provider.complete,
+            PlannerOutput,
+            PLANNER_SYSTEM,
+            pack("Chọn mục tiêu cho câu trả lời kế tiếp.", planner_ctx),
+            0.4,
+            False,
+        )
+        analyst = analyst_future.result()
+        plan = planner_future.result()
     analyst_ms = int((time.perf_counter() - t0) * 1000)
+    planner_ms = analyst_ms
 
     retrieval_by_id = {item["script_id"]: item for item in candidates}
     step_source = "model"
@@ -187,24 +246,11 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     wrap, wrap_reason = recommend_wrap(state.match_history + [snap])
     suspicion = max(_clamp(inbound["suspicion_level"]), _clamp(analyst.scammer_suspicion))
 
-    planner_ctx = {
-        "message": text,
-        "turn_index": state.turn_index,
-        "wrap_allowed": wrap,
-        "branch": branch.model_dump(),
-        "suspicion": suspicion,
-        "jailbreak": inbound["jailbreak"],
-        "goals_used": state.goals_used,
-        "otp_prompts": state.otp_prompts,
-        "memory": state.memory[-6:],
-        "persona_slug": persona.id,
-        "top_match": top.model_dump() if top else None,
-    }
-    t0 = time.perf_counter()
-    plan = provider.complete(PlannerOutput, PLANNER_SYSTEM, pack("Chọn mục tiêu cho câu trả lời kế tiếp.", planner_ctx), 0.4)
-    planner_ms = int((time.perf_counter() - t0) * 1000)
     goal = plan.goal
     note = plan.rationale
+    if branch.kind == "new" and goal not in ("probe_hook", "feign_confusion", "stall", "emotional_hook"):
+        goal = "probe_hook"
+        note = f"{note} Có nhánh mới, máy chủ chuyển sang đào chi tiết."
     if goal == "close_polite" and not wrap:
         goal = "probe_hook" if branch.kind == "new" else "ask_next_instruction"
         note = f"{note} Máy chủ giữ cuộc thoại vì chưa đủ điều kiện khép."
@@ -225,6 +271,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             "bio": persona.bio,
             "fake_profile": persona.fake_profile,
             "examples": persona.examples,
+            "pronouns": PRONOUNS.get(persona.id, {}),
         },
         "goal": goal,
         "goal_label": GOALS.get(goal, goal),
@@ -238,10 +285,10 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "jailbreak": inbound["jailbreak"],
     }
     t0 = time.perf_counter()
-    spoken = provider.complete(PersonaOutput, PERSONA_SYSTEM, pack("Viết tin nhắn trả lời trong vai.", persona_ctx), 0.9)
+    spoken = provider.complete(PersonaOutput, PERSONA_SYSTEM, pack("Viết tin nhắn trả lời trong vai.", persona_ctx), 0.9, thinking=False)
     persona_ms = int((time.perf_counter() - t0) * 1000)
     draft = (spoken.reply or "").strip()
-    violations = inspect_outbound(draft, _allowed_numbers(persona, state))
+    violations = inspect_outbound(draft, _allowed_numbers(persona, state), persona.id)
     safety_ctx = {
         "reply": draft,
         "code_violations": violations,
@@ -253,7 +300,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "persona_slug": persona.id,
     }
     t0 = time.perf_counter()
-    verdict = provider.complete(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1)
+    verdict = provider.complete(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, thinking=False)
     safety_ms = int((time.perf_counter() - t0) * 1000)
 
     action = "allow"
@@ -261,7 +308,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     model_flagged = (not verdict.approved) and bool(verdict.violations)
     if violations or model_flagged:
         candidate = (verdict.safe_reply or "").strip()
-        candidate_ok = bool(candidate) and candidate != draft and not inspect_outbound(candidate, _allowed_numbers(persona, state))
+        candidate_ok = bool(candidate) and candidate != draft and not inspect_outbound(candidate, _allowed_numbers(persona, state), persona.id)
         if candidate_ok:
             final = candidate
             action = "rewrite"

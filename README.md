@@ -68,7 +68,9 @@ Thứ tự một lượt:
 4. Luật khép: chỉ đề xuất khép khi ba lượt gần nhất cùng một họ kịch bản, độ tin cậy cao, bước đang tiến, và không có nhánh mới.
 5. Planner chọn mục tiêu kế tiếp. Máy chủ cấm `close_polite` khi chưa đủ điều kiện khép, và kéo về «giả vờ chưa hiểu» khi có jailbreak.
 6. Persona viết tin nhắn tiếng Việt theo hồ sơ giả và trí nhớ.
-7. An toàn đầu ra: luật là quyền phủ quyết. Mô hình có thể viết lại. Câu vẫn phạm thì thay bằng câu an toàn trong vai.
+7. An toàn đầu ra: luật là quyền phủ quyết, kể cả «trả liền», «chuyển liền», «ok em chuyển». Mô hình có thể viết lại. Câu vẫn phạm thì thay bằng câu an toàn trong vai. Cùng lúc kiểm tra cặp đại từ của persona và giọng tao/mày.
+
+Analyst và planner chạy song song vì cả hai chỉ cần gói tìm thư viện. Persona đợi mục tiêu. Bốn lần gọi mỗi lượt đều tắt thinking (`thinking_budget=0`, khoảng 0,7 giây trên `gemini-2.5-flash`) để một lượt ở dưới 4 giây. Chỉ lúc trích kịch bản cuối cuộc mới bật thinking. 503 và timeout được thử lại với backoff ngắn rồi chuyển model.
 
 Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một mình, shop, học phí…) mà kịch bản đang khớp và các biến thể của nó không có. Nếu thư viện đã có biến thể đó, UI báo «khớp nhánh đã có» và tiếp tục bám nhánh.
 
@@ -76,8 +78,8 @@ Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một
 
 | Vai | Mặc định | Ghi chú |
 | --- | --- | --- |
-| Agent | `gemini-3.8-flash` | JSON schema, thinking thấp |
-| Embedding | `gemini-embedding-2`, 768 chiều | Cột `embedding_vec vector(768)`, chỉ mục HNSW |
+| Agent | `gemini-2.5-flash` | JSON schema. Thinking tắt ở mỗi lượt (`thinking_budget=0`), bật khi trích kịch bản cuối cuộc |
+| Embedding | `gemini-embedding-2` hoặc `gemini-embedding-001` | Xin `outputDimensionality=768` rồi chuẩn hóa. Cột `vector(768)` |
 | Dự phòng | `gpt-6-luna` và `text-embedding-3-small` | Chỉ khi Gemini lỗi hoặc không có khóa Gemini |
 | Không khóa | Mock | Chỉ test tự động và banner «chưa cấu hình khóa» |
 
@@ -90,8 +92,10 @@ Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một
 | `GEMINI_API_KEY` | Khóa Google AI Studio. Cần cho demo thật |
 | `OPENAI_API_KEY` | Dự phòng, không bắt buộc |
 | `LLM_PROVIDER` | `auto` (mặc định), `gemini`, `openai`, `mock` |
-| `GEMINI_MODEL` | Mặc định `gemini-3.8-flash` |
-| `GEMINI_EMBED_MODEL` | Mặc định `gemini-embedding-2` |
+| `GEMINI_MODEL` | Mặc định `gemini-2.5-flash`. Không dùng `gemini-2.5-flash-lite` (404, bị đổi về 2.5-flash) |
+| `GEMINI_MODEL_PREFERRED` | Tuỳ chọn, ví dụ `gemini-3.5-flash`. 503, timeout hoặc 404 thì rơi về `GEMINI_MODEL` |
+| `GEMINI_MODEL_FALLBACK` | Mặc định `gemini-2.5-flash` |
+| `GEMINI_EMBED_MODEL` | Mặc định `gemini-embedding-2`. `gemini-embedding-001` cũng được, cùng chiều 768 |
 | `OPENAI_MODEL` | Mặc định `gpt-6-luna` |
 | `OPENAI_EMBED_MODEL` | Mặc định `text-embedding-3-small` |
 | `DATABASE_URL` | `postgresql+psycopg://...`. `postgres://` của Render/Railway được đổi sang driver psycopg |
@@ -171,7 +175,7 @@ Hạ tầng: Postgres 16 với pgvector, nginx.
 
 Đây là mục contest yêu cầu khai báo.
 
-- Sản phẩm chạy bằng Google Gemini (`gemini-3.8-flash`, `gemini-embedding-2`) và, nếu bật, OpenAI (`gpt-6-luna`, `text-embedding-3-small`).
+- Sản phẩm chạy bằng Google Gemini (`gemini-2.5-flash`, có thể thử `gemini-3.5-flash` rồi tự về 2.5-flash; embedding `gemini-embedding-2`) và, nếu bật, OpenAI (`gpt-6-luna`, `text-embedding-3-small`).
 - Mã nguồn của repo này được viết với Cursor, mô hình Grok 4.7, trong một cloud agent. Không có khóa Gemini hay OpenAI trong môi trường lúc build, nên eval đã commit chạy bằng mock. Đường mô hình thật đã nối đủ schema JSON, embedding và fallback; cần khóa để kiểm lại bằng tay.
 
 ## Pha 2, chưa làm

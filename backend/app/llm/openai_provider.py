@@ -16,7 +16,7 @@ class OpenAIProvider:
         self.dim = dim
         self.client = OpenAI(api_key=api_key)
 
-    def complete(self, schema: type[BaseModel], system: str, user: str, temperature: float = 0.4) -> BaseModel:
+    def complete(self, schema: type[BaseModel], system: str, user: str, temperature: float = 0.4, thinking: bool = False) -> BaseModel:
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -85,11 +85,11 @@ class FallbackProvider:
         self.model = chain[0].model
         self.embed_model = chain[0].embed_model
 
-    def complete(self, schema: type[BaseModel], system: str, user: str, temperature: float = 0.4) -> BaseModel:
+    def complete(self, schema: type[BaseModel], system: str, user: str, temperature: float = 0.4, thinking: bool = False) -> BaseModel:
         errors: list[str] = []
         for provider in self.chain:
             try:
-                result = provider.complete(schema, system, user, temperature)
+                result = provider.complete(schema, system, user, temperature, thinking=thinking)
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{provider.name}: {exc}")
                 continue

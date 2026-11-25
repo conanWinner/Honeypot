@@ -27,14 +27,34 @@ _AI_TOKEN = re.compile(r"\bAI\b")
 
 _MONEY = re.compile(
     r"("
-    r"(tôi|em|cô|mình|tui|cháu)\s+(sẽ\s+|vừa\s+|đã\s+)?chuyển\s+(khoản|tiền)"
+    r"(tôi|em|cô|mình|tui|cháu|con|bác|chị)\s+(sẽ\s+|vừa\s+|đã\s+|để\s+)?(chuyển|trả)\s+(khoản|tiền|liền|ngay|luôn|giúp)"
+    r"|trả\s+liền"
+    r"|chuyển\s+liền"
+    r"|chuyển\s+ngay"
+    r"|chuyển\s+luôn"
     r"|chuyển\s+khoản\s+ngay"
-    r"|ck\s+ngay"
+    r"|ck\s+(ngay|liền)"
     r"|đã\s+ck\s+rồi"
-    r"|(em|mình|tui)\s+ck\s+(rồi|ngay)"
+    r"|(em|mình|tui|con)\s+ck\s+(rồi|ngay|liền)"
+    r"|để\s+(bác|anh|chị|em|cô|cháu|con|mình|tui)\s+chuyển"
+    r"|ok\s+(em\s+|con\s+|mình\s+|tui\s+)?chuyển"
+    r"|có\s+tiền\s+trả"
+    r"|trả\s+cho\s+(anh|chị|bác|cháu|con|em)"
+    r"|chuyển\s+cho\s+(anh|chị|bác|cháu|con)"
     r")",
     re.IGNORECASE,
 )
+
+_RUDE = re.compile(r"\b(tao|mày|tụi bây|chúng mày)\b", re.IGNORECASE)
+_SELF_FRAME = re.compile(
+    r"\b(cô|em|chị|tui|mình|con|tao|bác|cháu)\s+(không|sẽ|đã|chưa|đang|trả|chuyển|đi|nghe|ck)\b",
+    re.IGNORECASE,
+)
+_ADDRESS_FRAME = re.compile(
+    r"\b(bác|cháu|anh|chị|cô|em|mày)\s+(ơi|có|làm|nói|cho|biết)\b",
+    re.IGNORECASE,
+)
+_CON_AS_SELF = re.compile(r"\bcon\b(?!\s+(trai|gái|cái|nuôi|của))", re.IGNORECASE)
 
 _INSTALL = re.compile(
     r"("
@@ -112,7 +132,39 @@ def assess_inbound(text: str) -> dict:
     }
 
 
-def inspect_outbound(text: str, allowed_numbers: set[str]) -> list[str]:
+def voice_issues(text: str, persona_id: str | None) -> list[str]:
+    """Light check: rude register, or a pronoun pair that is not this persona's."""
+    from app.data.personas import PRONOUNS
+
+    issues: list[str] = []
+    body = text or ""
+    if _RUDE.search(body):
+        issues.append("rude_register")
+    spec = PRONOUNS.get(persona_id or "")
+    if not spec:
+        return issues
+    allowed_self = {word.lower() for word in spec.get("self") or []}
+    allowed_other = {word.lower() for word in spec.get("other") or []}
+    for match in _SELF_FRAME.finditer(body):
+        if match.group(1).lower() not in allowed_self:
+            issues.append("pronoun_mix")
+            break
+    if "pronoun_mix" not in issues:
+        for match in _ADDRESS_FRAME.finditer(body):
+            if match.group(1).lower() not in allowed_other:
+                issues.append("pronoun_mix")
+                break
+    if spec.get("forbid_con_as_self") and "pronoun_mix" not in issues and _CON_AS_SELF.search(body):
+        issues.append("pronoun_mix")
+    for word in spec.get("forbid_words") or []:
+        if re.search(rf"\b{re.escape(word)}\b", body, re.IGNORECASE):
+            if "pronoun_mix" not in issues:
+                issues.append("pronoun_mix")
+            break
+    return issues
+
+
+def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | None = None) -> list[str]:
     violations: list[str] = []
     body = text or ""
     if _hits(_ADMISSION, body) or _AI_TOKEN.search(body):
@@ -123,6 +175,7 @@ def inspect_outbound(text: str, allowed_numbers: set[str]) -> list[str]:
         violations.append("agreed_to_install")
     if _HARMFUL.search(body):
         violations.append("harmful_assistance")
+    violations.extend(voice_issues(body, persona_id))
     from app.agent.textutil import digit_runs
 
     for number in digit_runs(body):

@@ -16,6 +16,8 @@ def build_provider(settings: Settings):
             settings.gemini_model,
             settings.gemini_embed_model,
             settings.embed_dim,
+            preferred_model=settings.gemini_model_preferred,
+            fallback_model=settings.gemini_model_fallback,
         )
     if settings.openai_api_key:
         openai = OpenAIProvider(

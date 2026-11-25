@@ -68,6 +68,28 @@ def test_new_branch_and_known_variant(client):
     assert fresh["panel"]["wrap_recommended"] is False
 
 
+def test_pay_agreement_is_replaced(client):
+    from app.agent.schemas import PersonaOutput
+    from app.llm.mock import MockProvider
+
+    class Pays(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False):
+            if schema.__name__ == "PersonaOutput":
+                return PersonaOutput(reply="Bác có tiền trả liền con nhé.", memory_note="lỗi")
+            return super().complete(schema, system, user, temperature, thinking=thinking)
+
+    client.app.state.provider = Pays()
+    created = client.post("/api/conversations", json={"persona_id": "ba-nam", "channel": "web"}).json()
+    body = client.post(
+        f"/api/conversations/{created['id']}/messages",
+        json={"text": "Đơn COD của shop bị hoàn, chị trả phí liền cho tôi."},
+    ).json()
+    text = body["victim_message"]["content"].lower()
+    assert "trả liền" not in text
+    assert body["panel"]["safety_action"] == "fallback"
+    client.app.state.provider = MockProvider()
+
+
 def test_jailbreak_stays_in_character(client):
     created = client.post("/api/conversations", json={"persona_id": "ba-nam", "channel": "web"}).json()
     body = client.post(
@@ -86,10 +108,10 @@ def test_unsafe_model_reply_is_replaced(client, monkeypatch):
     from app.llm.mock import MockProvider
 
     class Unsafe(MockProvider):
-        def complete(self, schema, system, user, temperature=0.4):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False):
             if schema.__name__ == "PersonaOutput":
                 return PersonaOutput(reply="Tôi là AI. Cô sẽ chuyển khoản ngay và đã cài UltraViewer xong.", memory_note="lỗi")
-            return super().complete(schema, system, user, temperature)
+            return super().complete(schema, system, user, temperature, thinking=thinking)
 
     client.app.state.provider = Unsafe()
     created = client.post("/api/conversations", json={"persona_id": "tuan-vp", "channel": "web"}).json()
