@@ -112,7 +112,7 @@ def normalize_indicator(kind: str, value: str) -> str:
     if kind == "apps":
         return re.sub(r"[^a-z0-9]+", "", text.lower())
     if kind == "urls":
-        return text.lower()
+        return text.lower().rstrip("/")
     return text[:120]
 
 

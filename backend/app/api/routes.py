@@ -1,6 +1,7 @@
 """HTTP API. The UI speaks Vietnamese; these payloads are what it renders."""
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -21,6 +22,7 @@ from app.services.trends import build_trends
 from app.taxonomy import CATEGORIES, CHANNELS, GOALS
 
 router = APIRouter()
+log = logging.getLogger("gianan.api")
 
 
 def get_db(request: Request):
@@ -154,14 +156,20 @@ def health(request: Request, session=Depends(get_db)):
 
 @router.get("/health/llm")
 def health_llm(request: Request):
-    report = getattr(request.app.state, "llm_health", None) or {
-        "ok": False,
-        "mock": True,
-        "latency_ms": None,
-        "model": "",
-        "error": "Chưa có ping.",
-        "warming": False,
-    }
+    from app.llm.openai_provider import failover_counts
+
+    report = dict(
+        getattr(request.app.state, "llm_health", None)
+        or {
+            "ok": False,
+            "mock": True,
+            "latency_ms": None,
+            "model": "",
+            "error": "Chưa có ping.",
+            "warming": False,
+        }
+    )
+    report["failovers"] = failover_counts()
     return report
 
 
@@ -280,8 +288,9 @@ def post_message(conversation_id: str, body: MessageIn, request: Request, sessio
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         result = handle_turn(session, conversation, inbound.text, request.app.state.provider)
-    except LLMError as exc:
-        raise HTTPException(status_code=502, detail=f"Mô hình không phản hồi. {exc}") from exc
+    except LLMError:
+        log.warning("Lượt hội thoại không xong, trả câu giữ chỗ.")
+        raise HTTPException(status_code=503, detail="Mô hình đang bận. Thử lại sau.") from None
     result["rendered"] = adapter.render(result["victim_message"]["content"])
     result["conversation_id"] = conversation.id
     return result
@@ -294,8 +303,9 @@ def extract(conversation_id: str, request: Request, session=Depends(get_db)):
         outcome = finish_conversation(session, conversation, request.app.state.provider)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except LLMError as exc:
-        raise HTTPException(status_code=502, detail=f"Mô hình không trích được kịch bản. {exc}") from exc
+    except LLMError:
+        log.warning("Chưa trích được kịch bản.")
+        return {"action": "unavailable", "detail": "Chưa trích được kịch bản. Thử lại sau.", "relation": "", "script": None}
     return outcome
 
 
@@ -330,8 +340,23 @@ def check(body: CheckIn, request: Request, session=Depends(get_db)):
         raise HTTPException(status_code=400, detail="Dán một tin nhắn hoặc đoạn hội thoại dài hơn.")
     try:
         return check_text(session, text, request.app.state.provider)
-    except LLMError as exc:
-        raise HTTPException(status_code=502, detail=f"Mô hình không phản hồi. {exc}") from exc
+    except LLMError:
+        log.warning("Chưa đọc được tin nhắn.")
+        return {
+            "risk": "thap",
+            "risk_label": "Thấp",
+            "is_scam": False,
+            "verdict": "unclear",
+            "confidence": 0,
+            "intent": "Chưa đọc được tin này. Thử lại sau.",
+            "red_flags": [],
+            "matched_script": None,
+            "next_step": None,
+            "advice": "Thử lại sau. Không chuyển tiền theo tin nhắn.",
+            "branch": {"detected": False, "kind": "none", "hook": "", "description": "", "variant_script_id": ""},
+            "mock": False,
+            "degraded": True,
+        }
 
 
 @router.post("/check/handoff")

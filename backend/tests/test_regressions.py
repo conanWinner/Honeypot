@@ -557,11 +557,142 @@ def test_role_timeouts_and_fallbacks():
     )
     provider = build_provider(settings)
     assert provider.role_timeouts["persona"] == 12
+    assert provider.role_timeouts["analyst"] == 18
+    assert provider.role_timeouts["planner"] == 18
     assert provider.role_timeouts["guard"] == 8
     assert provider.role_timeouts["extract"] == 30
+    assert provider.role_fallback_timeouts["analyst"] == 12
+    assert provider.role_fallback_timeouts["persona"] == 10
     assert provider.role_fallbacks["persona"] == "cx/gpt-5.6-luna"
     assert provider.role_fallbacks["analyst"] == "cx/gpt-5.6-luna"
     assert provider.role_fallbacks["guard"] == "cx/gpt-5.6-luna"
+
+
+AGREE_THEN_ASK = [
+    "em vừa tải AnyDesk về rồi, mã là gì anh?",
+    "cô chuyển 50 triệu vào số đó nhé, cháu gửi lại số tài khoản?",
+    "oke em bank lun, stk nào vậy?",
+    "em đã cài UltraViewer xong, ID là gì?",
+    "cô nạp 2 triệu rồi, cháu gửi link xác nhận được không?",
+    "vừa ck xong, anh đọc số tài khoản lại giúp em?",
+    "em đồng ý chuyển khoản ngay, nhưng phí này là gì?",
+    "da tai teamviewer ve roi, mat khau la sao?",
+]
+
+
+def test_agree_then_ask_is_blocked_and_plain_asks_pass():
+    from app.agent.policy import contains_guard_subject, is_extraction_ask
+
+    blocked = {"agreed_to_pay", "agreed_to_install", "agreed_to_share_otp"}
+    assert len(AGREE_THEN_ASK) >= 8
+    for line in AGREE_THEN_ASK:
+        issues = set(inspect_outbound(line, set(), "ba-nam"))
+        assert issues & blocked, line
+        assert not is_extraction_ask(line)
+        assert contains_guard_subject(line)
+    legit = [
+        "cháu gửi đường dẫn cho cô xem được không?",
+        "Cháu gửi đúng cái đường dẫn cô xem nào. Cô chưa bấm đâu.",
+        "Số tài khoản nào? Cháu đọc chậm, cô ghi lại đã, chưa chuyển đâu.",
+    ]
+    for line in legit:
+        issues = set(inspect_outbound(line, set(), "ba-nam"))
+        assert not (issues & blocked), (line, issues)
+    app_ask = "cháu gửi đường dẫn tải UltraViewer cho cô xem được không?"
+    assert "agreed_to_install" not in inspect_outbound(app_ask, set(), "ba-nam")
+    assert contains_guard_subject(app_ask)
+    assert not is_extraction_ask(app_ask)
+
+
+def test_household_payments_are_not_very_high(client):
+    for text in (
+        "Tối nay em chuyển tiền điện cho nhà xong rồi",
+        "Con chuyển khoản học phí cho trường rồi",
+    ):
+        body = client.post("/api/check", json={"text": text}).json()
+        assert body["risk"] != "rat_cao", text
+        assert body["risk"] != "cao", text
+        assert body["is_scam"] is False, text
+
+
+def test_pronoun_mix_keeps_the_question(client):
+    from app.agent.schemas import PersonaOutput
+    from app.llm.mock import MockProvider
+
+    class Echoes(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "PersonaOutput":
+                return PersonaOutput(reply="Bác nói con trai cô ở Đức, cháu biết chuyện đó từ đâu?", memory_note="")
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = Echoes()
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
+        body = client.post(
+            f"/api/conversations/{created['id']}/messages",
+            json={"text": "Tôi thấy con trai bác đang du học ở Đức."},
+        ).json()
+        text = body["victim_message"]["content"]
+        assert "Đức" in text or "đức" in text.lower()
+        assert "bác" not in text.lower()
+        assert body["panel"]["safety_action"] != "fallback"
+    finally:
+        client.app.state.provider = MockProvider()
+
+
+def test_persona_failure_returns_a_holding_line(client):
+    from app.llm.base import LLMError
+    from app.llm.mock import MockProvider
+
+    class Down(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "PersonaOutput":
+                raise LLMError("429 You exceeded your current quota")
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = Down()
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
+        response = client.post(
+            f"/api/conversations/{created['id']}/messages",
+            json={"text": "Alo, cô nghe máy không?"},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert "quota" not in body["victim_message"]["content"].lower()
+        assert "bận tay" in body["victim_message"]["content"]
+        assert body["panel"]["degraded"] is True
+    finally:
+        client.app.state.provider = MockProvider()
+
+
+def test_check_does_not_leak_upstream_errors(client, monkeypatch):
+    from app.llm.base import LLMError
+
+    def boom(*_args, **_kwargs):
+        raise LLMError("429 You exceeded your current quota, please check https://ai.google.dev")
+
+    monkeypatch.setattr("app.api.routes.check_text", boom)
+    response = client.post("/api/check", json={"text": "Tin nhắn này đủ dài để kiểm tra."})
+    assert response.status_code == 200
+    assert "quota" not in response.text.lower()
+    assert "google" not in response.text.lower()
+
+
+def test_url_trailing_slash_dedupes():
+    from app.agent.casefile import merge_indicators
+
+    merged = merge_indicators({"urls": ["https://quatet-tri-an.top/"]}, {"urls": ["https://quatet-tri-an.top"]})
+    assert merged["urls"] == ["https://quatet-tri-an.top"]
+
+
+def test_fake_otp_uses_the_persona_address():
+    from app.agent.policy import with_fake_otp
+
+    line = with_fake_otp("Cô không đọc mã đâu.", "huong-shop", "424242")
+    assert "424242" in line
+    assert "Anh/chị" not in line
+    assert "anh" in line.lower()
 
 
 def test_health_llm_is_warm_for_mock(client):

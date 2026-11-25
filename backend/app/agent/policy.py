@@ -292,9 +292,10 @@ def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | Non
     if _hits(_ADMISSION, body) or _AI_TOKEN.search(body):
         violations.append("ai_admission")
     folded = fold(body)
-    if _hits(_MONEY, body) or _hits(_MONEY_PLAIN, folded):
+    agreed = agreement_in_question(body)
+    if _hits(_MONEY, body) or _hits(_MONEY_PLAIN, folded) or agreed == "agreed_to_pay":
         violations.append("agreed_to_pay")
-    if _hits(_INSTALL, body) or _hits(_INSTALL_PLAIN, folded):
+    if _hits(_INSTALL, body) or _hits(_INSTALL_PLAIN, folded) or agreed == "agreed_to_install":
         violations.append("agreed_to_install")
     if _hits(_OTP_PLAIN, folded) and not _reports_allowed_code(body, allowed_numbers):
         violations.append("agreed_to_share_otp")
@@ -378,10 +379,57 @@ VIOLATION_LABELS = {
 }
 
 
+_AGREE_IN_QUESTION = re.compile(
+    r"("
+    r"\b(chuyen|chuyển)\s+\d+\s*(trieu|triệu|nghin|nghìn|ngan|ngàn|k)\b"
+    r"|\b(chuyen|chuyển)\s+.{0,24}(trieu|triệu)\s+vao\b"
+    r"|\b(vua|vừa|da|đã)\s+(tai|tải|cai|cài)\b.{0,48}(ve\s*roi|về\s*rồi|\broi\b|\brồi\b|\bxong\b)"
+    r"|\b(tai|tải|cai|cài)\b.{0,32}(ve\s*roi|về\s*rồi)"
+    r"|\b(chuyen|chuyển|ck|nap|nạp)\b.{0,40}\b(nhe|nhé|lien|liền|ngay|luon|luôn|roi|rồi|xong)\b"
+    r"|\b(ok|oke|okay)\b.{0,24}\b(bank|ck|chuyen|chuyển|nap|nạp)\b"
+    r"|\bbank\s+(lun|luon|ngay|lien|liền)\b"
+    r"|\b(nap|nạp)\s+\d+"
+    r"|dong\s*y\s+(chuyen|chuyển|nap|nạp|cai|cài|tai|tải)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def agreement_in_question(text: str) -> str:
+    """An agreement still counts when the same sentence ends by asking for the next detail."""
+    for source in ((text or ""), fold(text or "")):
+        for match in _AGREE_IN_QUESTION.finditer(source):
+            if _negated(source, match.start()):
+                continue
+            snippet = fold(match.group(0))
+            if re.search(r"\b(nao|dau)\b", snippet) and not re.search(r"\d", snippet):
+                continue
+            if re.search(r"(tai|cai|ve roi|ultraviewer|anydesk|teamviewer)", snippet) and not re.search(r"\b(chuyen|ck|nap|trieu)\b", snippet):
+                return "agreed_to_install"
+            return "agreed_to_pay"
+    return ""
+
+
+def contains_guard_subject(text: str) -> bool:
+    """Money, an app, a code, or a completion marker: the guard model must see the draft."""
+    folded = fold(text or "")
+    if re.search(r"\b(trieu|nghin|ngan|vnd)\b", folded):
+        return True
+    if re.search(r"(anydesk|ultraviewer|teamviewer)", folded):
+        return True
+    if re.search(r"\b(otp|ma otp|ma xac)\b", folded):
+        return True
+    if re.search(r"\b(chuyen|ck|nap|bank|gui tien)\b", folded) and re.search(r"\b(roi|xong|lien|ngay|nhe|ok\b|oke|dong y)\b", folded):
+        return True
+    return bool(agreement_in_question(text))
+
+
 def is_extraction_ask(text: str) -> bool:
     """Asking the scammer to send a link, account, or app name is the point of the turn."""
     raw = text or ""
     folded = fold(raw)
+    if agreement_in_question(raw) or contains_guard_subject(raw):
+        return False
     if "?" not in raw and "khong" not in folded and "nao" not in folded:
         return False
     if _hits(_INSTALL, raw) or _hits(_INSTALL_PLAIN, folded) or _hits(_MONEY, raw) or _hits(_MONEY_PLAIN, folded):
@@ -394,15 +442,61 @@ def with_fake_otp(text: str, persona_id: str, otp: str) -> str:
     code = (otp or "").strip()
     if not code or code in (text or ""):
         return text or ""
-    tails = {
-        "ba-nam": f"Mã cô thấy là {code}. Cháu lấy mã này để làm gì?",
-        "minh-sv": f"máy em hiện mã {code}. anh lấy mã này làm gì, em chưa xác nhận",
-        "huong-shop": f"App hiện mã {code}. Anh/chị dùng mã này để làm gì? Chị chưa xác nhận.",
-        "tuan-vp": f"Máy em hiện mã {code}. Anh/chị dùng để đối soát việc gì? Em chưa xác nhận.",
-        "lan-nt": f"Máy hiện mã {code}. Lấy mã này làm gì, tui chưa bấm đồng ý.",
-        "khoa-tx": f"ví hiện mã {code}. bác lấy làm gì, em chưa xác nhận",
+    from app.data.personas import PRONOUNS
+
+    spec = PRONOUNS.get(persona_id) or {}
+    other = ((spec.get("other") or ["anh"])[0]).lower()
+    self_word = ((spec.get("self") or ["em"])[0]).lower()
+    return f"Mã {self_word} thấy là {code}. {other[:1].upper()}{other[1:]} lấy mã này để làm gì? {self_word[:1].upper()}{self_word[1:]} chưa xác nhận."
+
+
+def repair_pronouns(text: str, persona_id: str) -> str:
+    """Swap a forbidden address word for this persona's own, and keep the question."""
+    from app.data.personas import PRONOUNS
+
+    spec = PRONOUNS.get(persona_id) or {}
+    other = (spec.get("other") or ["anh"])[0]
+    body = text or ""
+    for word in spec.get("forbid_words") or []:
+        if word.lower() in {"tao", "mày", "tụi bây", "chúng mày"}:
+            continue
+        body = re.sub(rf"\b{re.escape(word)}\b", other, body, flags=re.IGNORECASE)
+    return body
+
+
+def holding_line(persona_id: str, recent: list[str] | None = None) -> str:
+    lines = {
+        "ba-nam": [
+            "Đợi cô xíu, cô đang bận tay. Cháu nói lại được không?",
+            "Khoan đã cháu, cô nghe không rõ. Nói lại một câu thôi.",
+        ],
+        "minh-sv": [
+            "đợi em xíu, em đang bận tay. anh nói lại được không?",
+            "khoan, em nghe không rõ. nói lại một câu thôi.",
+        ],
+        "huong-shop": [
+            "Đợi chị xíu, chị đang bận tay. Anh nói lại được không?",
+            "Khoan đã, chị nghe không rõ. Nói lại một câu thôi.",
+        ],
+        "tuan-vp": [
+            "Đợi em xíu, em đang bận tay. Anh nói lại được không?",
+            "Khoan, em nghe không rõ. Anh nói lại một câu thôi.",
+        ],
+        "lan-nt": [
+            "Đợi tui xíu, tui đang bận tay. Bạn nói lại được không?",
+            "Khoan, tui nghe không rõ. Nói lại một câu thôi.",
+        ],
+        "khoa-tx": [
+            "đợi em xíu, em đang bận tay. bác nói lại được không?",
+            "khoan, em nghe không rõ. bác nói lại một câu.",
+        ],
     }
-    return tails.get(persona_id, f"Mã hiện lên là {code}.")
+    options = lines.get(persona_id) or lines["tuan-vp"]
+    recent_norm = [(item or "").strip().lower() for item in (recent or [])]
+    for line in options:
+        if line.strip().lower() not in recent_norm:
+            return line
+    return options[0]
 
 
 def needs_guard(text: str) -> bool:

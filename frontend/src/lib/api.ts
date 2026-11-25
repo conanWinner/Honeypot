@@ -145,6 +145,7 @@ export type Panel = {
     hotlines?: string[]
   }
   aggressiveness?: string
+  degraded?: boolean
   rejected_draft?: {
     text: string
     reasons: string[]
@@ -206,6 +207,7 @@ export function panelFromMessage(message: Message | undefined): Panel | null {
     checklist: reasoning.checklist,
     indicators: reasoning.indicators,
     aggressiveness: reasoning.aggressiveness,
+    degraded: Boolean(reasoning.degraded),
     rejected_draft: reasoning.outbound_safety?.rejected_draft ?? null,
   }
 }

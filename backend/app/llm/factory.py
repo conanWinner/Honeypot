@@ -14,12 +14,21 @@ from app.llm.openai_provider import FallbackProvider, OpenAIProvider
 class SplitProvider:
     """complete() follows the chat chain. embed() uses the embedding provider only."""
 
-    def __init__(self, chat, embedder, roles: dict[str, str] | None = None, fallbacks: dict[str, str] | None = None, timeouts: dict[str, float] | None = None):
+    def __init__(
+        self,
+        chat,
+        embedder,
+        roles: dict[str, str] | None = None,
+        fallbacks: dict[str, str] | None = None,
+        timeouts: dict[str, float] | None = None,
+        fallback_timeouts: dict[str, float] | None = None,
+    ):
         self._chat = chat
         self._embedder = embedder
         self.role_models = roles or {}
         self.role_fallbacks = fallbacks or {}
         self.role_timeouts = timeouts or {}
+        self.role_fallback_timeouts = fallback_timeouts or {}
         self.name = chat.name
         self.model = chat.model
         self.embed_model = getattr(embedder, "embed_model", "") or ""
@@ -41,6 +50,7 @@ class SplitProvider:
         max_tokens: int | None = None,
         timeout: float | None = None,
         fallback_model: str | None = None,
+        fallback_timeout: float | None = None,
     ):
         chosen = (model or "").strip()
         if not chosen and role:
@@ -49,6 +59,7 @@ class SplitProvider:
         if not alt and role:
             alt = (self.role_fallbacks.get(role) or "").strip()
         budget = timeout if timeout and timeout > 0 else self.role_timeouts.get(role)
+        alt_budget = fallback_timeout if fallback_timeout and fallback_timeout > 0 else self.role_fallback_timeouts.get(role)
         result = self._chat.complete(
             schema,
             system,
@@ -60,6 +71,7 @@ class SplitProvider:
             max_tokens=max_tokens,
             timeout=budget,
             fallback_model=alt or None,
+            fallback_timeout=alt_budget,
         )
         self.name = self._chat.name
         self.model = self._chat.model
@@ -106,6 +118,16 @@ def role_timeouts(settings: Settings) -> dict[str, float]:
     }
 
 
+def role_fallback_timeouts(settings: Settings) -> dict[str, float]:
+    return {
+        "persona": float(settings.timeout_persona_fallback),
+        "analyst": float(settings.timeout_analyst_fallback),
+        "planner": float(settings.timeout_planner_fallback),
+        "guard": float(settings.timeout_guard_fallback),
+        "extract": float(settings.timeout_extract_fallback),
+    }
+
+
 def build_provider(settings: Settings):
     mode = (settings.llm_provider or "auto").strip().lower()
     if mode == "mock":
@@ -136,4 +158,11 @@ def build_provider(settings: Settings):
         return MockProvider()
     chat = chain[0] if len(chain) == 1 else FallbackProvider(chain)
     embedder = gemini if gemini is not None else MockProvider()
-    return SplitProvider(chat, embedder, role_models(settings), role_fallbacks(settings), role_timeouts(settings))
+    return SplitProvider(
+        chat,
+        embedder,
+        role_models(settings),
+        role_fallbacks(settings),
+        role_timeouts(settings),
+        role_fallback_timeouts(settings),
+    )

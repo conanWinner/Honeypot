@@ -99,7 +99,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def llm_error(_request, exc: LLMError):
         from fastapi.responses import JSONResponse
 
-        return JSONResponse(status_code=502, content={"detail": f"Mô hình không phản hồi. {exc}"})
+        log.warning("LLM lỗi, không trả nội dung upstream: %s", type(exc).__name__)
+        return JSONResponse(status_code=503, content={"detail": "Mô hình đang bận. Thử lại sau."})
 
     return app
 

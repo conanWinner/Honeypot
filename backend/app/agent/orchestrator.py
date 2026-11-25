@@ -32,9 +32,12 @@ from app.agent.policy import (
     VIOLATION_LABELS,
     assess_inbound,
     fallback_reply,
+    contains_guard_subject,
+    holding_line,
     inspect_outbound,
     is_extraction_ask,
     needs_guard,
+    repair_pronouns,
     recommend_wrap,
     repeats_opening,
     rewrite_opening,
@@ -47,6 +50,7 @@ from app.agent.state import AgentState, MatchSnap
 from app.agent.textutil import digit_runs
 from app.data.personas import PRONOUNS
 from app.models import Message, TurnLog
+from app.llm.base import LLMError
 from app.services.matching import branch_hint, candidate_payload, script_blob, search_scripts, settle_new_branch
 from app.taxonomy import GOALS
 
@@ -82,6 +86,44 @@ def _allowed_numbers(persona, state: AgentState) -> set[str]:
         if len(digits) >= 6:
             allowed.add(digits)
     return allowed
+
+
+def _degraded_analyst(state: AgentState, candidates: list[dict]) -> AnalystOutput:
+    last = state.match_history[-1] if state.match_history else None
+    if last and last.script_id:
+        match = MatchOut(
+            script_id=last.script_id,
+            title=last.title,
+            confidence=last.confidence,
+            current_step_index=last.step_index,
+            current_step_intent=last.step_intent,
+            reason="Giữ kịch bản của lượt trước vì phân tích chưa trả lời.",
+        )
+    elif candidates:
+        top = candidates[0]
+        match = MatchOut(
+            script_id=top["script_id"],
+            title=top.get("title") or "",
+            confidence=float(top.get("retrieval_score") or 0),
+            current_step_index=int(top.get("heuristic_step_index") or 0),
+            current_step_intent="",
+            reason="Giữ kết quả thư viện vì phân tích chưa trả lời.",
+        )
+    else:
+        match = None
+    return AnalystOutput(
+        scammer_intent="Giữ mạch cũ.",
+        step_label=match.current_step_intent if match else "",
+        matches=[match] if match else [],
+        notes="Phân tích chưa trả lời.",
+    )
+
+
+def _degraded_plan(state: AgentState) -> PlannerOutput:
+    goal = state.goals_used[-1] if state.goals_used else "ask_next_instruction"
+    if goal in {"close_polite", "stall", "feign_confusion", "read_fake_otp"}:
+        goal = "ask_next_instruction"
+    return PlannerOutput(goal=goal, rationale="Lập kế hoạch chưa trả lời. Giữ câu hỏi đang mở.")
 
 
 def _family(script) -> str:
@@ -220,8 +262,19 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             "planner",
             260,
         )
-        analyst = analyst_future.result()
-        plan = planner_future.result()
+        degraded = False
+        try:
+            analyst = analyst_future.result()
+        except LLMError as exc:
+            log.warning("analyst không trả lời, giữ mạch cũ: %s", type(exc).__name__)
+            analyst = _degraded_analyst(state, candidates)
+            degraded = True
+        try:
+            plan = planner_future.result()
+        except LLMError as exc:
+            log.warning("planner không trả lời, dùng mục tiêu đang mở: %s", type(exc).__name__)
+            plan = _degraded_plan(state)
+            degraded = True
     analyst_ms = int((time.perf_counter() - t0) * 1000)
     planner_ms = analyst_ms
 
@@ -397,7 +450,15 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     persona_ctx["recent_openings"] = [item.strip().split("\n", 1)[0][:48] for item in recent_replies[-3:]]
     pace = state.aggressiveness or "normal"
     t0 = time.perf_counter()
-    spoken = _ask(PersonaOutput, PERSONA_SYSTEM, pack("Viết tin nhắn trả lời trong vai.", persona_ctx), 0.9, "persona", 180)
+    try:
+        spoken = _ask(PersonaOutput, PERSONA_SYSTEM, pack("Viết tin nhắn trả lời trong vai.", persona_ctx), 0.9, "persona", 180)
+    except LLMError as exc:
+        log.warning("persona không trả lời, câu giữ chỗ: %s", type(exc).__name__)
+        spoken = PersonaOutput(reply=holding_line(persona.id, recent_replies), memory_note="")
+        degraded = True
+        persona_failed = True
+    else:
+        persona_failed = False
     persona_ms = int((time.perf_counter() - t0) * 1000)
     draft = (spoken.reply or "").strip()
     allowed = _allowed_numbers(persona, state)
@@ -419,9 +480,10 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "persona_slug": persona.id,
     }
     t0 = time.perf_counter()
-    # Rules miss teencode. Money, a code, an app, a number, or a link still goes to the guard.
+    # A question does not hide an agreement, an amount, an app, or a code from the guard.
     # When a rewrite is also due, the guard runs beside it instead of after it.
-    need_guard = bool(violations or needs_guard(draft)) and not (not violations and is_extraction_ask(draft))
+    pure_ask = not violations and is_extraction_ask(draft) and not contains_guard_subject(draft)
+    need_guard = (not persona_failed) and (bool(violations or needs_guard(draft) or contains_guard_subject(draft))) and not pure_ask
     guard_future = None
     rewrite_future = None
     pool = ThreadPoolExecutor(max_workers=2) if need_guard or notes else None
@@ -451,7 +513,8 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
                 draft = redraft
                 violations = inspect_outbound(draft, allowed, persona.id)
                 safety_ctx = {**safety_ctx, "reply": draft, "code_violations": violations}
-                need_guard = bool(violations or needs_guard(draft)) and not (not violations and is_extraction_ask(draft))
+                pure_ask = not violations and is_extraction_ask(draft) and not contains_guard_subject(draft)
+                need_guard = (not persona_failed) and (bool(violations or needs_guard(draft) or contains_guard_subject(draft))) and not pure_ask
                 guard_future = None
         if need_guard and guard_future is not None and safety_ctx.get("reply") == draft:
             verdict = guard_future.result()
@@ -464,6 +527,8 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     finally:
         if pool is not None:
             pool.shutdown(wait=True)
+    if persona_failed:
+        verdict = SafetyOutput(approved=True, action="allow", notes="Persona chưa trả lời. Giữ câu trong vai.")
     safety_ms = int((time.perf_counter() - t0) * 1000)
 
     action = "allow"
@@ -478,8 +543,13 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             final = candidate
             action = "rewrite"
         else:
-            final = fallback_reply(persona.id, recent_replies)
-            action = "fallback"
+            repaired = repair_pronouns(draft, persona.id) if "pronoun_mix" in violations else ""
+            if repaired and repaired != draft and not inspect_outbound(repaired, allowed, persona.id):
+                final = repaired
+                action = "rewrite"
+            else:
+                final = fallback_reply(persona.id, recent_replies)
+                action = "fallback"
     if repeats_opening(final, recent_replies):
         rewritten = rewrite_opening(final, recent_replies)
         if rewritten and rewritten != final:
@@ -561,6 +631,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "checklist": state.checklist,
         "indicators": state.indicators,
         "aggressiveness": state.aggressiveness or "normal",
+        "degraded": degraded,
         "latencies_ms": {
             "analyst": analyst_ms,
             "planner": planner_ms,
@@ -641,6 +712,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "checklist": state.checklist,
         "indicators": state.indicators,
         "aggressiveness": state.aggressiveness or "normal",
+        "degraded": degraded,
     }
     return {
         "typing_ms": typing_ms(final, persona.id),

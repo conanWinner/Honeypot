@@ -10,7 +10,9 @@ timeouts are retried, then raised so the caller can fall back to Gemini.
 """
 
 import json
+import logging
 import re
+import threading
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -18,6 +20,21 @@ from pydantic import BaseModel, ValidationError
 from app.llm.base import LLMError, extract_json
 
 _TRAILING_COMMA = re.compile(r",\s*([}\]])")
+log = logging.getLogger("gianan.llm")
+_failover_lock = threading.Lock()
+_failover_counts: dict[str, int] = {}
+
+
+def failover_counts() -> dict[str, int]:
+    with _failover_lock:
+        return dict(_failover_counts)
+
+
+def _record_failover(role: str, model: str, reason: str) -> None:
+    key = role or "unknown"
+    with _failover_lock:
+        _failover_counts[key] = _failover_counts.get(key, 0) + 1
+    log.warning("llm failover role=%s model=%s reason=%s", key, model, (reason or "")[:180])
 
 
 def schema_hint(schema: type[BaseModel]) -> str:
@@ -163,27 +180,30 @@ class OpenAIProvider:
         max_tokens: int | None = None,
         timeout: float | None = None,
         fallback_model: str | None = None,
+        fallback_timeout: float | None = None,
     ) -> BaseModel:
-        del thinking, role
+        del thinking
         # One shot per model. A schema failure or a timeout moves to the alternate
         # small model instead of retrying the same slow call as plain JSON.
         budget = timeout if timeout and timeout > 0 else self.timeout
+        alt_budget = fallback_timeout if fallback_timeout and fallback_timeout > 0 else budget
         primary = (model or "").strip() or self.model
         alternate = (fallback_model or "").strip()
-        plan = [(primary, True)]
+        plan = [(primary, True, budget)]
         if alternate and alternate != primary:
-            plan.append((alternate, False))
+            plan.append((alternate, False, alt_budget))
         hint = schema_hint(schema)
         messages = [
             {"role": "system", "content": f"{system}\n\n{hint}"},
             {"role": "user", "content": user},
         ]
         last_error = "không rõ"
-        for name, use_schema in plan:
+        for name, use_schema, call_timeout in plan:
             try:
-                text = self._complete_text(messages, temperature, schema, max_tokens, name, budget, use_schema)
+                text = self._complete_text(messages, temperature, schema, max_tokens, name, call_timeout, use_schema)
             except LLMError as exc:
                 last_error = str(exc)
+                _record_failover(role, name, last_error)
                 continue
             try:
                 return parse_structured(schema, text)
@@ -198,10 +218,11 @@ class OpenAIProvider:
                     },
                 ]
                 try:
-                    text = self._complete_text(repaired, temperature, schema, max_tokens, name, budget, False)
+                    text = self._complete_text(repaired, temperature, schema, max_tokens, name, call_timeout, False)
                     return parse_structured(schema, text)
                 except (LLMError, ValidationError, json.JSONDecodeError, ValueError) as again:
                     last_error = str(again)
+                    _record_failover(role, name, last_error)
                     continue
         raise LLMError(f"Router không trả JSON hợp lệ: {last_error[:400]}")
 
@@ -264,6 +285,7 @@ class FallbackProvider:
         max_tokens: int | None = None,
         timeout: float | None = None,
         fallback_model: str | None = None,
+        fallback_timeout: float | None = None,
     ) -> BaseModel:
         errors: list[str] = []
         for provider in self.chain:
@@ -279,6 +301,7 @@ class FallbackProvider:
                     max_tokens=max_tokens,
                     timeout=timeout,
                     fallback_model=fallback_model,
+                    fallback_timeout=fallback_timeout,
                 )
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{provider.name}: {exc}")

@@ -65,6 +65,7 @@ export function CasePanel({ panel, reasoning, explain = false }: { panel: Panel 
         <p className="text-[11px] uppercase tracking-[0.16em] text-gold">Mục tiêu lượt này</p>
         <h2 className="mt-1 font-display text-2xl text-ink">{panel.goal.label || GOAL_LABELS[panel.goal.goal] || panel.goal.goal}</h2>
         <p className="mt-2 text-sm leading-6 text-ink-soft">{panel.goal.rationale}</p>
+        {panel.degraded && <p className="mt-2 text-sm text-seal">Mô hình vừa chậm. Câu này là câu giữ chỗ trong vai.</p>}
       </section>
 
       <section className="dossier rounded-3xl p-5">

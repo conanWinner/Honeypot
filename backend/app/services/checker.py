@@ -20,7 +20,10 @@ _BENIGN = (
     "con ve muon",
 )
 _PRIZE = ("trung thuong", "trung giai", "trung iphone", "qua tri an", "nhan thuong", "qua tang", "iphone")
-_MONEY_WORD = ("chuyen khoan", "chuyen tien", "nap tien", "hoc phi", "tien coc", "trieu", "stk")
+_MONEY_WORD = ("chuyen khoan", "chuyen tien", "nap tien", "hoc phi", "tien coc", "trieu", "stk", "tien dien", "tien nuoc")
+_HOUSEHOLD = ("tien dien", "tien nuoc", "tien nha", "hoc phi", "tien hoc", "cho truong")
+_IMPERSONATION = ("cong an", "canh sat", "thieu ta", "dieu tra", "ngan hang goi")
+_STRANGER = ("chuyen cho anh", "chuyen cho chi", "vao so", "so tai khoan", "nguoi la", "chuyen vao stk")
 _URGENCY = ("khan cap", "ngay lap tuc", "trong 15 phut", "trong vai phut", "bi bat ngay", "het han ngay")
 _OTP_CUE = ("otp", "ma xac thuc", "ma otp")
 
@@ -44,13 +47,21 @@ def _surface(text: str) -> set[str]:
         cues.add("urgency")
     if any(word in folded for word in _OTP_CUE):
         cues.add("otp")
+    if found["bank_accounts"]:
+        cues.add("account")
+    if any(word in folded for word in _IMPERSONATION):
+        cues.add("impersonation")
+    if any(word in folded for word in _STRANGER):
+        cues.add("stranger")
+    if any(word in folded for word in _HOUSEHOLD):
+        cues.add("household")
     return cues
 
 
 def _model_says_benign(analyst, hot: bool) -> bool:
     from app.agent.textutil import fold
 
-    if analyst.red_flags or hot or float(analyst.scammer_suspicion or 0) >= 0.4:
+    if hot or float(analyst.scammer_suspicion or 0) >= 0.4:
         return False
     raw = (analyst.scammer_intent or "").lower()
     folded = fold(raw)
@@ -108,7 +119,11 @@ def check_text(session, text: str, provider, persona=None) -> dict:
     model_benign = _model_says_benign(analyst, hot)
     plain = _plain_note(text)
     # A clock time (8h) or a room number (302) is not a phone or an account.
-    hard = surface & {"prize", "phone", "link", "money", "urgency", "otp"}
+    # Money alone (tiền điện, học phí cho trường) is not a scam. It needs a second signal.
+    second = surface & {"prize", "phone", "link", "urgency", "otp", "account", "impersonation", "stranger"}
+    hard = set(second)
+    if "money" in surface and second and "household" not in surface:
+        hard.add("money")
     if hard:
         if "prize" in surface or ("phone" in surface and "link" in surface):
             level, label = ("cao", "Cao") if level == "thap" else (level, label)
@@ -121,10 +136,14 @@ def check_text(session, text: str, provider, persona=None) -> dict:
             level, label = "trung_binh", "Trung bình"
             is_scam = True
             verdict = "scam"
-    elif model_benign:
+    elif plain or model_benign or "household" in surface:
         level, label = "thap", "Thấp"
         is_scam = False
         verdict = "benign"
+    elif "money" in surface and not second:
+        level, label = "trung_binh", "Trung bình"
+        is_scam = False
+        verdict = "unclear"
     elif level in {"cao", "rat_cao"} or (hot and confidence >= 0.55):
         is_scam = True
         verdict = "scam"
@@ -153,7 +172,7 @@ def check_text(session, text: str, provider, persona=None) -> dict:
                 "intent": f"Đây đã là bước cuối thường gặp: {current.get('intent')}",
                 "phrases": (current.get("phrases") or [])[:1],
             }
-    benign = verdict == "benign" and model_benign and not hard and (plain or not hot)
+    benign = verdict == "benign" and not hard
     if benign:
         matched = None
         next_step = None

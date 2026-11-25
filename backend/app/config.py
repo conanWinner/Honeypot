@@ -31,10 +31,16 @@ class Settings(BaseSettings):
     model_extract_fallback: str = "cx/gpt-6-luna"
     # Seconds. A hung router call used to sit for 40s, then retry the same model.
     timeout_persona: float = 12
-    timeout_analyst: float = 10
-    timeout_planner: float = 10
+    timeout_analyst: float = 18
+    timeout_planner: float = 18
     timeout_guard: float = 8
     timeout_extract: float = 30
+    # Separate budget for the one failover call. It does not reuse the primary timer.
+    timeout_persona_fallback: float = 10
+    timeout_analyst_fallback: float = 12
+    timeout_planner_fallback: float = 12
+    timeout_guard_fallback: float = 8
+    timeout_extract_fallback: float = 20
     # Reliable default. gemini-2.5-flash-lite returns 404 and is rejected in the provider.
     gemini_model: str = "gemini-2.5-flash"
     # Optional. Tried first; 503, timeout, or 404 falls through to gemini_model.
