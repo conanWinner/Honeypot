@@ -1,0 +1,33 @@
+# Render: hai web service Docker + Postgres.
+# Postgres của Render không phải image pgvector. Sau khi tạo DB, bật extension
+# `vector` nếu gói cho phép. Nếu không bật được, dùng docker compose trên một VPS.
+services:
+  - type: web
+    name: gianan-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gianan-db
+          property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LLM_PROVIDER
+        value: auto
+      - key: ADMIN_TOKEN
+        generateValue: true
+  - type: web
+    name: gianan-web
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+
+databases:
+  - name: gianan-db
+    databaseName: gianan
+    user: gianan

@@ -1,0 +1,50 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: gianan
+      POSTGRES_PASSWORD: gianan
+      POSTGRES_DB: gianan
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gianan -d gianan"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://gianan:gianan@db:5432/gianan
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GEMINI_EMBED_MODEL: ${GEMINI_EMBED_MODEL:-gemini-embedding-2}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
+      OPENAI_EMBED_MODEL: ${OPENAI_EMBED_MODEL:-text-embedding-3-small}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+    ports:
+      - "8091:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  web:
+    build: ./frontend
+    ports:
+      - "4178:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
