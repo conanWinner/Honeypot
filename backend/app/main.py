@@ -18,7 +18,7 @@ log = logging.getLogger("gianan")
 
 
 def _backfill(factory, provider) -> None:
-    if provider.is_mock:
+    if provider.is_mock or getattr(provider, "embeddings_mock", False):
         return
 
     def run() -> None:

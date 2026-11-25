@@ -54,6 +54,10 @@ def test_safety_blocks_admission_payment_and_install():
     assert inspect_outbound("Cháu là ai vậy? Cô không lưu số này.", allowed, "ba-nam") == []
     assert "pronoun_mix" in inspect_outbound("Bác có tiền trả liền con.", allowed, "ba-nam")
     assert inspect_outbound("Bác là ai, em đang chạy.", allowed, "khoa-tx") == []
+    expert = "Bà không chuyển khoản. Cháu gửi mã vận đơn qua ứng dụng đi."
+    assert "expert_shutdown" in inspect_outbound(expert, allowed, "ba-nam")
+    assert "pronoun_mix" in inspect_outbound(expert, allowed, "ba-nam")
+    assert inspect_outbound("Ủa đơn nào vậy cháu? Cô chưa thấy báo hoàn. Cô chưa chuyển đâu.", allowed, "ba-nam") == []
 
 
 def test_fallback_lines_match_their_persona():

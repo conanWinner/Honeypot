@@ -140,7 +140,12 @@ def health(request: Request, session=Depends(get_db)):
     return {
         "ok": True,
         "llm": {"provider": provider.name, "model": provider.model, "mock": provider.is_mock},
-        "embeddings": {"model": provider.embed_model, "mock": provider.is_mock, "ready": embedded, "published": published},
+        "embeddings": {
+            "model": provider.embed_model,
+            "mock": getattr(provider, "embeddings_mock", provider.is_mock),
+            "ready": embedded,
+            "published": published,
+        },
         "database": request.app.state.engine.dialect.name,
         "admin_open": not bool(request.app.state.settings.admin_token),
     }

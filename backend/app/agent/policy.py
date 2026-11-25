@@ -47,7 +47,11 @@ _MONEY = re.compile(
 
 _RUDE = re.compile(r"\b(tao|mày|tụi bây|chúng mày)\b", re.IGNORECASE)
 _SELF_FRAME = re.compile(
-    r"\b(cô|em|chị|tui|mình|con|tao|bác|cháu)\s+(không|sẽ|đã|chưa|đang|trả|chuyển|đi|nghe|ck)\b",
+    r"\b(cô|bà|em|chị|tui|mình|con|tao|bác|cháu)\s+(không|sẽ|đã|chưa|đang|trả|chuyển|đi|nghe|ck)\b",
+    re.IGNORECASE,
+)
+_EXPERT = re.compile(
+    r"(đây là (chiêu |vụ )?lừa|không bao giờ (gọi|nhắn|hỏi)|ứng dụng chính thức|tổng đài chính thức|mã vận đơn qua ứng dụng)",
     re.IGNORECASE,
 )
 _ADDRESS_FRAME = re.compile(
@@ -175,6 +179,8 @@ def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | Non
         violations.append("agreed_to_install")
     if _HARMFUL.search(body):
         violations.append("harmful_assistance")
+    if _EXPERT.search(body):
+        violations.append("expert_shutdown")
     violations.extend(voice_issues(body, persona_id))
     from app.agent.textutil import digit_runs
 

@@ -64,9 +64,9 @@ export function Shell() {
         )}
         {health?.llm.mock && (
           <Banner tone="warn">
-            Chưa cấu hình khóa API — đang chạy chế độ mô phỏng. Gắn <b>GEMINI_API_KEY</b> (hoặc OPENAI_API_KEY) rồi
-            khởi động lại để agent dùng mô hình thật. Luồng trên màn hình vẫn là pipeline thật, chỉ có lời của mô hình
-            là heuristic.
+            Chưa cấu hình khóa API — đang chạy chế độ mô phỏng. Gắn <b>LLM_API_KEY</b> cho router và{' '}
+            <b>GEMINI_API_KEY</b> cho embedding, rồi khởi động lại. Luồng trên màn hình vẫn là pipeline thật, chỉ có lời
+            của mô hình là heuristic.
           </Banner>
         )}
         {health && !health.llm.mock && (

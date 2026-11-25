@@ -19,15 +19,16 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgresql+psycopg://gianan:gianan@db:5432/gianan
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://rm7g66d.abc-tunnel.us/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-cx/gpt-6-luna}
       LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       GEMINI_MODEL_PREFERRED: ${GEMINI_MODEL_PREFERRED:-}
       GEMINI_MODEL_FALLBACK: ${GEMINI_MODEL_FALLBACK:-gemini-2.5-flash}
       GEMINI_EMBED_MODEL: ${GEMINI_EMBED_MODEL:-gemini-embedding-2}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
-      OPENAI_EMBED_MODEL: ${OPENAI_EMBED_MODEL:-text-embedding-3-small}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     ports:
       - "8091:8000"
