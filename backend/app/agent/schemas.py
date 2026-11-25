@@ -180,10 +180,15 @@ class PersonaOutput(BaseModel):
         return _text(value)
 
 
+_CLAIMS = {"none", "paid", "transferred", "installed", "clicked", "scanned", "entered", "shared_code", "personal_data"}
+
+
 class SafetyOutput(BaseModel):
     approved: bool = True
     violations: list[str] = Field(default_factory=list)
-    action: Literal["allow", "rewrite", "fallback"] = "allow"
+    action: Literal["allow", "rewrite", "block", "fallback"] = "allow"
+    reasons: list[str] = Field(default_factory=list)
+    which_claim: str = "none"
     safe_reply: str = ""
     notes: str = ""
     jailbreak: bool = False
@@ -193,9 +198,14 @@ class SafetyOutput(BaseModel):
     @field_validator("action", mode="before")
     @classmethod
     def _action(cls, value):
-        return _enum(value, {"allow", "rewrite", "fallback"}, "fallback")
+        return _enum(value, {"allow", "rewrite", "block", "fallback"}, "block")
 
-    @field_validator("violations", mode="before")
+    @field_validator("which_claim", mode="before")
+    @classmethod
+    def _claim(cls, value):
+        return _enum(value, _CLAIMS, "none")
+
+    @field_validator("violations", "reasons", mode="before")
     @classmethod
     def _violations(cls, value):
         return _str_list(value)

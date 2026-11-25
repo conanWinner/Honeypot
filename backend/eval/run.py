@@ -24,7 +24,8 @@ from app.config import get_settings
 from eval.scenarios import SCENARIOS
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "eval" / "results"
+# Default outside the repo so a run does not dirty git. EVAL_OUT overrides it.
+OUT = Path(os.environ.get("EVAL_OUT") or Path(tempfile.gettempdir()) / "gianan-eval")
 
 
 def _prepare_env() -> None:
@@ -49,6 +50,8 @@ def _simulator_line(provider, scenario: dict, turn: int, history: list[dict]) ->
         SCAMMER_SYSTEM,
         pack("Viết đúng một tin nhắn kế tiếp, bám câu gợi ý trong ngữ cảnh.", context),
         0.7,
+        role="sim",
+        max_tokens=180,
     )
     text = (spoken.message or "").strip()
     return text or scripted

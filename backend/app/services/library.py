@@ -282,7 +282,6 @@ def finish_conversation(session, conversation, provider) -> dict:
     if parent is not None and relation == "variant":
         parent.occurrence_count += 1
         parent.last_seen = utcnow()
-        parent.indicators = _combine_indicators(parent.indicators, extracted, state.indicators)
     if not provider.is_mock:
         try:
             vector = provider.embed([script_blob(created)])[0]

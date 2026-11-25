@@ -9,6 +9,7 @@ import re
 
 from app.agent.policy import inspect_outbound, repeats_opening
 from app.agent.state import AgentState
+from app.agent.textutil import fold
 
 STAGES: list[tuple[str, str]] = [
     ("mo_dau", "Mở đầu"),
@@ -110,7 +111,7 @@ def normalize_indicator(kind: str, value: str) -> str:
     if kind in {"phones", "bank_accounts", "hotlines"}:
         return re.sub(r"\D", "", text)
     if kind == "apps":
-        return re.sub(r"[^a-z0-9]+", "", text.lower())
+        return text.casefold()
     if kind == "urls":
         return text.lower().rstrip("/")
     return text[:120]
@@ -118,7 +119,11 @@ def normalize_indicator(kind: str, value: str) -> str:
 
 def _add(bucket: list[str], value: str, kind: str = "") -> None:
     cleaned = normalize_indicator(kind, value) if kind else " ".join(str(value or "").split())
-    if cleaned and cleaned not in bucket:
+    if not cleaned:
+        return
+    key = fold(cleaned) if kind == "apps" else cleaned
+    existing = {fold(item) if kind == "apps" else item for item in bucket}
+    if key not in existing:
         bucket.append(cleaned[:120])
 
 

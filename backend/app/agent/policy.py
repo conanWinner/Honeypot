@@ -205,6 +205,46 @@ def _hits(pattern: re.Pattern[str], text: str) -> bool:
     return False
 
 
+# Clear commitments. A question mark later in the sentence does not cancel them.
+# "chuyển cho ai, rồi sau đó" is not a commitment; the guard model decides that.
+_COMMITMENT = re.compile(
+    r"("
+    r"\b(cai|cài)\s+xong\b"
+    r"|\b(da|đã|vua|vừa)\s+(cai|cài|tai|tải)\b"
+    r"|\b(tai|tải|cai|cài)\b.{0,36}\bve\s+roi\b"
+    r"|\b(da|đã|vua|vừa)\s+(bam|bấm|click|nhap|nhập|quet|quét)\b"
+    r"|\b(bam|bấm|click)\s+vao\s+link\b.{0,40}\broi\b"
+    r"|\bquet\s+ma\b.{0,30}\b(tra|roi|xong)\b"
+    r"|\bgui\s+(tien\s+)?qua\b.{0,30}\b(luon|lun)\b"
+    r"|\b(ck|bank)\s+(lun|luon|xong|ngay|lien)\b"
+    r"|\b(ok|oke|okay)\b.{0,24}\b(bank|ck)\b"
+    r"|\b(chuyen|chuyển)\s+\d+\s*(trieu|triệu|nghin|nghìn|k)\b"
+    r"|\b(nap|nạp)\s+\d+"
+    r"|\bdong\s*y\s+(chuyen|chuyển|nap|nạp|cai|cài|tai|tải|ck)\b"
+    r"|\b(da|đã)\s+(nhap|nhập|chia\s+se|chia\s+sẻ)\s+(otp|ma)\b"
+    r"|\b(chuyen|ck|nap|gui tien)\s+(luon|lun|lien|xong)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def hard_commitment(text: str) -> str:
+    """Fast hard-block. Not an exemption: a trailing question does not clear a claim."""
+    for source in ((text or ""), fold(text or "")):
+        for match in _COMMITMENT.finditer(source):
+            if _negated(source, match.start()):
+                continue
+            snippet = fold(match.group(0))
+            if re.search(r"(cai|tai|bam|click|quet)", snippet):
+                if re.search(r"(bam|click|quet)", snippet) and not re.search(r"(cai|tai)", snippet):
+                    return "committed_act"
+                return "agreed_to_install"
+            if re.search(r"(otp|ma)", snippet) and re.search(r"(nhap|chia)", snippet):
+                return "agreed_to_share_otp"
+            return "agreed_to_pay"
+    return ""
+
+
 def assess_inbound(text: str) -> dict:
     folded = (text or "").lower()
     jail_cues = [cue for cue in _JAILBREAK if cue in folded]
@@ -255,9 +295,11 @@ def voice_issues(text: str, persona_id: str | None) -> list[str]:
         word = match.group(1).lower()
         if word == "con" and _con_is_family(body, persona_id):
             continue
-        if word not in allowed_self:
-            issues.append("pronoun_mix")
-            break
+        # "Cháu đang ở bệnh viện nào" addresses the scammer. Only a wrong word for THIS persona is a mix.
+        if word in allowed_self or word in allowed_other:
+            continue
+        issues.append("pronoun_mix")
+        break
     if "pronoun_mix" not in issues:
         for match in _ADDRESS_FRAME.finditer(body):
             if match.group(1).lower() not in allowed_other:
@@ -292,11 +334,15 @@ def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | Non
     if _hits(_ADMISSION, body) or _AI_TOKEN.search(body):
         violations.append("ai_admission")
     folded = fold(body)
-    agreed = agreement_in_question(body)
-    if _hits(_MONEY, body) or _hits(_MONEY_PLAIN, folded) or agreed == "agreed_to_pay":
+    commitment = hard_commitment(body)
+    if commitment == "agreed_to_pay" or _hits(_MONEY, body) or _hits(_MONEY_PLAIN, folded):
         violations.append("agreed_to_pay")
-    if _hits(_INSTALL, body) or _hits(_INSTALL_PLAIN, folded) or agreed == "agreed_to_install":
+    elif commitment == "agreed_to_install" or _hits(_INSTALL, body) or _hits(_INSTALL_PLAIN, folded):
         violations.append("agreed_to_install")
+    elif commitment == "committed_act":
+        violations.append("committed_act")
+    elif commitment == "agreed_to_share_otp":
+        violations.append("agreed_to_share_otp")
     if _hits(_OTP_PLAIN, folded) and not _reports_allowed_code(body, allowed_numbers):
         violations.append("agreed_to_share_otp")
     if _HARMFUL.search(body):
@@ -396,18 +442,12 @@ _AGREE_IN_QUESTION = re.compile(
 
 
 def agreement_in_question(text: str) -> str:
-    """An agreement still counts when the same sentence ends by asking for the next detail."""
-    for source in ((text or ""), fold(text or "")):
-        for match in _AGREE_IN_QUESTION.finditer(source):
-            if _negated(source, match.start()):
-                continue
-            snippet = fold(match.group(0))
-            if re.search(r"\b(nao|dau)\b", snippet) and not re.search(r"\d", snippet):
-                continue
-            if re.search(r"(tai|cai|ve roi|ultraviewer|anydesk|teamviewer)", snippet) and not re.search(r"\b(chuyen|ck|nap|trieu)\b", snippet):
-                return "agreed_to_install"
-            return "agreed_to_pay"
-    return ""
+    """Retired as an exemption and as a broad matcher.
+
+    "Phí 350k này chuyển cho ai, rồi sau đó…?" is a question. The guard model decides.
+    Only a verb-adjacent commitment, from hard_commitment, is a hard block.
+    """
+    return hard_commitment(text)
 
 
 def contains_guard_subject(text: str) -> bool:

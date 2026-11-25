@@ -384,6 +384,13 @@ def approve(script_id: str, request: Request, session=Depends(get_db), _: None =
     data = set_status(session, script_id, "published")
     if data is None:
         raise HTTPException(status_code=404, detail="Không thấy bản chờ duyệt.")
+    script = session.get(Script, script_id)
+    if script is not None and script.parent_id:
+        parent = session.get(Script, script.parent_id)
+        if parent is not None:
+            from app.agent.casefile import merge_indicators
+
+            parent.indicators = merge_indicators(parent.indicators, script.indicators or {})
     embed_script(session, script_id, request.app.state.provider)
     return get_script(session, script_id) or data
 

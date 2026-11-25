@@ -57,6 +57,8 @@ def test_safety_blocks_admission_payment_and_install():
     assert "pronoun_mix" not in inspect_outbound("Cô nghe nói con đang học bên Đức, cô lo.", allowed, "ba-nam")
     assert "pronoun_mix" not in inspect_outbound("Con trai cô đang ở Đức.", allowed, "ba-nam")
     assert "pronoun_mix" not in inspect_outbound("Cô lo về con lắm.", allowed, "ba-nam")
+    assert "pronoun_mix" not in inspect_outbound("Cháu đang ở bệnh viện nào vậy?", allowed, "ba-nam")
+    assert "agreed_to_pay" not in inspect_outbound("Phí 350k này chuyển cho ai, rồi sau đó cô phải làm gì?", allowed, "ba-nam")
     assert "agreed_to_install" not in inspect_outbound("co khong biet cai app do", allowed, "ba-nam")
     ask = "cháu gửi đường dẫn tải UltraViewer cho cô xem được không?"
     assert "agreed_to_install" not in inspect_outbound(ask, allowed, "ba-nam")

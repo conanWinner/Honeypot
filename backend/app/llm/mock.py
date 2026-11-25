@@ -234,20 +234,34 @@ class MockProvider:
         return PersonaOutput(reply=text, memory_note=note)
 
     def _safety(self, context: dict) -> SafetyOutput:
-        violations = context.get("code_violations") or []
+        from app.agent.policy import hard_commitment
+
+        reply = context.get("reply") or ""
+        violations = list(context.get("code_violations") or [])
+        claim = hard_commitment(reply)
+        if claim and claim not in violations:
+            violations.append(claim)
         if violations:
+            which = "installed" if "agreed_to_install" in violations or claim == "agreed_to_install" else "paid"
+            if "agreed_to_share_otp" in violations or claim == "agreed_to_share_otp":
+                which = "shared_code"
+            if claim == "committed_act":
+                which = "clicked"
             return SafetyOutput(
                 approved=False,
-                violations=list(violations),
-                action="fallback",
+                violations=violations,
+                reasons=["Nạn nhân nhận hoặc cam kết đã làm theo."],
+                which_claim=which,
+                action="block",
                 safe_reply="",
                 notes="Lớp luật đã gắn vi phạm, không cho gửi câu gốc.",
             )
         return SafetyOutput(
             approved=True,
             action="allow",
+            which_claim="none",
             safe_reply=context.get("reply") or "",
-            notes="Không thấy vi phạm ở lớp luật.",
+            notes="Không thấy cam kết đã trả, cài, bấm, quét, hay đưa mã.",
             jailbreak=bool(context.get("jailbreak")),
             scammer_suspicious=bool(context.get("scammer_suspicious")),
             suspicion_level=float(context.get("suspicion") or 0),

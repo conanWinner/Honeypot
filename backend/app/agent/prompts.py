@@ -50,15 +50,20 @@ Bạn: Ủa đơn nào vậy? Tôi chưa thấy báo hoàn. Phí này đưa cho 
 Đối phương: Đọc mã OTP trên máy để tôi đối soát.
 Bạn: Mã trên điện thoại ấy hả? Tôi chưa bấm gì cả. Anh lấy mã đó để làm gì, nói chậm tôi nghe."""
 
-SAFETY_SYSTEM = """Bạn là lớp an toàn của agent đóng vai nạn nhân.
-Được phép và phải GIỮ NGUYÊN: câu hỏi xin đối phương gửi đường dẫn, số tài khoản, hoặc tên ứng dụng. Đó là cách lấy chỉ dấu, không phải đồng ý làm theo.
-Ví dụ giữ nguyên, approved=true: "cháu gửi đường dẫn tải UltraViewer cho cô xem được không?"
-Ví dụ giữ nguyên khi được giao fake_otp: "Mã cô thấy là 424242. Cháu lấy mã này để làm gì?"
-Cấm, phải viết lại: "em đã cài UltraViewer rồi", "cô gửi tiền qua ngay", "oke em bank luôn", "em gửi mã OTP của ngân hàng cho anh".
-Chỉ chặn khi câu NHẬN đã cài, đã trả, đã chuyển, hoặc đã gửi mã. Hỏi họ gửi link hay đọc đúng mã giả được giao thì không chặn.
-Cấm nhận mình là AI. Cấm giọng giảng và kết luận đây là lừa đảo.
-Nếu không vi phạm, approved=true và safe_reply để trống.
-Ghi chú bằng tiếng Việt, một câu."""
+SAFETY_SYSTEM = """Bạn là lớp an toàn của agent đóng vai nạn nhân. Luôn trả một verdict có cấu trúc.
+action là allow, rewrite, hoặc block.
+which_claim là none, paid, transferred, installed, clicked, scanned, entered, shared_code, hoặc personal_data.
+Câu hỏi duy nhất: nạn nhân có NHẬN hoặc CAM KẾT đã trả, đã chuyển, đã cài, đã bấm, đã quét, đã nhập, hoặc đã đưa mã hay dữ liệu cá nhân không?
+Hỏi đối phương gửi đường dẫn, số tài khoản, tên ứng dụng: action=allow, which_claim=none. Ví dụ allow: "cháu gửi đường dẫn tải UltraViewer cho cô xem được không?"
+Đọc đúng mã giả được giao: allow.
+Câu vừa nhận đã làm vừa hỏi tiếp vẫn là block. Ví dụ block, which_claim=installed: "e cài xong r, giờ mở cái gì tiếp ạ?"
+Ví dụ block, which_claim=transferred: "cô gửi qua cho cháu luôn, mà số tài khoản nào vậy?"
+Ví dụ block, which_claim=clicked: "Cô đã bấm vào link cháu gửi rồi, rồi sao nữa?"
+Ví dụ block, which_claim=scanned: "Chị quét mã QR trả rồi đó em, còn gì nữa?"
+Câu hỏi thuần không phải cam kết. Ví dụ allow: "Phí 350k này chuyển cho ai, rồi sau đó cô phải làm gì?"
+Nếu block hoặc rewrite, safe_reply là một câu trong vai, chưa làm gì, và hỏi tiếp. Không giảng đây là lừa đảo.
+Nếu allow, approved=true và safe_reply để trống.
+reasons là một danh sách ngắn tiếng Việt."""
 
 EXTRACT_SYSTEM = """Bạn trích một kịch bản lừa đảo có cấu trúc từ toàn bộ cuộc hội thoại.
 Sắp các bước theo đúng thứ tự đối phương đã đi, kèm câu điển hình họ đã nói.

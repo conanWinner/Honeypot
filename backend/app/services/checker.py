@@ -71,6 +71,17 @@ def _model_says_benign(analyst, hot: bool) -> bool:
     return not any(phrase in folded for phrase in ("chuyen khoan", "chuyen tien", "nap tien", "gui tien", "trung thuong", "cai app"))
 
 
+def _everyday(text: str) -> bool:
+    """A meeting time or a small household amount, with no scam second-signal."""
+    from app.agent.textutil import fold
+
+    folded = fold(text or "")
+    if not re.search(r"(hop phong|hop luc|tien com|tien an|tien ca phe|\d+\s*k\s+tien)", folded):
+        return False
+    found = _surface(text)
+    return not (found & {"prize", "phone", "link", "urgency", "otp", "account", "impersonation", "stranger"})
+
+
 def _plain_note(text: str) -> bool:
     from app.agent.textutil import fold
 
@@ -117,7 +128,7 @@ def check_text(session, text: str, provider, persona=None) -> dict:
         level, label = "thap", "Thấp"
     surface = _surface(text)
     model_benign = _model_says_benign(analyst, hot)
-    plain = _plain_note(text)
+    plain = _plain_note(text) or _everyday(text)
     # A clock time (8h) or a room number (302) is not a phone or an account.
     # Money alone (tiền điện, học phí cho trường) is not a scam. It needs a second signal.
     second = surface & {"prize", "phone", "link", "urgency", "otp", "account", "impersonation", "stranger"}

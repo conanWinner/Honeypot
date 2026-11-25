@@ -466,9 +466,6 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     if notes:
         persona_ctx["critique"] = notes
     violations = inspect_outbound(draft, allowed, persona.id)
-    if not violations and is_extraction_ask(draft):
-        # The guard model has been rewriting "gửi đường dẫn UltraViewer cho cô xem" as an install.
-        pass
     safety_ctx = {
         "reply": draft,
         "code_violations": violations,
@@ -480,62 +477,49 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "persona_slug": persona.id,
     }
     t0 = time.perf_counter()
-    # A question does not hide an agreement, an amount, an app, or a code from the guard.
-    # When a rewrite is also due, the guard runs beside it instead of after it.
-    pure_ask = not violations and is_extraction_ask(draft) and not contains_guard_subject(draft)
-    need_guard = (not persona_failed) and (bool(violations or needs_guard(draft) or contains_guard_subject(draft))) and not pure_ask
+    # The guard starts the moment the draft exists. A rewrite, if any, runs beside that
+    # speculative check. A question never cancels the guard.
     guard_future = None
     rewrite_future = None
-    pool = ThreadPoolExecutor(max_workers=2) if need_guard or notes else None
+    pool = ThreadPoolExecutor(max_workers=2) if not persona_failed else None
     try:
-        if pool is not None and need_guard:
+        if pool is not None:
             guard_future = pool.submit(
-                _ask, SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 200
+                _ask, SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 220
             )
-        if pool is not None and notes:
-            rewrite_future = pool.submit(
-                _ask,
-                PersonaOutput,
-                PERSONA_SYSTEM,
-                pack("Viết lại tin nhắn. Giữ người cả tin, hỏi tiếp, không dạy đời.", persona_ctx),
-                0.7,
-                "persona",
-                180,
-            )
-        elif notes:
-            rewrite_future = None
+            if notes:
+                rewrite_future = pool.submit(
+                    _ask,
+                    PersonaOutput,
+                    PERSONA_SYSTEM,
+                    pack("Viết lại tin nhắn. Giữ người cả tin, hỏi tiếp, không dạy đời.", persona_ctx),
+                    0.7,
+                    "persona",
+                    180,
+                )
         if rewrite_future is not None:
             spoken_again = rewrite_future.result()
-            persona_ms += int((time.perf_counter() - t0) * 1000)
             redraft = (spoken_again.reply or "").strip()
             if redraft and len(critique_reply(redraft, persona.id, goal, allowed, pace, recent_replies)) <= len(notes):
                 spoken = spoken_again
                 draft = redraft
                 violations = inspect_outbound(draft, allowed, persona.id)
                 safety_ctx = {**safety_ctx, "reply": draft, "code_violations": violations}
-                pure_ask = not violations and is_extraction_ask(draft) and not contains_guard_subject(draft)
-                need_guard = (not persona_failed) and (bool(violations or needs_guard(draft) or contains_guard_subject(draft))) and not pure_ask
-                guard_future = None
-        if need_guard and guard_future is not None and safety_ctx.get("reply") == draft:
+                verdict = _ask(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 220)
+            else:
+                verdict = guard_future.result()
+        elif guard_future is not None:
             verdict = guard_future.result()
-        elif need_guard:
-            verdict = _ask(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 200)
         else:
-            if guard_future is not None:
-                guard_future.result()
-            verdict = SafetyOutput(approved=True, action="allow", notes="Câu hỏi xin chỉ dấu, hoặc bản nháp không đụng tiền, mã, ứng dụng hay link.")
+            verdict = SafetyOutput(approved=True, action="allow", notes="Persona chưa trả lời. Giữ câu trong vai.")
     finally:
         if pool is not None:
             pool.shutdown(wait=True)
-    if persona_failed:
-        verdict = SafetyOutput(approved=True, action="allow", notes="Persona chưa trả lời. Giữ câu trong vai.")
     safety_ms = int((time.perf_counter() - t0) * 1000)
 
     action = "allow"
     final = draft
-    if not violations and is_extraction_ask(draft):
-        verdict = SafetyOutput(approved=True, action="allow", notes="Câu hỏi xin đường dẫn, tài khoản hoặc tên ứng dụng. Giữ nguyên.")
-    model_flagged = (not verdict.approved) and bool(verdict.violations)
+    model_flagged = verdict.action in {"block", "fallback"} or (not verdict.approved and bool(verdict.violations or verdict.reasons))
     if violations or model_flagged:
         candidate = (verdict.safe_reply or "").strip()
         candidate_ok = bool(candidate) and candidate != draft and not inspect_outbound(candidate, allowed, persona.id)

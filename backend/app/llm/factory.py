@@ -95,12 +95,12 @@ def role_model(settings: Settings, role: str) -> str:
 
 
 def role_models(settings: Settings) -> dict[str, str]:
-    return {role: role_model(settings, role) for role in ("persona", "analyst", "planner", "guard", "extract")}
+    return {role: role_model(settings, role) for role in ("persona", "analyst", "planner", "guard", "extract", "sim")}
 
 
 def role_fallbacks(settings: Settings) -> dict[str, str]:
     found = {}
-    for role in ("persona", "analyst", "planner", "guard", "extract"):
+    for role in ("persona", "analyst", "planner", "guard", "extract", "sim"):
         raw = (getattr(settings, f"model_{role}_fallback", "") or "").strip()
         primary = role_model(settings, role)
         if raw and raw != primary:
@@ -115,6 +115,7 @@ def role_timeouts(settings: Settings) -> dict[str, float]:
         "planner": float(settings.timeout_planner),
         "guard": float(settings.timeout_guard),
         "extract": float(settings.timeout_extract),
+        "sim": float(settings.timeout_sim),
     }
 
 
@@ -125,6 +126,7 @@ def role_fallback_timeouts(settings: Settings) -> dict[str, float]:
         "planner": float(settings.timeout_planner_fallback),
         "guard": float(settings.timeout_guard_fallback),
         "extract": float(settings.timeout_extract_fallback),
+        "sim": float(settings.timeout_sim_fallback),
     }
 
 

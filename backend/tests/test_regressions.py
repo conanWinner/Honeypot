@@ -569,6 +569,10 @@ def test_role_timeouts_and_fallbacks():
 
 
 AGREE_THEN_ASK = [
+    "e cài xong r, giờ mở cái gì tiếp ạ?",
+    "cô gửi qua cho cháu luôn, mà số tài khoản nào vậy?",
+    "Cô đã bấm vào link cháu gửi rồi, rồi sao nữa?",
+    "Chị quét mã QR trả rồi đó em, còn gì nữa?",
     "em vừa tải AnyDesk về rồi, mã là gì anh?",
     "cô chuyển 50 triệu vào số đó nhé, cháu gửi lại số tài khoản?",
     "oke em bank lun, stk nào vậy?",
@@ -577,23 +581,34 @@ AGREE_THEN_ASK = [
     "vừa ck xong, anh đọc số tài khoản lại giúp em?",
     "em đồng ý chuyển khoản ngay, nhưng phí này là gì?",
     "da tai teamviewer ve roi, mat khau la sao?",
+    "ok em ck luôn, rồi sao nữa?",
+    "em đã nhập OTP xong, giờ làm gì?",
+    "cô đã quét QR chuyển rồi, còn thiếu gì?",
+    "chị đã click vào link rồi, mật khẩu là gì?",
+    "em gửi tiền qua luôn nhé, stk đâu?",
+    "tui đã cài anydesk rồi, id nào?",
+    "cô đồng ý nạp 500k, link nào vậy?",
+    "em đã chia sẻ mã otp rồi, kiểm tra giúp?",
 ]
 
 
 def test_agree_then_ask_is_blocked_and_plain_asks_pass():
     from app.agent.policy import contains_guard_subject, is_extraction_ask
 
-    blocked = {"agreed_to_pay", "agreed_to_install", "agreed_to_share_otp"}
-    assert len(AGREE_THEN_ASK) >= 8
+    from app.agent.policy import hard_commitment
+
+    blocked = {"agreed_to_pay", "agreed_to_install", "agreed_to_share_otp", "committed_act"}
+    assert len(AGREE_THEN_ASK) >= 20
     for line in AGREE_THEN_ASK:
         issues = set(inspect_outbound(line, set(), "ba-nam"))
-        assert issues & blocked, line
-        assert not is_extraction_ask(line)
-        assert contains_guard_subject(line)
+        assert issues & blocked, (line, issues)
+        assert hard_commitment(line)
     legit = [
         "cháu gửi đường dẫn cho cô xem được không?",
         "Cháu gửi đúng cái đường dẫn cô xem nào. Cô chưa bấm đâu.",
         "Số tài khoản nào? Cháu đọc chậm, cô ghi lại đã, chưa chuyển đâu.",
+        "Phí 350k này chuyển cho ai, rồi sau đó cô phải làm gì?",
+        "Cháu đang ở bệnh viện nào vậy?",
     ]
     for line in legit:
         issues = set(inspect_outbound(line, set(), "ba-nam"))
@@ -602,6 +617,88 @@ def test_agree_then_ask_is_blocked_and_plain_asks_pass():
     assert "agreed_to_install" not in inspect_outbound(app_ask, set(), "ba-nam")
     assert contains_guard_subject(app_ask)
     assert not is_extraction_ask(app_ask)
+
+
+def test_guard_runs_on_a_plain_question(client):
+    from app.llm.mock import MockProvider
+
+    seen = []
+
+    class Spy(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            seen.append(kwargs.get("role") or "")
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = Spy()
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
+        response = client.post(
+            f"/api/conversations/{created['id']}/messages",
+            json={"text": "Alo, cô nghe máy không?"},
+        )
+        assert response.status_code == 200, response.text
+        assert "guard" in seen
+    finally:
+        client.app.state.provider = MockProvider()
+
+
+def test_app_names_keep_vietnamese_letters():
+    from app.agent.casefile import merge_indicators
+
+    merged = merge_indicators({}, {"apps": ["Dịch vụ công giả lập", "dịch vụ công giả lập"]})
+    assert merged["apps"] == ["dịch vụ công giả lập"]
+    assert "dchv" not in merged["apps"][0]
+
+
+def test_pending_variant_does_not_write_parent_indicators(app, client):
+    from datetime import datetime, timezone
+
+    from app.models import Script
+
+    now = datetime.now(timezone.utc)
+    with app.state.Session() as session:
+        parent = session.get(Script, "cong-an-tai-khoan-giam-dinh")
+        before = dict(parent.indicators or {})
+        session.add(
+            Script(
+                id="pending-ioc-variant",
+                parent_id="cong-an-tai-khoan-giam-dinh",
+                title="Nhánh chờ duyệt",
+                category="police",
+                channel="web",
+                brand="Công an",
+                summary="Chưa duyệt.",
+                steps=[{"actor": "scammer", "intent": "Đòi", "phrases": ["chuyển ngay"]}],
+                hooks=[],
+                red_flags=[],
+                advice="Không chuyển.",
+                indicators={"phones": [], "bank_accounts": ["88886666"], "urls": [], "apps": [], "brands": [], "pressure": [], "hotlines": []},
+                sources=[],
+                first_seen=now,
+                last_seen=now,
+                occurrence_count=1,
+                status="pending",
+                novelty_note="",
+            )
+        )
+        session.commit()
+        parent = session.get(Script, "cong-an-tai-khoan-giam-dinh")
+        assert (parent.indicators or {}).get("bank_accounts", []) == (before.get("bank_accounts") or [])
+    approved = client.post("/api/moderation/pending-ioc-variant/approve")
+    assert approved.status_code == 200, approved.text
+    with app.state.Session() as session:
+        parent = session.get(Script, "cong-an-tai-khoan-giam-dinh")
+        assert "88886666" in (parent.indicators or {}).get("bank_accounts", [])
+        session.query(Script).filter(Script.id == "pending-ioc-variant").delete()
+        parent.indicators = before
+        session.commit()
+
+
+def test_meeting_and_meal_money_are_low(client):
+    for text in ("Mai 8h họp phòng 302", "Tối nay 200k tiền cơm nhé"):
+        body = client.post("/api/check", json={"text": text}).json()
+        assert body["risk"] == "thap", (text, body["risk"], body["verdict"])
+        assert body["is_scam"] is False
 
 
 def test_household_payments_are_not_very_high(client):
