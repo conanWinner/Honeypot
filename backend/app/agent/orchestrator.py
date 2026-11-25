@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -59,6 +60,52 @@ from app.services.matching import branch_hint, candidate_payload, script_blob, s
 from app.taxonomy import GOALS
 
 log = logging.getLogger("gianan.agent")
+
+_HARD_VIOLATIONS = {
+    "agreed_to_pay",
+    "agreed_to_install",
+    "agreed_to_share_otp",
+    "committed_act",
+    "ai_admission",
+    "harmful_assistance",
+    "expert_shutdown",
+    "unknown_number",
+}
+_guard_retries: dict[str, dict] = {}
+
+
+def _hard(issues: list[str]) -> list[str]:
+    return [item for item in issues if item in _HARD_VIOLATIONS]
+
+
+def _retry_guard_later(provider, conversation_id: str, safety_ctx: dict) -> None:
+    """One background retry. The next turn can show the verdict; this turn already held."""
+    if getattr(provider, "is_mock", True):
+        return
+
+    def run() -> None:
+        try:
+            caps = getattr(provider, "role_timeouts", {}) or {}
+            alts = getattr(provider, "role_fallback_timeouts", {}) or {}
+            verdict = provider.complete(
+                SafetyOutput,
+                SAFETY_SYSTEM,
+                pack("Duyệt câu trả lời trước khi gửi.", safety_ctx),
+                0.1,
+                role="guard",
+                max_tokens=220,
+                timeout=float(caps.get("guard") or 9),
+                fallback_timeout=float(alts.get("guard") or 7),
+            )
+            _guard_retries[conversation_id] = {
+                "reply": (safety_ctx.get("reply") or "")[:240],
+                "action": verdict.action,
+                "approved": bool(verdict.approved),
+            }
+        except Exception:
+            log.info("Guard thử lại vẫn không xong.")
+
+    threading.Thread(target=run, name="guard-retry", daemon=True).start()
 
 
 def pack(instruction: str, context: dict) -> str:
@@ -237,14 +284,28 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     # The whole turn also stops at TURN_DEADLINE.
     turn_end = time.monotonic() + float(getattr(provider, "turn_deadline", 25) or 25)
     role_caps = getattr(provider, "role_timeouts", {}) or {}
+    role_alt_caps = getattr(provider, "role_fallback_timeouts", {}) or {}
 
-    def _cap(role: str) -> float:
-        role_cap = float(role_caps.get(role) or 12)
-        return max(0.0, min(role_cap, turn_end - time.monotonic()))
+    def _remaining() -> float:
+        return turn_end - time.monotonic()
+
+    def _budgets(role: str) -> tuple[float, float]:
+        remaining = _remaining()
+        primary = max(0.0, min(float(role_caps.get(role) or 12), remaining))
+        alt_raw = role_alt_caps.get(role)
+        alt = max(0.0, min(float(alt_raw), remaining)) if alt_raw else 0.0
+        return primary, alt
+
+    def _wait_for(role: str) -> float:
+        primary, alt = _budgets(role)
+        # Fallback can start while the primary is still running, so the wait is
+        # the longer of the two clocks, not the sum, and never past the turn.
+        hedge = min(5.0, primary) if alt else 0.0
+        return max(0.0, min(_remaining(), max(primary, hedge + alt)))
 
     def _ask(schema, system, user, temperature, role, max_tokens, thinking=False):
-        cap = _cap(role)
-        if cap < 0.8:
+        primary, alt = _budgets(role)
+        if primary < 0.8 and alt < 0.8:
             raise LLMError("turn deadline")
         return provider.complete(
             schema,
@@ -255,11 +316,14 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             model=None,
             role=role,
             max_tokens=max_tokens,
-            timeout=cap,
+            timeout=primary if primary >= 0.8 else 0.5,
+            fallback_timeout=alt if alt >= 0.8 else None,
+            deadline=turn_end,
         )
 
     t0 = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
         analyst_future = pool.submit(
             _ask,
             AnalystOutput,
@@ -279,20 +343,20 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             260,
         )
         degraded = False
-        analyst_cap = _cap("analyst")
-        planner_cap = _cap("planner")
         try:
-            analyst = analyst_future.result(timeout=max(analyst_cap, 0.1))
+            analyst = analyst_future.result(timeout=max(_wait_for("analyst"), 0.05))
         except (LLMError, TimeoutError, FuturesTimeout) as exc:
             log.warning("analyst không trả lời, giữ mạch cũ: %s", type(exc).__name__)
             analyst = _degraded_analyst(state, candidates)
             degraded = True
         try:
-            plan = planner_future.result(timeout=max(planner_cap, 0.1))
+            plan = planner_future.result(timeout=max(_wait_for("planner"), 0.05))
         except (LLMError, TimeoutError, FuturesTimeout) as exc:
             log.warning("planner không trả lời, dùng mục tiêu đang mở: %s", type(exc).__name__)
             plan = _degraded_plan(state)
             degraded = True
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     analyst_ms = int((time.perf_counter() - t0) * 1000)
     planner_ms = analyst_ms
 
@@ -469,8 +533,10 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     pace = state.aggressiveness or "normal"
     t0 = time.perf_counter()
     try:
+        if _remaining() < 0.8:
+            raise LLMError("turn deadline")
         spoken = _ask(PersonaOutput, PERSONA_SYSTEM, pack("Viết tin nhắn trả lời trong vai.", persona_ctx), 0.9, "persona", 180)
-    except LLMError as exc:
+    except (LLMError, TimeoutError, FuturesTimeout) as exc:
         log.warning("persona không trả lời, câu giữ chỗ: %s", type(exc).__name__)
         spoken = PersonaOutput(reply=holding_line(persona.id, recent_replies), memory_note="")
         degraded = True
@@ -500,14 +566,16 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     # speculative check. A question never cancels the guard.
     guard_future = None
     rewrite_future = None
-    pool = ThreadPoolExecutor(max_workers=2) if not persona_failed else None
+    guard_pool = ThreadPoolExecutor(max_workers=2) if not persona_failed else None
+    guard_failed = False
+    verdict = None
     try:
-        if pool is not None:
-            guard_future = pool.submit(
+        if guard_pool is not None and _remaining() >= 0.8:
+            guard_future = guard_pool.submit(
                 _ask, SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 220
             )
             if notes:
-                rewrite_future = pool.submit(
+                rewrite_future = guard_pool.submit(
                     _ask,
                     PersonaOutput,
                     PERSONA_SYSTEM,
@@ -516,30 +584,54 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
                     "persona",
                     180,
                 )
+        elif guard_pool is not None:
+            guard_failed = True
         if rewrite_future is not None:
-            spoken_again = rewrite_future.result(timeout=max(0.1, turn_end - time.monotonic()))
-            redraft = (spoken_again.reply or "").strip()
+            try:
+                spoken_again = rewrite_future.result(timeout=max(0.05, _wait_for("persona")))
+            except (LLMError, TimeoutError, FuturesTimeout):
+                spoken_again = None
+            redraft = (spoken_again.reply or "").strip() if spoken_again is not None else ""
             if redraft and len(critique_reply(redraft, persona.id, goal, allowed, pace, recent_replies)) <= len(notes):
                 spoken = spoken_again
                 draft = redraft
                 violations = inspect_outbound(draft, allowed, persona.id)
-                safety_ctx = {**safety_ctx, "reply": draft, "code_violations": violations}
-                verdict = _ask(SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 220)
-            else:
-                verdict = guard_future.result(timeout=max(0.1, turn_end - time.monotonic()))
+                safety_ctx = {**safety_ctx, "reply": draft, "code_violations": violations, "rule_hints": soft_hints(draft)}
+                verdict = guard_pool.submit(
+                    _ask, SafetyOutput, SAFETY_SYSTEM, pack("Duyệt câu trả lời trước khi gửi.", safety_ctx), 0.1, "guard", 220
+                ).result(timeout=max(0.05, _wait_for("guard")))
+            elif guard_future is not None:
+                verdict = guard_future.result(timeout=max(0.05, _wait_for("guard")))
         elif guard_future is not None:
-            verdict = guard_future.result(timeout=max(0.1, turn_end - time.monotonic()))
-        else:
+            verdict = guard_future.result(timeout=max(0.05, _wait_for("guard")))
+        elif not guard_failed:
             verdict = SafetyOutput(approved=True, action="allow", notes="Persona chưa trả lời. Giữ câu trong vai.")
+    except (LLMError, TimeoutError, FuturesTimeout, Exception) as exc:  # noqa: BLE001
+        log.warning("guard không trả lời, không gửi bản nháp: %s", type(exc).__name__)
+        guard_failed = True
+        degraded = True
+        _retry_guard_later(provider, conversation.id, safety_ctx)
     finally:
-        if pool is not None:
-            pool.shutdown(wait=True)
+        if guard_pool is not None:
+            guard_pool.shutdown(wait=False, cancel_futures=True)
     safety_ms = int((time.perf_counter() - t0) * 1000)
 
     action = "allow"
     final = draft
-    model_flagged = verdict.action in {"block", "fallback"} or (not verdict.approved and bool(verdict.violations or verdict.reasons))
-    if violations or model_flagged:
+    if guard_failed or verdict is None:
+        final = holding_line(persona.id, recent_replies)
+        if _hard(inspect_outbound(final, allowed, persona.id)):
+            final = fallback_reply(persona.id, recent_replies)
+        action = "fallback"
+        degraded = True
+        model_flagged = False
+        verdict = verdict or SafetyOutput(approved=False, action="block", notes="Guard không trả lời.")
+    else:
+        model_flagged = verdict.action in {"block", "rewrite", "fallback"} or (
+            not verdict.approved and bool(verdict.violations or verdict.reasons)
+        )
+    hard = _hard(violations)
+    if not guard_failed and (hard or model_flagged):
         candidate = (verdict.safe_reply or "").strip()
         candidate_ok = bool(candidate) and candidate != draft and not inspect_outbound(candidate, allowed, persona.id)
         if candidate_ok:
@@ -567,6 +659,8 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         codes = list(dict.fromkeys([*violations, *(verdict.violations or [])]))
         if repeats_opening(draft, recent_replies) and "repeated_opening" not in codes:
             codes.append("repeated_opening")
+        if guard_failed and "guard_unavailable" not in codes:
+            codes.insert(0, "guard_unavailable")
         rejected = {
             "text": draft,
             "reasons": codes or ["safety"],
@@ -724,6 +818,53 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "scammer_message": _message_dict(scammer_row),
         "victim_message": _message_dict(victim_row),
         "panel": panel,
+    }
+
+
+def recover_turn(session, conversation, text: str) -> dict:
+    """Last resort so a chat turn never becomes an HTTP error."""
+    persona = conversation.persona
+    try:
+        state = AgentState.model_validate(conversation.state or {})
+    except Exception:
+        state = AgentState()
+    recent = [message.content for message in list(conversation.messages) if message.role == "victim"][-4:]
+    final = holding_line(persona.id, recent)
+    state.turn_index += 1
+    reasoning = {
+        "degraded": True,
+        "outbound_safety": {"action": "fallback", "code_violations": ["guard_unavailable"]},
+        "provider": "recover",
+        "mock": True,
+        "latencies_ms": {},
+    }
+    scammer_row = Message(id=_nid(), conversation_id=conversation.id, role="scammer", content=(text or "").strip(), created_at=_now())
+    victim_row = Message(
+        id=_nid(),
+        conversation_id=conversation.id,
+        role="victim",
+        content=final,
+        reasoning=reasoning,
+        created_at=_now(),
+    )
+    session.add(scammer_row)
+    session.add(victim_row)
+    conversation.state = state.model_dump()
+    conversation.updated_at = _now()
+    session.flush()
+    return {
+        "typing_ms": typing_ms(final, persona.id),
+        "scammer_message": _message_dict(scammer_row),
+        "victim_message": _message_dict(victim_row),
+        "panel": {
+            "degraded": True,
+            "safety_action": "fallback",
+            "goal": {"goal": "stall", "label": GOALS.get("stall", "Giữ nhịp"), "rationale": "Giữ câu vì mô hình chưa trả lời."},
+            "rejected_draft": None,
+            "matches": [],
+            "checklist": state.checklist,
+            "indicators": state.indicators,
+        },
     }
 
 

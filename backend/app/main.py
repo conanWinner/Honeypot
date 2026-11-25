@@ -54,8 +54,10 @@ def _backfill(factory, provider) -> None:
                 session.commit()
             if count:
                 log.info("Đã gắn embedding cho %s kịch bản.", count)
-        except Exception:
-            log.warning("Chưa gắn được embedding. Tìm theo từ khóa vẫn chạy.", exc_info=True)
+        except Exception as exc:
+            from app.llm.gemini import note_embed_failure
+
+            note_embed_failure(exc, "Chưa gắn được embedding. Tìm theo từ khóa vẫn chạy.")
 
     threading.Thread(target=run, name="embed-backfill", daemon=True).start()
 

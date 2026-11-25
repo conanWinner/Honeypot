@@ -286,8 +286,10 @@ def finish_conversation(session, conversation, provider) -> dict:
         try:
             vector = provider.embed([script_blob(created)])[0]
             _write_embedding(session, created, vector)
-        except Exception:
-            log.warning("Chưa gắn embedding cho bản chờ duyệt.", exc_info=True)
+        except Exception as exc:
+            from app.llm.gemini import note_embed_failure
+
+            note_embed_failure(exc, "Chưa gắn embedding cho bản chờ duyệt.")
     conversation.status = "ended"
     conversation.extracted_script_id = created.id
     conversation.updated_at = utcnow()
@@ -338,8 +340,10 @@ def embed_script(session, script_id: str, provider) -> None:
         return
     try:
         vector = provider.embed([script_blob(script)])[0]
-    except Exception:
-        log.warning("Không tạo được embedding lúc duyệt kịch bản.", exc_info=True)
+    except Exception as exc:
+        from app.llm.gemini import note_embed_failure
+
+        note_embed_failure(exc, "Không tạo được embedding lúc duyệt kịch bản.")
         return
     _write_embedding(session, script, vector)
 

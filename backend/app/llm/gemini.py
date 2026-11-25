@@ -16,6 +16,18 @@ from google.genai import types
 from app.llm.base import LLMError, extract_json
 
 log = logging.getLogger("gianan.embed")
+_pause_line_logged = False
+
+
+def note_embed_failure(exc: BaseException, detail: str) -> None:
+    """One line when semantic search is paused. Other failures keep a traceback."""
+    global _pause_line_logged
+    if "paused" in str(exc).lower():
+        if not _pause_line_logged:
+            log.warning("Tìm theo nghĩa đang tạm dừng, xếp theo từ khóa.")
+            _pause_line_logged = True
+        return
+    log.warning("%s", detail, exc_info=True)
 _BLOCKED_MODELS = ("gemini-2.5-flash-lite",)
 _RETRYABLE = ("503", "unavailable", "timeout", "timed out", "deadline", "429", "resource exhausted", "overloaded")
 _SWITCH = ("404", "not found", "not_found", "400", "invalid argument", "api version", "api_version")
@@ -97,8 +109,9 @@ class GeminiProvider:
         timeout: float | None = None,
         fallback_model: str | None = None,
         fallback_timeout: float | None = None,
+        deadline: float | None = None,
     ) -> BaseModel:
-        del model, role, timeout, fallback_model, fallback_timeout  # Router ids stay off the Gemini API.
+        del model, role, timeout, fallback_model, fallback_timeout, deadline  # Router ids stay off the Gemini API.
         errors: list[str] = []
         for model_name in self.models:
             try:

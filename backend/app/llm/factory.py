@@ -52,6 +52,7 @@ class SplitProvider:
         timeout: float | None = None,
         fallback_model: str | None = None,
         fallback_timeout: float | None = None,
+        deadline: float | None = None,
     ):
         chosen = (model or "").strip()
         if not chosen and role:
@@ -73,6 +74,7 @@ class SplitProvider:
             timeout=budget,
             fallback_model=alt or None,
             fallback_timeout=alt_budget,
+            deadline=deadline,
         )
         self.name = self._chat.name
         self.model = self._chat.model

@@ -92,7 +92,49 @@ def test_cloudflare_530_fails_over_once_then_raises(monkeypatch):
         provider.complete(PersonaOutput, "system", "user", timeout=12, fallback_model="cx/gpt-5.6-luna")
     assert [item[0] for item in calls] == ["cx/gpt-6-luna", "cx/gpt-5.6-luna"]
     assert calls[0][1] <= 12
-    assert calls[1][1] <= calls[0][1]
+    assert calls[1][1] <= 12
+
+
+def test_fallback_keeps_its_own_budget(monkeypatch):
+    calls = []
+
+    def fake_post(url, api_key, payload, timeout=40):
+        calls.append((payload["model"], timeout))
+        return 530, "text/html", "cloudflare"
+
+    monkeypatch.setattr("app.llm.openai_provider.post_chat", fake_post)
+    provider = OpenAIProvider("secret-key", "primary", "https://router.example/v1")
+    with pytest.raises(LLMError):
+        provider.complete(PersonaOutput, "system", "user", timeout=9, fallback_timeout=7, fallback_model="fallback")
+    assert [item[0] for item in calls] == ["primary", "fallback"]
+    assert calls[0][1] >= 8
+    assert 6 <= calls[1][1] <= 7.2
+
+
+def test_slow_primary_is_hedged(monkeypatch):
+    import time
+
+    def fake_post(url, api_key, payload, timeout=40):
+        if payload["model"] == "slow-primary":
+            time.sleep(1.2)
+        content = json.dumps({"reply": payload["model"], "memory_note": ""})
+        body = json.dumps({"choices": [{"message": {"content": content}}]})
+        return 200, "application/json", body
+
+    monkeypatch.setattr("app.llm.openai_provider.post_chat", fake_post)
+    provider = OpenAIProvider("secret-key", "slow-primary", "https://router.example/v1")
+    started = time.perf_counter()
+    parsed = provider.complete(
+        PersonaOutput,
+        "system",
+        "user",
+        timeout=1.0,
+        fallback_timeout=1.0,
+        fallback_model="fast-alt",
+    )
+    elapsed = time.perf_counter() - started
+    assert parsed.reply == "fast-alt"
+    assert elapsed < 1.0
 
 
 def test_router_failure_falls_through_to_next_chat_provider():

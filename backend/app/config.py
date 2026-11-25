@@ -35,14 +35,14 @@ class Settings(BaseSettings):
     timeout_persona: float = 12
     timeout_analyst: float = 18
     timeout_planner: float = 18
-    timeout_guard: float = 8
+    timeout_guard: float = 9
     timeout_extract: float = 30
     timeout_sim: float = 20
     # Separate budget for the one failover call. It does not reuse the primary timer.
     timeout_persona_fallback: float = 10
     timeout_analyst_fallback: float = 12
     timeout_planner_fallback: float = 12
-    timeout_guard_fallback: float = 8
+    timeout_guard_fallback: float = 7
     timeout_extract_fallback: float = 20
     timeout_sim_fallback: float = 12
     # Whole turn, including analyst, planner, persona, repair, and guard.

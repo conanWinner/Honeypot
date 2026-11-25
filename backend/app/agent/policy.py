@@ -237,9 +237,11 @@ _COMMITMENT = re.compile(
 
 
 def _clarifying_question(text: str) -> bool:
-    """Asking who, whether, or how long is not a claim that the act already happened."""
+    """Asking who, why, whether, or what happens next is not a claim that the act already happened."""
     folded = fold(text or "")
-    return bool(re.search(r"(bao lau|cho ai|luon a\b|chuyen luon a)", folded) or re.search(r"luôn à|cho ai", text or "", re.IGNORECASE))
+    if re.search(r"(bao lau|cho ai|luon a\b|chuyen luon a|sao lai|xong thi)", folded):
+        return True
+    return bool(re.search(r"luôn à|cho ai|sao lại|xong thì", text or "", re.IGNORECASE))
 
 
 def _completed_act(text: str) -> bool:
@@ -346,6 +348,14 @@ def voice_issues(text: str, persona_id: str | None) -> list[str]:
     return issues
 
 
+_DOTTED_AMOUNT = re.compile(r"\d{1,3}(?:\.\d{3})+")
+
+
+def _amount_digits(text: str) -> set[str]:
+    """'350.000 đồng' is a sum of money, not a phone or an account."""
+    return {re.sub(r"\D", "", match.group(0)) for match in _DOTTED_AMOUNT.finditer(text or "")}
+
+
 def _reports_allowed_code(text: str, allowed: set[str]) -> bool:
     found = set(re.findall(r"\d{4,8}", text or ""))
     if not found:
@@ -394,7 +404,10 @@ def inspect_outbound(text: str, allowed_numbers: set[str], persona_id: str | Non
     violations.extend(voice_issues(body, persona_id))
     from app.agent.textutil import digit_runs
 
+    amounts = _amount_digits(body)
     for number in digit_runs(body):
+        if number in amounts:
+            continue
         if number in allowed_numbers:
             continue
         if any(number in known or known in number for known in allowed_numbers if known):
@@ -584,6 +597,7 @@ def holding_line(persona_id: str, recent: list[str] | None = None) -> str:
     lines = {
         "ba-nam": [
             "Đợi cô xíu, cô đang bận tay. Cháu nói lại được không?",
+            "Ờ cháu chờ cô tí, cô đang tìm kính.",
             "Khoan đã cháu, cô nghe không rõ. Nói lại một câu thôi.",
         ],
         "minh-sv": [

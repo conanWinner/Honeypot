@@ -88,8 +88,9 @@ class MockProvider:
         timeout: float | None = None,
         fallback_model: str | None = None,
         fallback_timeout: float | None = None,
+        deadline: float | None = None,
     ) -> BaseModel:
-        del model, role, max_tokens, timeout, fallback_model, fallback_timeout
+        del model, role, max_tokens, timeout, fallback_model, fallback_timeout, deadline
         context = read_context(user)
         name = schema.__name__
         if name == "AnalystOutput":

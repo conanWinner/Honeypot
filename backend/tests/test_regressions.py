@@ -559,10 +559,11 @@ def test_role_timeouts_and_fallbacks():
     assert provider.role_timeouts["persona"] == 12
     assert provider.role_timeouts["analyst"] == 18
     assert provider.role_timeouts["planner"] == 18
-    assert provider.role_timeouts["guard"] == 8
+    assert provider.role_timeouts["guard"] == 9
     assert provider.role_timeouts["extract"] == 30
     assert provider.role_fallback_timeouts["analyst"] == 12
     assert provider.role_fallback_timeouts["persona"] == 10
+    assert provider.role_fallback_timeouts["guard"] == 7
     assert provider.role_fallbacks["persona"] == "cx/gpt-5.6-luna"
     assert provider.role_fallbacks["analyst"] == "cx/gpt-5.6-luna"
     assert provider.role_fallbacks["guard"] == "cx/gpt-5.6-luna"
@@ -811,10 +812,10 @@ def test_clarifying_questions_are_not_hard_blocked():
 def test_role_call_does_not_repair_after_the_deadline(monkeypatch):
     clock = {"t": 1_000.0}
     monkeypatch.setattr("app.llm.openai_provider.time.monotonic", lambda: clock["t"])
-    calls = {"n": 0}
+    calls = []
 
     def fake_post(url, api_key, payload, timeout=40):
-        calls["n"] += 1
+        calls.append((payload["model"], timeout))
         clock["t"] += 30
         body = json.dumps({"choices": [{"message": {"content": "không phải json"}}]})
         return 200, "application/json", body
@@ -822,8 +823,17 @@ def test_role_call_does_not_repair_after_the_deadline(monkeypatch):
     monkeypatch.setattr("app.llm.openai_provider.post_chat", fake_post)
     provider = OpenAIProvider("secret-key", "cx/gpt-6-luna", "https://router.example/v1")
     with pytest.raises(LLMError):
-        provider.complete(PersonaOutput, "system", "user", timeout=12, fallback_model="cx/gpt-5.6-luna")
-    assert calls["n"] == 1
+        provider.complete(
+            PersonaOutput,
+            "system",
+            "user",
+            timeout=12,
+            fallback_timeout=7,
+            fallback_model="cx/gpt-5.6-luna",
+        )
+    assert [item[0] for item in calls] == ["cx/gpt-6-luna", "cx/gpt-5.6-luna"]
+    assert calls[0][1] <= 12
+    assert calls[1][1] <= 7
 
 
 def test_address_term_stays_for_the_conversation(client):
@@ -906,6 +916,124 @@ def test_health_llm_is_warm_for_mock(client):
     body = client.get("/api/health/llm").json()
     assert body["mock"] is True
     assert body["ok"] is True
+
+
+def test_questions_and_money_amounts_are_not_hard_blocks():
+    allowed: set[str] = set()
+    for line in (
+        "Sao lại bắt cô chuyển ngay?",
+        "chuyển xong thì sao?",
+        "Phí 350.000 đồng này là gì vậy?",
+    ):
+        issues = set(inspect_outbound(line, allowed, "ba-nam"))
+        assert "agreed_to_pay" not in issues, (line, issues)
+        assert "unknown_number" not in issues, (line, issues)
+    assert "unknown_number" in inspect_outbound("Số tài khoản của cô là 9999888877776666.", allowed, "ba-nam")
+
+
+def test_guard_allow_sends_a_question_the_rules_only_hint_at(client):
+    from app.llm.mock import MockProvider
+
+    class Asks(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "PersonaOutput":
+                return PersonaOutput(reply="Sao lại bắt cô chuyển ngay? Cô chưa làm gì.", memory_note="")
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = Asks()
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
+        body = client.post(
+            f"/api/conversations/{created['id']}/messages",
+            json={"text": "Cô chuyển khoản ngay vào tài khoản giám định."},
+        ).json()
+        assert "chuyển ngay" in body["victim_message"]["content"].lower()
+        assert body["panel"]["safety_action"] == "allow"
+    finally:
+        client.app.state.provider = MockProvider()
+
+
+def test_failing_guard_holds_the_line_and_stays_under_the_deadline(client):
+    import time
+
+    from app.llm.mock import MockProvider
+
+    class GuardDown(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "SafetyOutput":
+                raise LLMError("guard down")
+            if schema.__name__ == "PersonaOutput":
+                return PersonaOutput(reply="Cô sẽ chuyển khoản ngay cho cháu.", memory_note="")
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    provider = GuardDown()
+    provider.turn_deadline = 8
+    client.app.state.provider = provider
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
+        started = time.perf_counter()
+        response = client.post(
+            f"/api/conversations/{created['id']}/messages",
+            json={"text": "Alo, cô nghe máy."},
+        )
+        elapsed = time.perf_counter() - started
+        assert response.status_code == 200
+        assert elapsed < provider.turn_deadline
+        body = response.json()
+        assert "chuyển khoản ngay" not in body["victim_message"]["content"].lower()
+        assert body["panel"]["degraded"] is True
+        assert body["panel"]["safety_action"] == "fallback"
+    finally:
+        client.app.state.provider = MockProvider()
+
+
+def test_slow_guard_and_analyst_do_not_hold_the_turn(client):
+    import time
+
+    from app.llm.mock import MockProvider
+
+    class Slow(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            role = kwargs.get("role")
+            if role == "analyst" or schema.__name__ == "SafetyOutput":
+                time.sleep(1.4)
+                raise LLMError("slow")
+            if schema.__name__ == "PersonaOutput":
+                return PersonaOutput(reply="Cháu là ai vậy? Cô nghe đây.", memory_note="")
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    provider = Slow()
+    provider.turn_deadline = 0.7
+    provider.role_timeouts = {"analyst": 5, "planner": 5, "persona": 5, "guard": 5}
+    provider.role_fallback_timeouts = {"analyst": 5, "planner": 5, "persona": 5, "guard": 5}
+    client.app.state.provider = provider
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
+        started = time.perf_counter()
+        response = client.post(
+            f"/api/conversations/{created['id']}/messages",
+            json={"text": "Alo, cô nghe máy."},
+        )
+        elapsed = time.perf_counter() - started
+        assert response.status_code == 200
+        assert elapsed < 1.2
+        body = response.json()
+        assert body["panel"]["degraded"] is True
+        assert "là ai" not in body["victim_message"]["content"].lower()
+    finally:
+        client.app.state.provider = MockProvider()
+
+
+def test_paused_embed_logs_a_single_line(caplog):
+    import app.llm.gemini as gemini
+
+    gemini._pause_line_logged = False
+    with caplog.at_level("WARNING"):
+        gemini.note_embed_failure(LLMError("semantic search paused"), "detail one")
+        gemini.note_embed_failure(LLMError("semantic search paused"), "detail two")
+    paused = [record for record in caplog.records if "tạm dừng" in record.message]
+    assert len(paused) == 1
+    assert paused[0].exc_info is None
 
 
 def test_httpx_is_a_direct_dependency():

@@ -134,10 +134,9 @@ def search_scripts(session, message: str, provider, k: int = 6, status: str = "p
         try:
             embedding = provider.embed([message])[0]
         except Exception as exc:
-            if "paused" in str(exc):
-                log.warning("Tìm theo nghĩa đang tạm dừng, xếp theo từ khóa.")
-            else:
-                log.warning("Không tạo được embedding cho lượt này, tạm xếp theo từ khóa.")
+            from app.llm.gemini import note_embed_failure
+
+            note_embed_failure(exc, "Không tạo được embedding cho lượt này, tạm xếp theo từ khóa.")
             embedding = None
     if embedding is not None:
         found: dict[str, float] = {}

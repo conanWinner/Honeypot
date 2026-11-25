@@ -104,8 +104,9 @@ Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi
 | `MODEL_*_FALLBACK` | Một model nhỏ thay vai khi lần gọi chính hết giờ. Persona, analyst, planner, guard mặc định `cx/gpt-5.6-luna` |
 | `TIMEOUT_PERSONA` | Mặc định 12 giây |
 | `TIMEOUT_ANALYST` / `TIMEOUT_PLANNER` | Mặc định 18 giây |
-| `TIMEOUT_*_FALLBACK` | Ngân sách riêng cho lần đổi model. Analyst và planner mặc định 12 giây |
-| `TIMEOUT_GUARD` | Mặc định 8 giây |
+| `TIMEOUT_*_FALLBACK` | Ngân sách riêng cho lần đổi model, không dùng nốt đồng hồ của lần chính. Analyst và planner mặc định 12 giây, guard 7 giây. Nếu lần chính im khoảng 5 giây thì lần đổi chạy song song |
+| `TIMEOUT_GUARD` | Mặc định 9 giây |
+| `TURN_DEADLINE` | Mặc định 25 giây cho cả lượt |
 | `TIMEOUT_EXTRACT` | Mặc định 30 giây |
 | `LLM_PROVIDER` | `auto` hoặc `openai-compatible`: router rồi Gemini. `gemini`: ngược lại. `mock`: test |
 | `GEMINI_MODEL` | Mặc định `gemini-2.5-flash`. Không dùng `gemini-2.5-flash-lite` (404, bị đổi về 2.5-flash) |

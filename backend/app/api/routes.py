@@ -295,9 +295,11 @@ def post_message(conversation_id: str, body: MessageIn, request: Request, sessio
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         result = handle_turn(session, conversation, inbound.text, request.app.state.provider)
-    except LLMError:
-        log.warning("Lượt hội thoại không xong, trả câu giữ chỗ.")
-        raise HTTPException(status_code=503, detail="Mô hình đang bận. Thử lại sau.") from None
+    except Exception as exc:
+        log.warning("Lượt hội thoại không xong, giữ câu trong vai: %s", type(exc).__name__)
+        from app.agent.orchestrator import recover_turn
+
+        result = recover_turn(session, conversation, inbound.text)
     result["rendered"] = adapter.render(result["victim_message"]["content"])
     result["conversation_id"] = conversation.id
     return result

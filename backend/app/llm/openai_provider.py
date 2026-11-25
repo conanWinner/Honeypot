@@ -14,6 +14,8 @@ import logging
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import TimeoutError as FuturesTimeout
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -141,6 +143,27 @@ def _assemble_sse(raw: str) -> str:
     return "".join(parts)
 
 
+def _first_success(futures, horizon: float | None, role: str, names: tuple[str, str]):
+    pending = set(futures)
+    errors: list[str] = []
+    while pending:
+        timeout = None
+        if horizon is not None:
+            timeout = horizon - time.monotonic()
+            if timeout <= 0:
+                break
+        done, pending = wait(pending, timeout=timeout, return_when="FIRST_COMPLETED")
+        if not done:
+            break
+        for future in done:
+            try:
+                return future.result()
+            except (LLMError, ValidationError, json.JSONDecodeError, ValueError) as exc:
+                errors.append(str(exc))
+                _record_failover(role, names[0] if future is futures[0] else names[1], str(exc))
+    raise LLMError(f"Router không trả JSON hợp lệ: {(errors[-1] if errors else 'role deadline')[:400]}")
+
+
 def http_timeout(seconds: float) -> httpx.Timeout:
     """One budget for the whole request. httpx otherwise applies the same number to every phase."""
     seconds = max(0.4, float(seconds))
@@ -189,44 +212,41 @@ class OpenAIProvider:
         timeout: float | None = None,
         fallback_model: str | None = None,
         fallback_timeout: float | None = None,
+        deadline: float | None = None,
     ) -> BaseModel:
         del thinking
-        # One wall clock for schema, repair, and failover. A second call only starts
-        # if time is still left.
-        budget = timeout if timeout and timeout > 0 else self.timeout
-        del fallback_timeout
-        deadline = time.monotonic() + budget
+        # Primary and fallback each have their own budget. A repair stays inside
+        # the model that produced the bad JSON. The turn horizon, if any, still caps both.
+        primary_budget = timeout if timeout and timeout > 0 else self.timeout
         primary = (model or "").strip() or self.model
         alternate = (fallback_model or "").strip()
-        plan = [(primary, True)]
-        if alternate and alternate != primary:
-            plan.append((alternate, False))
+        if alternate == primary:
+            alternate = ""
+        alt_budget = fallback_timeout if fallback_timeout and fallback_timeout > 0 else primary_budget
+        horizon = deadline
         hint = schema_hint(schema)
         messages = [
             {"role": "system", "content": f"{system}\n\n{hint}"},
             {"role": "user", "content": user},
         ]
-        last_error = "không rõ"
-        for name, use_schema in plan:
-            left = deadline - time.monotonic()
+
+        def run_model(name: str, use_schema: bool, budget: float) -> BaseModel:
+            model_end = time.monotonic() + max(0.0, budget)
+            if horizon is not None:
+                model_end = min(model_end, horizon)
+            left = model_end - time.monotonic()
             if left < 0.8:
-                last_error = "role deadline"
-                _record_failover(role, name, last_error)
-                break
+                raise LLMError("role deadline")
             try:
                 text = self._complete_text(messages, temperature, schema, max_tokens, name, left, use_schema)
-            except LLMError as exc:
-                last_error = str(exc)
-                _record_failover(role, name, last_error)
-                continue
+            except LLMError:
+                raise
             try:
                 return parse_structured(schema, text)
             except (ValidationError, json.JSONDecodeError, ValueError) as exc:
-                last_error = str(exc)
-                left = deadline - time.monotonic()
+                left = model_end - time.monotonic()
                 if left < 0.8:
-                    _record_failover(role, name, last_error)
-                    continue
+                    raise LLMError(f"role deadline: {exc}") from exc
                 repaired = [
                     *messages,
                     {"role": "assistant", "content": (text or "")[:1500]},
@@ -235,14 +255,37 @@ class OpenAIProvider:
                         "content": f"JSON không hợp lệ ({exc}). Trả lại đúng một JSON object, không markdown.",
                     },
                 ]
+                text = self._complete_text(repaired, temperature, schema, max_tokens, name, left, False)
+                return parse_structured(schema, text)
+
+        if not alternate:
+            try:
+                return run_model(primary, True, primary_budget)
+            except (LLMError, ValidationError, json.JSONDecodeError, ValueError) as exc:
+                _record_failover(role, primary, str(exc))
+                raise LLMError(f"Router không trả JSON hợp lệ: {exc}"[:400]) from exc
+
+        # If the primary is still silent after a few seconds, start the fallback
+        # beside it and keep whichever answer parses first.
+        room = (horizon - time.monotonic()) if horizon is not None else primary_budget
+        hedge = min(5.0, max(0.4, min(primary_budget, room) * 0.55))
+        pool = ThreadPoolExecutor(max_workers=2)
+        try:
+            primary_future = pool.submit(run_model, primary, True, primary_budget)
+            try:
+                return primary_future.result(timeout=hedge)
+            except FuturesTimeout:
+                alt_future = pool.submit(run_model, alternate, False, alt_budget)
+                return _first_success((primary_future, alt_future), horizon, role, (primary, alternate))
+            except (LLMError, ValidationError, json.JSONDecodeError, ValueError) as exc:
+                _record_failover(role, primary, str(exc))
                 try:
-                    text = self._complete_text(repaired, temperature, schema, max_tokens, name, left, False)
-                    return parse_structured(schema, text)
+                    return run_model(alternate, False, alt_budget)
                 except (LLMError, ValidationError, json.JSONDecodeError, ValueError) as again:
-                    last_error = str(again)
-                    _record_failover(role, name, last_error)
-                    continue
-        raise LLMError(f"Router không trả JSON hợp lệ: {last_error[:400]}")
+                    _record_failover(role, alternate, str(again))
+                    raise LLMError(f"Router không trả JSON hợp lệ: {again}"[:400]) from again
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def _complete_text(
         self,
@@ -304,6 +347,7 @@ class FallbackProvider:
         timeout: float | None = None,
         fallback_model: str | None = None,
         fallback_timeout: float | None = None,
+        deadline: float | None = None,
     ) -> BaseModel:
         errors: list[str] = []
         for provider in self.chain:
@@ -320,6 +364,7 @@ class FallbackProvider:
                     timeout=timeout,
                     fallback_model=fallback_model,
                     fallback_timeout=fallback_timeout,
+                    deadline=deadline,
                 )
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{provider.name}: {exc}")
