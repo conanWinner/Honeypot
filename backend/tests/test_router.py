@@ -77,6 +77,26 @@ def test_validation_retries_once(monkeypatch):
     assert calls["n"] == 2
 
 
+def test_every_chat_call_sets_stream_false(monkeypatch):
+    payloads = []
+
+    class Response:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+        text = json.dumps({"choices": [{"message": {"content": '{"reply": "Cô nghe.", "memory_note": "n"}'}}]})
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        payloads.append(dict(json or {}))
+        return Response()
+
+    monkeypatch.setattr("app.llm.openai_provider.httpx.post", fake_post)
+    provider = OpenAIProvider("secret-key", "ag/gemini-3.8-flash-low", "https://router.example/v1")
+    provider.complete(PersonaOutput, "system", "user")
+    provider.complete_text("system", "user", role="sim", max_tokens=120, timeout=7)
+    assert len(payloads) >= 2
+    assert all(item.get("stream") is False for item in payloads)
+
+
 def test_cloudflare_530_fails_over_once_then_raises(monkeypatch):
     calls = []
 

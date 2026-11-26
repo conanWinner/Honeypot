@@ -85,7 +85,7 @@ export function AdminPage() {
           <li key={script.id} className="dossier rounded-3xl p-5">
             <p className="text-[11px] uppercase tracking-[0.14em] text-gold">{script.category_label}</p>
             <h2 className="mt-1 font-display text-2xl">
-              <Link to={`/kich-ban/${script.id}`} className="underline">
+              <Link to={`/canh-bao/kich-ban/${script.id}`} className="underline">
                 {script.title}
               </Link>
             </h2>

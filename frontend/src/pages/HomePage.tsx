@@ -1,98 +1,199 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../lib/api'
+import { CheckResult } from '../components/CheckResult'
 import { Button } from '../components/ui'
+import { api, type CheckResult as CheckResultData, type IntelHit, type WarningCard } from '../lib/api'
 
 type Stats = { published_scripts: number; pending_scripts: number; conversations: number }
+type Kind = 'tin' | 'sdt' | 'stk' | 'link'
 
-const nodes = [
-  ['Phân tích', 'Mỗi lượt của đối phương được tách ý định, bước, cờ đỏ, rồi đối chiếu thư viện bằng embedding và rerank.'],
-  ['Lập kế hoạch', 'Agent chọn mục tiêu kế tiếp: hỏi danh tính, xin link, hỏi số tài khoản, trì hoãn, hoặc đào một nhánh mới.'],
-  ['Đóng vai', 'Một persona Việt có hồ sơ giả, nhớ những gì đã nói, nhắn theo đúng giọng, và không nhận mình là máy.'],
-  ['An toàn', 'Luật chặn nhận là AI, đồng ý chuyển tiền, cài phần mềm, hoặc lộ số không có trong hồ sơ giả. Mô hình không được tự bỏ luật.'],
+const samples = [
+  { label: 'Giả công an', text: 'Tôi là thiếu tá cơ quan cảnh sát điều tra. Anh chuyển toàn bộ số dư sang tài khoản giám định, không được kể cho ai.' },
+  { label: 'Đơn hàng COD', text: 'Đơn hàng của bạn không phát được do sai địa chỉ. Bấm link thanh toán phí ship 25 nghìn.' },
+  { label: 'Việc làm online', text: 'Bạn được chọn làm nhiệm vụ bình chọn. Chuyển trước một khoản nhỏ để nhận hoa hồng ngay trong hôm nay.' },
+  { label: 'Mã QR', text: 'Quét mã QR này để thanh toán. Tên tài khoản khác là của kế toán, shop đổi mã mới.' },
+]
+
+const kinds: { id: Kind; label: string }[] = [
+  { id: 'tin', label: 'Tin nhắn' },
+  { id: 'sdt', label: 'SĐT' },
+  { id: 'stk', label: 'STK' },
+  { id: 'link', label: 'Link' },
 ]
 
 export function HomePage() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [warnings, setWarnings] = useState<WarningCard[]>([])
+  const [kind, setKind] = useState<Kind>('tin')
+  const [text, setText] = useState('')
+  const [result, setResult] = useState<CheckResultData | null>(null)
+  const [hits, setHits] = useState<IntelHit[]>([])
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
   useEffect(() => {
     api<Stats>('/api/stats').then(setStats).catch(() => setStats(null))
+    api<{ cards: WarningCard[] }>('/api/warnings')
+      .then((data) => setWarnings(data.cards))
+      .catch(() => setWarnings([]))
   }, [])
+
+  async function run(value = text) {
+    const body = value.trim()
+    if (body.length < 8) return
+    setBusy(true)
+    setError('')
+    setResult(null)
+    setHits([])
+    try {
+      const checked = await api<CheckResultData>('/api/check', { method: 'POST', body: JSON.stringify({ text: body }) })
+      setResult(checked)
+      if (kind !== 'tin') {
+        const found = await api<{ hits: IntelHit[] }>(`/api/intel/lookup?value=${encodeURIComponent(body)}`)
+        setHits(found.hits)
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Không kiểm tra được.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const rising = warnings.filter((card) => card.rising).slice(0, 3)
+  const latest = warnings.slice(0, 4)
 
   return (
     <div className="space-y-8">
-      <section className="grid items-end gap-8 lg:grid-cols-[1.3fr_0.7fr]">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-seal">Anti-fraud · sơ khảo 03/12/2026</p>
-          <h1 className="mt-3 max-w-3xl font-display text-5xl leading-[1.05] text-ink md:text-6xl">
-            Honeypot — AI đóng vai nạn nhân, bóc kịch bản lừa đảo.
-          </h1>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-ink-soft">
-            Theo khảo sát NCA, chỉ khoảng 32% nạn nhân trình báo. Phần lớn gác máy, mất tiền, và kịch bản biến mất.
-            Honeypot làm ngược lại: vai Giả Nạn ở lại trong cuộc thoại, kéo đối phương nói hết các bước, rồi đưa hồ sơ
-            vào thư viện để người kế tiếp nhận ra trước khi chuyển khoản.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Button asChild variant="seal">
-              <Link to="/hoi-thoai">Mở cuộc hội thoại</Link>
-            </Button>
-            <Button asChild variant="ghost">
-              <Link to="/demo">Chạy demo một nhịp</Link>
-            </Button>
-            <Button asChild variant="quiet">
-              <Link to="/thu-vien">Xem thư viện</Link>
-            </Button>
-          </div>
-        </div>
-        <aside className="dossier rounded-3xl p-5">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Vấn đề</p>
-          <p className="mt-2 font-display text-5xl text-seal">32%</p>
-          <p className="mt-1 text-sm leading-6 text-ink-soft">
-            nạn nhân trình báo, theo khảo sát NCA. 68% còn lại không để lại kịch bản cho ai học.
-          </p>
-          <p className="mt-4 text-[11px] uppercase tracking-[0.16em] text-ink-soft">Đang có trong tủ</p>
-          <dl className="mt-4 grid grid-cols-3 gap-3">
-            {[
-              ['Kịch bản', stats?.published_scripts],
-              ['Chờ duyệt', stats?.pending_scripts],
-              ['Hội thoại', stats?.conversations],
-            ].map(([label, value]) => (
-              <div key={String(label)}>
-                <dt className="text-xs text-ink-soft">{label}</dt>
-                <dd className="font-display text-3xl">{value ?? '—'}</dd>
-              </div>
+      <section className="rounded-[2rem] border border-line bg-card/80 px-4 py-8 text-center md:px-10">
+        <h1 className="font-display text-4xl leading-tight text-ink md:text-5xl">Tin nhắn này có phải lừa đảo không?</h1>
+        <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-ink-soft">
+          Dán tin nhắn, số điện thoại, số tài khoản, đường link hoặc ví crypto — Honeypot đối chiếu với kho kịch bản thật.
+        </p>
+        <div className="mx-auto mt-5 flex max-w-3xl flex-col gap-3 text-left">
+          <div className="flex flex-wrap gap-2">
+            {kinds.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setKind(item.id)}
+                className={`rounded-full px-3 py-1 text-sm ${kind === item.id ? 'bg-ink text-paper' : 'border border-line bg-card'}`}
+              >
+                {item.label}
+              </button>
             ))}
-          </dl>
-          <p className="mt-4 text-sm leading-6 text-ink-soft">
-            28 kịch bản gốc, viết từ các chiêu đã được báo chí và cơ quan chức năng mô tả công khai, kèm nhánh biến thể.
-          </p>
-        </aside>
+          </div>
+          <textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            rows={4}
+            className="w-full rounded-3xl border border-line bg-card p-4 text-sm outline-none focus:border-ink"
+            placeholder="Tài khoản của bạn bị khóa, bấm vào link… / 09xx… / số tài khoản…"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="seal" disabled={busy || text.trim().length < 8} onClick={() => void run()}>
+              {busy ? 'Đang kiểm tra…' : 'Kiểm tra'}
+            </Button>
+            <span className="text-xs text-ink-soft">Thử nhanh:</span>
+            {samples.map((sample) => (
+              <button
+                key={sample.label}
+                type="button"
+                className="rounded-full border border-line bg-card px-3 py-1 text-xs hover:bg-paper-deep"
+                onClick={() => {
+                  setText(sample.text)
+                  setKind('tin')
+                  void run(sample.text)
+                }}
+              >
+                {sample.label}
+              </button>
+            ))}
+          </div>
+          {error && <p className="text-sm text-danger">{error}</p>}
+        </div>
+        {result && (
+          <div className="mx-auto mt-6 max-w-3xl text-left">
+            <CheckResult result={result} hits={hits} busy={busy} />
+          </div>
+        )}
       </section>
 
       <section className="grid gap-3 md:grid-cols-3">
-        {[
-          ['01', 'Đưa hội thoại', 'Bạn chơi vai kẻ lừa, hoặc dán tin nhắn đầu. Web là kênh đang chạy. Telegram và thoại dùng cùng agent, vận chuyển gắn sau.'],
-          ['02', 'Agent giữ nhịp', 'Không dừng ở câu chào. Mỗi lượt cập nhật bước, độ tin cậy, và báo nếu đối phương vừa bịa một hoàn cảnh riêng.'],
-          ['03', 'Kịch bản vào tủ', 'Kết thúc là một hồ sơ có cấu trúc. Trùng thì cộng lượt. Nhánh mới thì chờ duyệt trước khi công bố.'],
-        ].map(([index, title, body]) => (
-          <article key={index} className="dossier rounded-3xl p-5">
-            <p className="font-display text-3xl text-seal">{index}</p>
-            <h2 className="mt-2 text-lg font-semibold">{title}</h2>
-            <p className="mt-2 text-sm leading-6 text-ink-soft">{body}</p>
-          </article>
-        ))}
+        <article className="dossier rounded-3xl border-seal/40 p-5">
+          <h2 className="font-display text-2xl">Luyện tập chống lừa</h2>
+          <p className="mt-2 text-sm leading-6 text-ink-soft">
+            Nhắn tin với người lừa đảo giả theo kịch bản thật. Bạn có nhận ra trước khi mất tiền?
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button asChild variant="seal">
+              <Link to="/luyen-tap">Bắt đầu mô phỏng</Link>
+            </Button>
+            <Button asChild variant="ghost">
+              <Link to="/luyen-tap/trac-nghiem">Trắc nghiệm 2 phút</Link>
+            </Button>
+          </div>
+        </article>
+        <article className="dossier rounded-3xl p-5">
+          <h2 className="font-display text-2xl">Chiêu đang nổi</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {rising.map((card) => (
+              <li key={card.id}>
+                <Link className="underline" to={`/canh-bao#${card.id}`}>
+                  {card.title}
+                </Link>
+              </li>
+            ))}
+            {rising.length === 0 && <li className="text-ink-soft">Đang tải các chiêu nổi…</li>}
+          </ul>
+          <Link to="/canh-bao" className="mt-3 inline-block text-sm font-semibold text-seal">
+            Xem tất cả cảnh báo
+          </Link>
+        </article>
+        <article className="dossier rounded-3xl p-5">
+          <h2 className="font-display text-2xl">Tôi vừa bị lừa</h2>
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6">
+            <li>Gọi ngân hàng khóa tài khoản hoặc ví.</li>
+            <li>Lưu bằng chứng.</li>
+            <li>Trình báo công an nơi gần nhất.</li>
+          </ol>
+          <Link to="/bi-lua" className="mt-3 inline-block text-sm font-semibold text-seal">
+            Hướng dẫn chi tiết
+          </Link>
+        </article>
       </section>
 
       <section>
-        <h2 className="font-display text-3xl">Bốn nút của agent</h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {nodes.map(([title, body], index) => (
-            <article key={title} className="dossier rounded-3xl p-5">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-gold">Nút {index + 1}</p>
-              <h3 className="mt-1 text-xl font-semibold">{title}</h3>
-              <p className="mt-2 text-sm leading-6 text-ink-soft">{body}</p>
-            </article>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="font-display text-3xl">Cảnh báo mới nhất</h2>
+          <Link to="/xu-huong" className="text-sm font-semibold text-seal">
+            Xem xu hướng
+          </Link>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {latest.map((card) => (
+            <Link key={card.id} to={`/canh-bao#${card.id}`} className="dossier rounded-3xl p-4 hover:border-ink">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-gold">{card.category_labels?.[0] || card.categories[0]}</p>
+              <h3 className="mt-2 font-display text-xl leading-tight">{card.title}</h3>
+              {card.rising && <p className="mt-2 text-xs font-semibold text-seal">Đang nổi</p>}
+            </Link>
           ))}
         </div>
+      </section>
+
+      <section className="flex flex-col gap-4 rounded-3xl bg-ink px-5 py-5 text-paper md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="font-display text-2xl">Honeypot hoạt động thế nào?</h2>
+          <p className="mt-1 text-sm leading-6 text-paper/80">
+            AI đóng vai nạn nhân → bóc kịch bản → thư viện cảnh báo → luyện tập cho người dân.
+          </p>
+          <p className="mt-2 text-xs text-paper/60">
+            {stats ? `${stats.published_scripts} kịch bản` : '— kịch bản'} · {stats ? `${stats.conversations} hội thoại` : '— hội thoại'} ·{' '}
+            {warnings.length ? `${warnings.length} thẻ cảnh báo` : '— thẻ cảnh báo'}
+          </p>
+        </div>
+        <Button asChild variant="ghost" className="bg-paper text-ink hover:bg-white">
+          <Link to="/phan-tich/demo">Xem demo 3 phút cho giám khảo</Link>
+        </Button>
       </section>
     </div>
   )

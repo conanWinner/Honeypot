@@ -125,6 +125,29 @@ class GeminiProvider:
             return parsed
         raise LLMError(f"Gemini không trả JSON hợp lệ: {errors[-1][:400]}")
 
+    def complete_text(
+        self,
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = 120,
+        timeout: float | None = None,
+        fallback_model: str | None = None,
+        fallback_timeout: float | None = None,
+        prefer_fallback: bool = False,
+    ) -> str:
+        del model, role, timeout, fallback_model, fallback_timeout, prefer_fallback
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            temperature=temperature,
+            max_output_tokens=max_tokens or 120,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+        response = self.client.models.generate_content(model=self.model, contents=user, config=config)
+        return (getattr(response, "text", None) or "").strip()
+
     def _complete_one(
         self,
         model_name: str,

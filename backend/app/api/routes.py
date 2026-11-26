@@ -424,10 +424,13 @@ def intel_graph(session=Depends(get_db), min_sources: int = 1):
 
 
 @router.get("/intel/lookup")
-def intel_lookup(q: str, session=Depends(get_db)):
+def intel_lookup(q: str = "", value: str = "", session=Depends(get_db)):
     from app.agent.casefile import harvest_indicators
     from app.services.intel import lookup
 
+    q = (q or value).strip()
+    if not q:
+        raise HTTPException(status_code=422, detail="Thiếu giá trị cần tra.")
     found = harvest_indicators(q)
     digits = "".join(ch for ch in q if ch.isdigit())
     if not any(found.get(key) for key in ("bank_accounts", "phones", "urls", "apk", "telegram", "zalo", "crypto_wallets", "remote_ids")) and len(digits) >= 6:

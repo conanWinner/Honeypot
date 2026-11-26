@@ -6,7 +6,7 @@ import { formatDay } from '../lib/utils'
 
 type Meta = { categories: { id: string; label: string }[]; channels: { id: string; label: string }[] }
 
-export function LibraryPage() {
+export function LibraryPage({ embedded = false }: { embedded?: boolean }) {
   const [params, setParams] = useSearchParams()
   const [meta, setMeta] = useState<Meta | null>(null)
   const [items, setItems] = useState<Script[] | null>(null)
@@ -43,10 +43,16 @@ export function LibraryPage() {
 
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Thư viện kịch bản</p>
-      <h1 className="mt-2 font-display text-4xl">Cây kịch bản, không phải một đống tin nhắn</h1>
+      {!embedded && (
+        <>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Thư viện kịch bản</p>
+          <h1 className="mt-2 font-display text-4xl">Cây kịch bản, không phải một đống tin nhắn</h1>
+        </>
+      )}
       <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-soft">
-        Mỗi gốc có các nhánh biến thể. Bản mới từ hội thoại nằm ở hàng chờ cho đến khi được duyệt.
+        {embedded
+          ? 'Mỗi gốc có các nhánh biến thể đã công bố.'
+          : 'Mỗi gốc có các nhánh biến thể. Bản mới từ hội thoại nằm ở hàng chờ cho đến khi được duyệt.'}
       </p>
       <div className="mt-5 flex flex-col gap-3 md:flex-row">
         <input
@@ -93,7 +99,7 @@ export function LibraryPage() {
       {items && items.length === 0 && <p className="mt-6 text-sm text-ink-soft">Không có kịch bản khớp bộ lọc này.</p>}
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         {items?.map((script) => (
-          <Link key={script.id} to={`/kich-ban/${script.id}`} className="dossier rounded-3xl p-5 hover:border-ink">
+          <Link key={script.id} to={`/canh-bao/kich-ban/${script.id}`} className="dossier rounded-3xl p-5 hover:border-ink">
             <p className="text-[11px] uppercase tracking-[0.14em] text-gold">
               {script.category_label}
               {script.brand ? ` · ${script.brand}` : ''} · {script.channel_label}

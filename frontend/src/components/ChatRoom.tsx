@@ -219,7 +219,7 @@ export function ChatRoom({ id }: { id: string }) {
               {extracted.action === 'merged' ? (
                 <p>
                   Trùng kịch bản đã có. Đã cộng một lượt ghi nhận vào{' '}
-                  <Link className="font-semibold underline" to={`/kich-ban/${extracted.script.id}`}>
+                  <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${extracted.script.id}`}>
                     {extracted.script.title}
                   </Link>
                   .
@@ -227,7 +227,7 @@ export function ChatRoom({ id }: { id: string }) {
               ) : (
                 <p>
                   Đã đưa vào hàng chờ duyệt:{' '}
-                  <Link className="font-semibold underline" to={`/kich-ban/${extracted.script.id}`}>
+                  <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${extracted.script.id}`}>
                     {extracted.script.title}
                   </Link>
                   . {extracted.script.status === 'published' ? 'Đã công bố.' : 'Chưa hiện ở thư viện công khai.'}

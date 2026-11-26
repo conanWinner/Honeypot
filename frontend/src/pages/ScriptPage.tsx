@@ -49,7 +49,7 @@ export function ScriptPage() {
         {script.parent && (
           <p className="mt-2 text-sm">
             Nhánh của{' '}
-            <Link className="underline" to={`/kich-ban/${script.parent.id}`}>
+            <Link className="underline" to={`/canh-bao/kich-ban/${script.parent.id}`}>
               {script.parent.title}
             </Link>
           </p>
@@ -92,7 +92,7 @@ export function ScriptPage() {
             <ul className="mt-3 space-y-2">
               {script.variants.map((variant) => (
                 <li key={variant.id}>
-                  <Link className="underline" to={`/kich-ban/${variant.id}`}>
+                  <Link className="underline" to={`/canh-bao/kich-ban/${variant.id}`}>
                     {variant.title}
                   </Link>
                 </li>
@@ -125,7 +125,10 @@ export function ScriptPage() {
         <section className="space-y-3">
           <WarningCard script={script} cardRef={cardRef} />
           <div className="flex flex-wrap gap-2">
-            <Button variant="seal" type="button" onClick={() => void download()}>
+            <Button asChild variant="seal">
+              <Link to={`/luyen-tap?script=${script.id}`}>Luyện tình huống này</Link>
+            </Button>
+            <Button variant="ghost" type="button" onClick={() => void download()}>
               Tải thẻ cảnh báo
             </Button>
             <Button variant="ghost" type="button" onClick={() => void share()}>

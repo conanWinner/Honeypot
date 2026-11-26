@@ -105,7 +105,33 @@ class MockProvider:
             return self._extract(context)
         if name == "ScammerLine":
             return self._scammer(context)
+        if name == "SimJudgeOutput":
+            return self._sim_judge(context)
+        if name == "SimScammerOutput":
+            return self._sim_scammer(context)
         raise TypeError(f"Mock không biết schema {name}")
+
+    def complete_text(
+        self,
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = 120,
+        timeout: float | None = None,
+        fallback_model: str | None = None,
+        fallback_timeout: float | None = None,
+        prefer_fallback: bool = False,
+    ) -> str:
+        del system, temperature, model, role, max_tokens, timeout, fallback_model, fallback_timeout, prefer_fallback
+        context = read_context(user)
+        phrase = (context.get("phrase") or "").strip()
+        if not phrase:
+            examples = context.get("examples") or []
+            phrase = (examples[0] if examples else "").strip()
+        line = phrase or "Anh nghe máy, có việc gấp."
+        return f"{line} Anh xác nhận giúp tôi nhé."[:350]
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         vectors = []
@@ -298,6 +324,23 @@ class MockProvider:
     def _scammer(self, context: dict) -> ScammerLine:
         scripted = context.get("scripted_line") or ""
         return ScammerLine(message=scripted or "Anh nghe máy đi, có việc gấp.", step_index=int(context.get("step_index") or 0), intent="Theo kịch bản")
+
+    def _sim_judge(self, context: dict):
+        from app.services.training import SimJudgeOutput
+
+        allowed = {"refuse", "verify", "suspicious", "comply", "leak", "fell", "neutral"}
+        label = context.get("rule_label") or "neutral"
+        if label not in allowed:
+            label = "neutral"
+        ids = [int(item) for item in (context.get("flag_ids") or []) if isinstance(item, int)]
+        return SimJudgeOutput(label=label, caught_flag_ids=ids, rationale="Nhãn theo luật, không gọi mô hình.")
+
+    def _sim_scammer(self, context: dict):
+        from app.services.training import SimScammerOutput
+
+        phrase = (context.get("phrase") or "Anh nghe máy, có việc gấp.").strip()
+        text = f"{phrase} Anh xác nhận giúp tôi nhé."
+        return SimScammerOutput(text=text[:350], stage_index=int(context.get("stage_index") or 0))
 
 
 def _step_intent(candidate: dict) -> str:

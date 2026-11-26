@@ -31,6 +31,10 @@ services:
       MODEL_PLANNER: ${MODEL_PLANNER:-ag/gemini-3.8-flash-low}
       MODEL_GUARD: ${MODEL_GUARD:-ag/gemini-3.8-flash-low}
       MODEL_EXTRACT: ${MODEL_EXTRACT:-cx/gpt-5.6-luna}
+      MODEL_SIM: ${MODEL_SIM:-ag/gemini-3.8-flash-low}
+      MODEL_SIM_FALLBACK: ${MODEL_SIM_FALLBACK:-cx/gpt-5.6-luna}
+      TIMEOUT_SIM: ${TIMEOUT_SIM:-7}
+      TIMEOUT_SIM_FALLBACK: ${TIMEOUT_SIM_FALLBACK:-5}
       LLM_PROVIDER: ${LLM_PROVIDER:-auto}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}

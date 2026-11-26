@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { Banner } from '../components/ui'
 import { api, type WarningCard } from '../lib/api'
+import { LibraryPage } from './LibraryPage'
 
 type Payload = { cards: WarningCard[]; stats: { label: string; value: string; url: string }[] }
 
@@ -9,6 +10,8 @@ export function WarningsPage() {
   const [data, setData] = useState<Payload | null>(null)
   const [error, setError] = useState('')
   const [filter, setFilter] = useState<'all' | 'rising'>('all')
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'kich-ban' ? 'kich-ban' : 'chieu'
   const location = useLocation()
   useEffect(() => {
     api<Payload>('/api/warnings').then(setData).catch((reason: Error) => setError(reason.message))
@@ -33,18 +36,46 @@ export function WarningsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Thẻ cảnh báo công khai</p>
-        <h1 className="mt-2 font-display text-4xl">Các chiêu lừa đang lưu hành</h1>
-        <div className="mt-3 flex gap-2">
-          <button onClick={() => setFilter('all')} className={`rounded-full px-3 py-1 text-sm ${filter === 'all' ? 'bg-ink text-paper' : 'border border-line bg-card'}`}>
-            Tất cả ({data.cards.length})
+        <p className="text-[11px] uppercase tracking-[0.16em] text-seal">Kho công khai</p>
+        <h1 className="mt-2 font-display text-4xl">Cảnh báo</h1>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const next = new URLSearchParams(params)
+              next.delete('tab')
+              setParams(next)
+            }}
+            className={`rounded-full px-3 py-1 text-sm ${tab === 'chieu' ? 'bg-ink text-paper' : 'border border-line bg-card'}`}
+          >
+            Chiêu đang lưu hành
           </button>
-          <button onClick={() => setFilter('rising')} className={`rounded-full px-3 py-1 text-sm ${filter === 'rising' ? 'bg-ink text-paper' : 'border border-line bg-card'}`}>
-            Đang nổi ({data.cards.filter((card) => card.rising).length})
+          <button
+            type="button"
+            onClick={() => {
+              const next = new URLSearchParams(params)
+              next.set('tab', 'kich-ban')
+              setParams(next)
+            }}
+            className={`rounded-full px-3 py-1 text-sm ${tab === 'kich-ban' ? 'bg-ink text-paper' : 'border border-line bg-card'}`}
+          >
+            Kịch bản chi tiết
           </button>
         </div>
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      {tab === 'kich-ban' ? (
+        <LibraryPage embedded />
+      ) : (
+        <>
+          <div className="flex gap-2">
+            <button onClick={() => setFilter('all')} className={`rounded-full px-3 py-1 text-sm ${filter === 'all' ? 'bg-ink text-paper' : 'border border-line bg-card'}`}>
+              Tất cả ({data.cards.length})
+            </button>
+            <button onClick={() => setFilter('rising')} className={`rounded-full px-3 py-1 text-sm ${filter === 'rising' ? 'bg-ink text-paper' : 'border border-line bg-card'}`}>
+              Đang nổi ({data.cards.filter((card) => card.rising).length})
+            </button>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
         {cards.map((card) => (
           <article key={card.id} id={card.id} className="dossier scroll-mt-24 rounded-3xl p-5">
             <h2 className="font-display text-2xl leading-tight">{card.title}</h2>
@@ -68,13 +99,15 @@ export function WarningsPage() {
               <button onClick={() => void copy(card)} className="rounded-full border border-line bg-card px-3 py-1 text-xs font-semibold">
                 Chép để gửi
               </button>
-              <Link to={`/thu-vien?category=${card.categories[0]}`} className="rounded-full border border-line bg-card px-3 py-1 text-xs font-semibold">
+              <Link to={`/canh-bao?tab=kich-ban&category=${card.categories[0]}`} className="rounded-full border border-line bg-card px-3 py-1 text-xs font-semibold">
                 Kịch bản liên quan
               </Link>
             </div>
           </article>
         ))}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

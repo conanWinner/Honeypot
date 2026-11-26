@@ -85,6 +85,43 @@ class SplitProvider:
         self.model = self._chat.model
         return result
 
+    def complete_text(
+        self,
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = 120,
+        timeout: float | None = None,
+        fallback_model: str | None = None,
+        fallback_timeout: float | None = None,
+        prefer_fallback: bool = False,
+    ) -> str:
+        chosen = (model or "").strip()
+        if not chosen and role:
+            chosen = (self.role_models.get(role) or "").strip()
+        alt = (fallback_model or "").strip()
+        if not alt and role:
+            alt = (self.role_fallbacks.get(role) or "").strip()
+        budget = timeout if timeout and timeout > 0 else self.role_timeouts.get(role)
+        alt_budget = fallback_timeout if fallback_timeout and fallback_timeout > 0 else self.role_fallback_timeouts.get(role)
+        text = self._chat.complete_text(
+            system,
+            user,
+            temperature,
+            model=chosen or None,
+            role=role,
+            max_tokens=max_tokens,
+            timeout=budget,
+            fallback_model=alt or None,
+            fallback_timeout=alt_budget,
+            prefer_fallback=prefer_fallback,
+        )
+        self.name = self._chat.name
+        self.model = self._chat.model
+        return text
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         import time as _time
 

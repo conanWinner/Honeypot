@@ -32,7 +32,21 @@ Rồi một terminal `uvicorn app.main:app --app-dir backend --port 8091` với 
 
 Mở giao diện, bấm **Demo giám khảo**. Một nhịp tạo cuộc gọi giả danh công an với bà Nguyễn Thị Năm. Bấm câu gợi ý hoặc **Tự đi nốt các câu gợi ý**, rồi **Trích xuất**. Nhánh «sống một mình» chưa có trong thư viện nên hồ sơ vào hàng chờ. Bấm **Duyệt ngay** là nó hiện trong thư viện.
 
-Bật **Luận giải của agent** để xem JSON của phân tích, kế hoạch và lớp an toàn từng lượt.
+Bật **Luận giải của agent** để xem JSON của phân tích, kế hoạch và lớp an toàn từng lượt. Demo nằm trong Phòng phân tích, đường `/phan-tich/demo`.
+
+## Màn hình
+
+Thanh trên có bốn mục công khai: **Trang chủ**, **Luyện tập**, **Cảnh báo**, **Xu hướng**, nút **Báo cáo lừa đảo**, và liên kết nét đứt **Phòng phân tích**. Điện thoại có đúng bốn mục dưới cùng: Trang chủ, Luyện tập, Cảnh báo, Báo cáo. Đường cũ chuyển hướng: `/kiem-tra` về trang chủ, `/thu-vien` về tab kịch bản của Cảnh báo, `/hoi-thoai`, `/mang-luoi`, `/kiem-duyet`, `/demo` vào Phòng phân tích.
+
+Trang chủ là ô kiểm tra tin. Kết quả hiện ngay bên dưới: điểm rủi ro, kịch bản khớp, ba cờ đỏ, lời khuyên, và nút luyện đúng tình huống đó. Banner khóa model và embedding chỉ còn trong Phòng phân tích. Khi chưa có khóa, chân trang ghi một dòng «Chế độ mô phỏng — chưa gắn khóa model».
+
+## Luyện tập
+
+`/luyen-tap` mở hai đường: mô phỏng hội thoại khoảng năm phút, và trắc nghiệm tám câu. Kịch bản lấy từ thư viện đã xuất bản, gom chín nhóm (công an, ngân hàng và ví, giao hàng, việc làm, đầu tư, QR, deepfake, cài app, khác). Độ khó Dễ / Vừa / Khó đổi số lượt và số lần người lừa đảo được trấn an. Chế độ Học lộ cờ đỏ; Thử thách chỉ đếm cờ.
+
+Mỗi lượt: che OTP, số thẻ, căn cước và mật khẩu của người chơi trước khi lưu; luật gán nhãn `refuse`, `verify`, `suspicious`, `comply`, `leak`, `fell` hoặc `neutral`; vai `analyst` (`ag/gemini-3.8-flash-low`) chỉ được tinh chỉnh nhãn, không được hạ một cú ngã. Vai `sim` (`ag/gemini-3.8-flash-low`, dự phòng `cx/gpt-5.6-luna`) viết lời người lừa đảo. Mọi câu trả về đều đi qua `sanitize_scammer_text`: không số dài, không đường dẫn, không ví, không ID điều khiển, không tên chủ tài khoản. Hết bài là điểm do luật tính, không do mô hình. Phiên luyện không tạo kịch bản mới và không vào xu hướng.
+
+`LLM_PROVIDER=mock` chơi được hết bài, không cần khóa. Phiên cũ hơn bảy ngày bị xóa lúc khởi động.
 
 ## Kiến trúc
 
@@ -81,6 +95,7 @@ Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một
 | Persona | `cx/gpt-6-luna` | `MODEL_PERSONA` |
 | Analyst, planner, guard | `ag/gemini-3.8-flash-low` | `MODEL_ANALYST`, `MODEL_PLANNER`, `MODEL_GUARD` |
 | Trích kịch bản | `cx/gpt-5.6-luna` | `MODEL_EXTRACT` |
+| Giọng luyện tập | `ag/gemini-3.8-flash-low` | `MODEL_SIM`, dự phòng `cx/gpt-5.6-luna` |
 | Chat dự phòng | `gemini-2.5-flash` | Khi router trả 4xx/5xx, Cloudflare 403/530, hoặc timeout |
 | Embedding | `openrouter/openai/text-embedding-3-small` | `MODEL_EMBED`. Qua 9router `/v1/embeddings`, 768 chiều, `dimensions` được tôn trọng |
 
@@ -101,6 +116,9 @@ Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi
 | `MODEL_PLANNER` | Mặc định `ag/gemini-3.8-flash-low` |
 | `MODEL_GUARD` | Mặc định `ag/gemini-3.8-flash-low` |
 | `MODEL_EXTRACT` | Mặc định `cx/gpt-5.6-luna` |
+| `MODEL_SIM` | Mặc định `ag/gemini-3.8-flash-low`. Giọng người lừa đảo trong bài luyện, model nhỏ |
+| `MODEL_SIM_FALLBACK` | Mặc định `cx/gpt-5.6-luna`, cổng khác với model chính |
+| `TIMEOUT_SIM` | Mặc định 7 giây, lần dự phòng 5 giây. Hết giờ thì dùng câu kịch bản đã lọc |
 | `MODEL_*_FALLBACK` | Một model nhỏ thay vai khi lần gọi chính hết giờ. Persona, analyst, planner, guard mặc định `cx/gpt-5.6-luna` |
 | `TIMEOUT_PERSONA` | Mặc định 12 giây |
 | `TIMEOUT_ANALYST` / `TIMEOUT_PLANNER` | Mặc định 18 giây |
@@ -127,7 +145,8 @@ Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi
 - Thư viện dạng cây, lọc, tìm, thẻ cảnh báo tải PNG.
 - Kiểm tra tin: mức rủi ro có giải thích, bước kế, nút giao cho agent. Thông báo OTP, tiền điện, giao hàng và khuyến mãi từ kênh quen ở mức thấp.
 - Xu hướng theo loại, tháng, thương hiệu, kèm bảng phương thức đang nổi.
-- Thẻ cảnh báo tại `/canh-bao` và mạng lưới chỉ dấu tại `/mang-luoi`.
+- Thẻ cảnh báo tại `/canh-bao` (tab chiêu đang lưu hành và kịch bản chi tiết) và mạng lưới chỉ dấu tại `/phan-tich/mang-luoi`.
+- Luyện tập: mô phỏng hội thoại, trắc nghiệm, tổng kết điểm. Trang «Tôi vừa bị lừa» tại `/bi-lua`.
 - Playbook theo loại lừa: đã hỏi danh tính thì chuyển sang phí, tài khoản, đường dẫn.
 - Hàng chờ duyệt.
 - Demo một nhịp cho giám khảo.
@@ -150,7 +169,7 @@ pytest
 python -m eval.run
 ```
 
-`pytest` dùng SQLite và provider mock. Eval chạy năm tình huống (công an, MoMo, việc nhẹ, shipper, phá vai) qua đúng API. Báo cáo nằm ở `eval/results/report.md`. Không có khóa thì báo cáo ghi rõ đang mock. Có `GEMINI_API_KEY` thì bộ mô phỏng kẻ lừa cũng là mô hình thật.
+`pytest` dùng SQLite và provider mock, gồm `tests/test_training.py` (che dữ liệu, điểm, điều kiện kết thúc, an toàn lời kẻ lừa, trắc nghiệm). Eval hội thoại chạy năm tình huống (công an, MoMo, việc nhẹ, shipper, phá vai) qua đúng API. Báo cáo nằm ở `eval/results/report.md`. Không có khóa thì báo cáo ghi rõ đang mock. Có khóa router thì giọng luyện tập đi model nhỏ `sim` / `analyst`, không gọi model nặng. Ghi chú lần chạy thật nằm ở `eval/training_live.md`.
 
 Lần chạy trong repo này, không có khóa:
 
