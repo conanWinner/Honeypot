@@ -34,9 +34,11 @@ def client(app):
 @pytest.fixture(autouse=True)
 def _clean(app):
     yield
-    from app.models import Conversation, Message, Script, TurnLog
+    from app.models import Conversation, Message, Script, TrainingMessage, TrainingSession, TurnLog
 
     with app.state.Session() as session:
+        session.query(TrainingMessage).delete()
+        session.query(TrainingSession).delete()
         session.query(TurnLog).delete()
         session.query(Message).delete()
         session.query(Conversation).delete()

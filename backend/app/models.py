@@ -91,6 +91,45 @@ class Message(Base):
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
 
+class TrainingSession(Base):
+    """A scam-simulation practice run. Never written back into the script library."""
+
+    __tablename__ = "training_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    script_id: Mapped[str] = mapped_column(ForeignKey("scripts.id"), index=True)
+    difficulty: Mapped[str] = mapped_column(String(8), default="vua")
+    mode: Mapped[str] = mapped_column(String(16), default="thu_thach")
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    end_reason: Mapped[str] = mapped_column(String(32), default="")
+    stage_index: Mapped[int] = mapped_column(Integer, default=0)
+    turn_index: Mapped[int] = mapped_column(Integer, default=0)
+    hints_used: Mapped[int] = mapped_column(Integer, default=0)
+    events: Mapped[list] = mapped_column(JSON, default=list)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    messages: Mapped[list["TrainingMessage"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan", order_by="TrainingMessage.seq"
+    )
+
+
+class TrainingMessage(Base):
+    __tablename__ = "training_messages"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("training_sessions.id", ondelete="CASCADE"), index=True)
+    seq: Mapped[int] = mapped_column(Integer, default=0)
+    role: Mapped[str] = mapped_column(String(16))
+    text: Mapped[str] = mapped_column(Text)
+    stage_index: Mapped[int] = mapped_column(Integer, default=0)
+    flags: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    session: Mapped[TrainingSession] = relationship(back_populates="messages")
+
+
 class TurnLog(Base):
     """One row per victim reply, so a judge or an operator can audit the pipeline."""
 

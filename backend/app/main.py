@@ -76,6 +76,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.provider = build_provider(settings)
         with factory() as session:
             seed(session)
+            from app.services.training import purge_old_sessions
+
+            purge_old_sessions(session)
             session.commit()
         _backfill(factory, app.state.provider)
         app.state.llm_health = _warm_llm(app.state.provider, background=not app.state.provider.is_mock)
@@ -95,7 +98,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    from app.api.training import router as training_router
+
     app.include_router(router, prefix="/api")
+    app.include_router(training_router, prefix="/api")
 
     @app.exception_handler(LLMError)
     async def llm_error(_request, exc: LLMError):
