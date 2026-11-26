@@ -82,7 +82,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.commit()
         _backfill(factory, app.state.provider)
         app.state.llm_health = _warm_llm(app.state.provider, background=not app.state.provider.is_mock)
+        stop_purge = threading.Event()
+
+        def _purge_loop() -> None:
+            while not stop_purge.wait(6 * 60 * 60):
+                try:
+                    with factory() as session:
+                        from app.services.training import purge_old_sessions
+
+                        purge_old_sessions(session)
+                        session.commit()
+                except Exception:
+                    log.warning("Không dọn được phiên luyện tập cũ.", exc_info=True)
+
+        threading.Thread(target=_purge_loop, name="training-purge", daemon=True).start()
         yield
+        stop_purge.set()
         engine.dispose()
 
     app = FastAPI(

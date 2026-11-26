@@ -50,7 +50,9 @@ export function LibraryPage({ embedded = false }: { embedded?: boolean }) {
         </>
       )}
       <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-soft">
-        Mỗi gốc có các nhánh biến thể. Bản mới từ hội thoại nằm ở hàng chờ cho đến khi được duyệt.
+        {embedded
+          ? 'Mỗi gốc có các nhánh biến thể đã công bố.'
+          : 'Mỗi gốc có các nhánh biến thể. Bản mới từ hội thoại nằm ở hàng chờ cho đến khi được duyệt.'}
       </p>
       <div className="mt-5 flex flex-col gap-3 md:flex-row">
         <input

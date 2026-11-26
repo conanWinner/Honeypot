@@ -1,6 +1,6 @@
 import { Flag, GraduationCap, House, Shield, TriangleAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { api, type Health, type LlmHealth } from '../lib/api'
 import { cn } from '../lib/utils'
 
@@ -90,12 +90,18 @@ export function Shell() {
           </p>
         </div>
       )}
-      <main className="mx-auto max-w-6xl px-4 py-6 pb-28 md:pb-10">
+      <main className="mx-auto max-w-6xl px-4 py-6 pb-32 md:pb-10">
         <Outlet context={state} />
       </main>
-      {health?.llm.mock && (
-        <p className="px-4 pb-2 text-center text-xs text-ink-soft md:hidden">Chế độ mô phỏng — chưa gắn khóa model</p>
-      )}
+      <div className="fixed inset-x-0 bottom-14 z-30 flex items-center justify-between gap-3 border-t border-line/70 bg-[#f7f1e6] px-3 py-1 text-[11px] text-ink-soft md:hidden">
+        <Link to="/phan-tich" className="underline">
+          Phòng phân tích
+        </Link>
+        <Link to="/xu-huong" className="underline">
+          Xu hướng
+        </Link>
+        {health?.llm.mock && <span className="truncate">Chế độ mô phỏng — chưa gắn khóa model</span>}
+      </div>
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-line bg-[#f7f1e6] md:hidden">
         {mobile.map((link) => {
           const Icon = link.icon

@@ -4,6 +4,16 @@ import { RichText } from '../components/training/RichText'
 import { Banner, Button } from '../components/ui'
 import { api, type QuizQuestion } from '../lib/api'
 
+const channelLabel = (channel: string) =>
+  ({
+    phone: 'Điện thoại',
+    zalo: 'Zalo',
+    sms: 'SMS',
+    facebook: 'Facebook',
+    web: 'Web',
+    telegram: 'Telegram',
+  })[channel] ?? channel
+
 export function QuizPage() {
   const [questions, setQuestions] = useState<QuizQuestion[]>([])
   const [index, setIndex] = useState(0)
@@ -63,7 +73,7 @@ export function QuizPage() {
       </p>
       <div className="rounded-[2rem] border border-ink bg-[#1c1915] p-3 shadow-lg">
         <div className="rounded-[1.4rem] bg-[#efe6da] p-4">
-          <p className="text-[11px] uppercase tracking-[0.14em] text-ink-soft">{question.channel === 'zalo' ? 'Zalo' : 'SMS'}</p>
+          <p className="text-[11px] uppercase tracking-[0.14em] text-ink-soft">{channelLabel(question.channel)}</p>
           <p className="mt-3 text-sm leading-6">
             <RichText text={question.text} />
           </p>

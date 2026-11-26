@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { RichText } from '../components/training/RichText'
-import { maskPracticeInput } from '../lib/mask'
+import { practiceWarning } from '../lib/mask'
 import { Banner, Button } from '../components/ui'
 import { api, ApiError, type TrainingSession } from '../lib/api'
 
@@ -28,6 +28,7 @@ export function SimulationPage() {
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<(typeof fallActions)[number] | null>(null)
   const thread = useRef<HTMLDivElement>(null)
+  const sending = useRef(false)
 
   useEffect(() => {
     if (!sessionId) return
@@ -54,14 +55,15 @@ export function SimulationPage() {
   }
 
   async function send() {
-    if (!sessionId || !draft.trim()) return
-    const masked = maskPracticeInput(draft)
+    if (!sessionId || !draft.trim() || sending.current) return
+    sending.current = true
+    const original = draft.trim()
     setBusy(true)
     setError('')
     try {
       const payload = await api<{ session: TrainingSession }>('/api/training/sessions/' + sessionId + '/messages', {
         method: 'POST',
-        body: JSON.stringify({ text: masked.text }),
+        body: JSON.stringify({ text: original }),
       })
       setDraft('')
       leave(payload.session)
@@ -72,6 +74,7 @@ export function SimulationPage() {
       }
       setError(reason instanceof Error ? reason.message : 'Không gửi được.')
     } finally {
+      sending.current = false
       setBusy(false)
     }
   }
@@ -122,7 +125,7 @@ export function SimulationPage() {
         Đây là mô phỏng. Mọi số điện thoại, tài khoản, đường link đều là giả. Không nhập mã OTP hay mật khẩu thật.
       </div>
       <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-        <section className="dossier flex min-h-[70vh] flex-col overflow-hidden rounded-3xl">
+        <section className="dossier flex h-[calc(100dvh-12rem)] min-h-[22rem] flex-col overflow-hidden rounded-3xl md:h-auto md:min-h-[70vh]">
           <header className="border-b border-line px-4 py-3">
             <p className="font-semibold">{session.scenario.scammer_name}</p>
             <p className="text-xs text-ink-soft">
@@ -137,7 +140,7 @@ export function SimulationPage() {
                   className={
                     message.role === 'user'
                       ? 'bubble max-w-[85%] rounded-3xl bg-ink px-4 py-3 text-sm leading-6 text-paper'
-                      : 'bubble max-w-[85%] rounded-3xl bg-card px-4 py-3 text-sm leading-6'
+                      : 'bubble max-w-[85%] rounded-3xl border border-ink/15 bg-card px-4 py-3 text-sm leading-6 shadow-sm'
                   }
                 >
                   <RichText text={message.text} onDark={message.role === 'user'} />
@@ -155,8 +158,8 @@ export function SimulationPage() {
             )}
           </div>
           <div className="space-y-3 border-t border-line px-4 py-3">
-            {maskPracticeInput(draft).warned && (
-              <p className="text-xs text-seal">Đừng bao giờ gửi mã OTP thật — chúng tôi đã che số này.</p>
+            {practiceWarning(draft) && (
+              <p className="text-xs text-seal">Đừng bao giờ gửi mã OTP thật. Số này sẽ được che trước khi lưu.</p>
             )}
             {error && <p className="text-sm text-danger">{error}</p>}
             <div className="flex gap-2">
@@ -214,7 +217,7 @@ export function SimulationPage() {
                 const current = stage.index === session.stage_index
                 return (
                   <li key={stage.index} className={stage.reached ? 'text-ink' : 'text-ink-soft/50'}>
-                    {current ? '▶' : stage.reached ? '✔' : '·'} {stage.intent}
+                    {current ? '▶' : stage.reached ? '✔' : '·'} {stage.intent || '…'}
                   </li>
                 )
               })}

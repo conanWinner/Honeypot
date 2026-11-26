@@ -285,7 +285,7 @@ export type TrainingDebrief = {
   turns: number
   duration_s: number
   stopped_before: string
-  stages: { index: number; intent: string; outcome: 'caught' | 'missed' | 'not_reached' | 'fell'; user_quote?: string }[]
+  stages: { index: number; intent: string; outcome: 'caught' | 'missed' | 'not_reached' | 'fell' | 'stopped'; user_quote?: string }[]
   flags: { text: string; stage_index: number; quote: string; caught: boolean }[]
   leaked: string[]
   tips: string[]

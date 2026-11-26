@@ -163,7 +163,12 @@ export function HomePage() {
       </section>
 
       <section>
-        <h2 className="font-display text-3xl">Cảnh báo mới nhất</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="font-display text-3xl">Cảnh báo mới nhất</h2>
+          <Link to="/xu-huong" className="text-sm font-semibold text-seal">
+            Xem xu hướng
+          </Link>
+        </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {latest.map((card) => (
             <Link key={card.id} to={`/canh-bao#${card.id}`} className="dossier rounded-3xl p-4 hover:border-ink">

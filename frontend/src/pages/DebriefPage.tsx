@@ -40,6 +40,7 @@ const tone: Record<string, string> = {
   caught: 'border-[#b7d7c4] bg-[#e7f3ec]',
   missed: 'border-[#f0c2c2] bg-[#fde7ef]',
   fell: 'border-[#f0c2c2] bg-[#fde7ef]',
+  stopped: 'border-line bg-card text-ink-soft',
   not_reached: 'border-line bg-card text-ink-soft',
 }
 
@@ -96,7 +97,7 @@ export function DebriefPage() {
   if (!report || !session) return <p className="text-ink-soft">Đang tổng kết…</p>
 
   const caught = report.flags.filter((flag) => flag.caught).length
-  const minutes = Math.max(1, Math.round(report.duration_s / 60))
+  const elapsed = report.duration_s < 60 ? `${report.duration_s} giây` : `${Math.max(1, Math.round(report.duration_s / 60))} phút`
 
   return (
     <div className="space-y-5">
@@ -117,7 +118,7 @@ export function DebriefPage() {
           </div>
           <div>
             <dt className="text-ink-soft">Thời gian</dt>
-            <dd className="font-display text-2xl">{minutes} phút</dd>
+            <dd className="font-display text-2xl">{elapsed}</dd>
           </div>
           <div>
             <dt className="text-ink-soft">Gợi ý</dt>
@@ -135,7 +136,15 @@ export function DebriefPage() {
           {report.stages.map((stage) => (
             <article key={stage.index} className={`rounded-3xl border p-4 ${tone[stage.outcome] || tone.not_reached}`}>
               <p className="text-[11px] uppercase tracking-[0.14em]">
-                {stage.outcome === 'caught' ? 'Nhận ra' : stage.outcome === 'fell' ? 'Sập bẫy' : stage.outcome === 'missed' ? 'Bỏ qua' : 'Chưa tới'}
+                {stage.outcome === 'caught'
+                  ? 'Nhận ra'
+                  : stage.outcome === 'fell'
+                    ? 'Sập bẫy'
+                    : stage.outcome === 'missed'
+                      ? 'Bỏ qua'
+                      : stage.outcome === 'stopped'
+                        ? 'Dừng'
+                        : 'Chưa tới'}
               </p>
               <p className="mt-1 font-semibold">{stage.intent}</p>
               {stage.user_quote && <p className="mt-2 text-sm leading-6">«{stage.user_quote}»</p>}

@@ -190,6 +190,117 @@ def test_quiz_mixes_answers_and_stays_safe(client):
         assert scammer_text_safe(item["text"]), item["text"]
 
 
+def test_raw_secrets_are_judged_then_masked(client):
+    """The UI posts the original line. The server scores that line, then stores it masked."""
+    otp = _session(client)
+    otp_response = _say(client, otp["id"], "Mã OTP của tôi là 482913")
+    assert otp_response.json()["session"]["status"] == "scammed"
+    assert otp_response.json()["judgment"]["label"] == "fell"
+
+    password = _session(client)
+    hidden = _say(client, password["id"], "mật khẩu của tôi là secret123")
+    assert hidden.status_code == 200, hidden.text
+    body = hidden.json()
+    assert body["session"]["status"] == "scammed"
+    stored = " ".join(message["text"] for message in body["session"]["messages"] if message["role"] == "user")
+    assert "secret123" not in stored
+    assert "[ĐÃ CHE]" in stored
+
+    spaced = _session(client)
+    leaked = _say(client, spaced["id"], "căn cước của tôi là 079 203 001 234 và sđt 0901234567")
+    assert leaked.json()["session"]["status"] == "scammed"
+    saved = " ".join(message["text"] for message in leaked.json()["session"]["messages"] if message["role"] == "user")
+    assert "079" not in saved
+    assert "0901234567" not in saved
+    assert "[ĐÃ CHE]" in saved
+
+
+def test_negation_and_questions_do_not_count_as_a_fall(client):
+    refused = _say(client, _session(client)["id"], "tôi không chuyển rồi")
+    assert refused.json()["session"]["status"] == "active"
+    assert refused.json()["judgment"]["label"] == "refuse"
+
+    report = _say(client, _session(client)["id"], "tôi không báo công an")
+    assert report.json()["session"]["status"] == "active"
+    assert report.json()["judgment"]["label"] != "fell"
+
+    question = _say(client, _session(client)["id"], "mật khẩu là gì")
+    assert question.json()["session"]["status"] == "active"
+    assert question.json()["judgment"]["label"] != "fell"
+    assert "gì" in question.json()["session"]["messages"][-2]["text"] or "gì" in " ".join(
+        message["text"] for message in question.json()["session"]["messages"] if message["role"] == "user"
+    )
+
+
+def test_sanitize_blocks_spaced_numbers_links_and_install_steps():
+    samples = [
+        "gọi 0901.234.567",
+        "sđt 090 123 4567",
+        "thẻ 1234 5678 9012",
+        "chuyển 19036547891 đồng",
+        "stk 0123456789đ",
+        "vào bit.ly/lay-otp",
+        "xem t.co/scam",
+        "điền forms.gle/abc",
+        "anydesk 123-456-789",
+        "ví 4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T",
+        "tôi là Nguyễn Văn Hùng",
+        "bật quyền hỗ trợ truy cập cho ứng dụng",
+    ]
+    for sample in samples:
+        cleaned = sanitize_scammer_text(sample)
+        assert scammer_text_safe(cleaned), (sample, cleaned)
+        assert "0901.234.567" not in cleaned
+        assert "090 123 4567" not in cleaned
+        assert "1234 5678 9012" not in cleaned
+        assert "19036547891" not in cleaned
+        assert "0123456789" not in cleaned
+        assert "bit.ly" not in cleaned
+        assert "t.co" not in cleaned
+        assert "forms.gle" not in cleaned
+        assert "123-456-789" not in cleaned
+        assert "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T" not in cleaned
+        assert "Nguyễn Văn Hùng" not in cleaned
+        assert "hỗ trợ truy cập" not in cleaned.lower()
+
+
+def test_rules_win_when_the_model_says_neutral(client):
+    provider = client.app.state.provider
+    original = provider.complete
+
+    def wrapped(schema, system, user, temperature=0.4, thinking=False, **kwargs):
+        if schema.__name__ == "SimJudgeOutput":
+            from app.services.training import SimJudgeOutput
+
+            return SimJudgeOutput(label="neutral", caught_flag_ids=[], rationale="bỏ luật")
+        return original(schema, system, user, temperature, thinking, **kwargs)
+
+    provider.complete = wrapped
+    try:
+        created = _session(client, difficulty="vua")
+        response = _say(client, created["id"], "Anh là ai, tôi sẽ gọi lên công an phường để xác minh")
+        assert response.status_code == 200, response.text
+        assert response.json()["judgment"]["label"] == "verify"
+    finally:
+        provider.complete = original
+
+
+def test_challenge_hides_future_steps_and_hangup_is_not_a_catch(client):
+    created = _session(client, mode="thu_thach")
+    assert created["stages"][0]["intent"]
+    assert all(stage["intent"] == "" for stage in created["stages"] if not stage["reached"])
+    client.post(f"/api/training/sessions/{created['id']}/action", json={"action": "hang_up"})
+    report = client.get(f"/api/training/sessions/{created['id']}/debrief").json()
+    assert report["stages"][0]["outcome"] == "stopped"
+    played = _session(client)
+    _say(client, played["id"], "Anh là ai, tôi sẽ gọi lên công an phường để xác minh")
+    _say(client, played["id"], "Tôi không chuyển, tôi gác máy")
+    debrief = client.get(f"/api/training/sessions/{played['id']}/debrief").json()
+    assert any(stage["outcome"] == "caught" for stage in debrief["stages"])
+    for flag in debrief["flags"]:
+        assert not flag["quote"].startswith("Thôi được")
+
+
 def test_simulation_uses_only_sim_and_analyst(client):
     calls = []
     provider = client.app.state.provider
