@@ -73,7 +73,7 @@ _APK = re.compile(r"(?:https?://)?[^\s]*?[\w.-]+\.apk\b(?:\?[^\s]*)?", re.IGNORE
 _TELEGRAM = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me)/(?:joinchat/|\+)?[A-Za-z0-9_+-]{3,64}|(?<![\w.])@[A-Za-z][A-Za-z0-9_]{4,31}\b", re.IGNORECASE)
 _ZALO = re.compile(r"(?:https?://)?zalo\.me/(?:g/)?[A-Za-z0-9_-]{3,64}", re.IGNORECASE)
 _EWALLET = re.compile(
-    r"ví\s*(momo|zalopay|viettel\s*pay|vnpay)\s*(?:số)?\s*((?:\+84|0)[35789]\d{8})",
+    r"(?:ví\s*)?(momo|zalopay|viettel\s*pay|vnpay)\s*(?:số)?\s*((?:\+84|0)[35789]\d{8})",
     re.IGNORECASE,
 )
 _TRON = re.compile(r"(?<![A-Za-z0-9])T[1-9A-HJ-NP-Za-km-z]{33}(?![A-Za-z0-9])")

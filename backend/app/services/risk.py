@@ -163,13 +163,13 @@ def strong_demand(text: str) -> bool:
         return True
     if re.search(r"(ultraviewer|anydesk|teamviewer|rustdesk|tro nang|ho tro truy cap|\.apk)", folded):
         return True
-    if re.search(r"(doc|nhan lai|gui|cho em|cho admin|chi can).{0,32}(otp|ma xac|6 so)|(otp|6 so).{0,24}(cho em|cho admin|xac minh)", folded):
+    if re.search(r"(doc|nhan lai|gui|cho em|cho admin)\s.{0,32}(otp|ma xac|6 so)|(otp|6 so).{0,24}(cho em|cho admin|de em xac minh)|gui\s.{0,24}(cai ma|ma vua)", folded):
         return True
     if payee_demand(text):
         return True
-    if re.search(r"(usdt|san |tien ma hoa|crypto)", folded) and re.search(r"(lai|loi nhuan|moi ngay|gap doi)", folded):
+    if re.search(r"(usdt|san giao dich|san dau tu|san crypto|tien ma hoa|crypto|tien ao)", folded) and re.search(r"(lai \d|lai moi ngay|loi nhuan|moi ngay|gap doi|lai suat cao)", folded):
         return True
-    if re.search(r"(mau nhi|casting|be nha)", folded) and re.search(r"(hoa hong|nhiem vu|giu suat)", folded) and re.search(r"(nap|chuyen|coc)", folded):
+    if re.search(r"(mau nhi|casting)", folded) and re.search(r"(hoa hong|nhiem vu|giu suat)", folded) and re.search(r"(nap|chuyen|coc)", folded):
         return True
     return False
 
@@ -223,13 +223,13 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
     if payee_demand(text):
         add("payee", "Bắt chuyển vào tài khoản kèm hạn cắt", 18, (found.get("bank_accounts") or [""])[0])
         add("cutoff", "Hạn chót hoặc đe cắt dịch vụ", 14, "")
-    if re.search(r"(doc|nhan|gui|cho em|cho admin|chi can).{0,32}(otp|ma xac|6 so)|(otp|6 so).{0,24}(cho em|cho admin|xac minh)", folded):
+    if re.search(r"(doc|nhan lai|gui|cho em|cho admin)\s.{0,32}(otp|ma xac|6 so)|(otp|6 so).{0,24}(cho em|cho admin|de em xac minh)|gui\s.{0,24}(cai ma|ma vua)", folded):
         add("code_handover", "Bắt đọc hoặc gửi mã cho người lạ", 28, _snippet(text, "otp" if "otp" in folded else "ma"))
     if (found.get("apk") or ".apk" in folded or "cai " in folded) and re.search(r"(tro nang|ho tro truy cap|accessibility)", folded):
         add("takeover", "Bắt cài app và bật quyền chiếm máy", 25, "")
-    if re.search(r"(usdt|san |tien ma hoa|crypto)", folded) and re.search(r"(lai|loi nhuan|moi ngay|gap doi)", folded):
+    if re.search(r"(usdt|san giao dich|san dau tu|san crypto|tien ma hoa|crypto|tien ao)", folded) and re.search(r"(lai \d|lai moi ngay|loi nhuan|moi ngay|gap doi|lai suat cao)", folded):
         add("profit_lure", "Hứa lãi khi nạp tiền ảo", 28, "")
-    if re.search(r"(mau nhi|casting|be nha)", folded) and re.search(r"(hoa hong|nhiem vu|giu suat)", folded) and re.search(r"(nap|chuyen|coc)", folded):
+    if re.search(r"(mau nhi|casting)", folded) and re.search(r"(hoa hong|nhiem vu|giu suat)", folded) and re.search(r"(nap|chuyen|coc)", folded):
         add("task_fee", "Bắt nạp tiền để nhận hoa hồng", 28, "")
         add("deposit", "Khoản đặt cọc hoặc phí giữ suất", 22, "")
     if match and float(match.get("confidence") or 0) >= 0.45:

@@ -392,12 +392,53 @@ def test_same_ask_rotates_after_two_turns_and_remote_id_is_a_goal(client):
 def test_vneid_web_form_ranks_above_the_apk_script(client):
     items = client.get(
         "/api/scripts",
-        params={"q": "Anh cập nhật định danh mức 2 tại bcavneid-xacthuc.com, nhập số căn cước và mã OTP trên form web."},
+        params={"q": "Nhờ anh cập nhật định danh mức 2 trên bcavneid-xacthuc.com, nhập số căn cước và mã OTP."},
     ).json()["items"]
     assert items
     assert items[0]["id"] == "vneid-cap-nhat"
-    top3 = [item["id"] for item in items[:3]]
-    assert "vneid-cap-nhat" in top3
+    assert "vneid-cap-nhat" in [item["id"] for item in items[:3]]
+
+
+def test_quiet_notices_and_everyday_lines_stay_benign(client):
+    from pathlib import Path
+
+    sample = "Vietcombank: ma OTP 482193 cua quy khach. Khong chia se ma nay voi bat ky ai."
+    page = Path(__file__).resolve().parents[2].joinpath("frontend/src/pages/CheckPage.tsx").read_text()
+    assert sample in page
+    notices = [
+        "Mã OTP để xác minh giao dịch của quý khách là 482193. Tuyệt đối không cung cấp mã này cho bất kỳ ai.",
+        sample,
+        "Chiều nay anh ra sân đá bóng, đá xong lại ghé nhà em lấy đồ nhé.",
+        "Chieu nay anh ra san da bong, da xong lai ghe nha em lay do nhe.",
+        "Bé nhà chị hôm nay hoàn thành nhiệm vụ cô giao, tối nay nhớ chuyển bài cho cô nha.",
+    ]
+
+    class Jumpy(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "AnalystOutput":
+                base = super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+                return base.model_copy(update={"is_scam": True, "scammer_intent": "Nghi là lừa đảo."})
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = Jumpy()
+    try:
+        for text in notices[:2]:
+            body = client.post("/api/check", json={"text": text}).json()
+            assert body["verdict"] == "benign" and body["risk"] == "thap", (text, body["verdict"], body["risk"])
+    finally:
+        client.app.state.provider = MockProvider()
+    for text in notices:
+        body = client.post("/api/check", json={"text": text}).json()
+        assert body["verdict"] == "benign" and body["is_scam"] is False, (text, body["verdict"], body["risk_score"])
+        assert body["risk"] == "thap"
+    forwarded = client.post("/api/check", json={"text": "Con gửi mẹ cái mã vừa về máy, mẹ đọc giúp con với."}).json()
+    assert forwarded["verdict"] == "scam"
+
+
+def test_momo_number_without_vi_is_an_ewallet():
+    found = harvest_indicators("Chuyển kích hoạt momo 0987654321 giúp em.")
+    assert any("0987654321" in item for item in found["ewallets"])
+    assert "0987654321" in found["phones"]
 
 
 def test_advisory_rules_do_not_override_a_scam_model_or_real_cues(client, monkeypatch):

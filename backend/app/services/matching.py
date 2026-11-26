@@ -5,6 +5,7 @@ same blend in Python so the ranking rules stay one piece of code.
 """
 
 import logging
+import re
 import time
 
 from sqlalchemy import select, text
@@ -34,6 +35,30 @@ _REASON_GROUPS = (
     ("tai nan", ("tai nan", "vien phi", "phau thuat", "benh vien", "tien vien")),
     ("vneid web", ("bcavneid", "dinh danh muc 2", "nhap so can cuoc", "form tren web", "khong cai app")),
 )
+
+
+def ioc_overlap_boost(message: str, script) -> float:
+    """Small boost when the query and a script share a distinctive indicator, not a script id."""
+    from app.agent.casefile import harvest_indicators
+
+    found = harvest_indicators(message or "")
+    blob = fold(
+        f"{getattr(script, 'title', '')} {getattr(script, 'summary', '')} "
+        f"{' '.join(getattr(script, 'hooks', None) or [])} "
+        + " ".join(str(value) for values in (getattr(script, "indicators", None) or {}).values() for value in (values or []))
+    )
+    compact = re.sub(r"[^a-z0-9]", "", blob)
+    boost = 0.0
+    seen: set[str] = set()
+    for raw in list(found.get("urls") or []) + list(found.get("lookalikes") or []) + list(found.get("apk") or []):
+        host = fold(str(raw)).split("—")[0].split("/")[0]
+        for part in re.split(r"[^a-z0-9]+", host):
+            if len(part) < 6 or part in seen or part in {"https", "http", "www"}:
+                continue
+            seen.add(part)
+            if part in compact:
+                boost += 0.22
+    return min(boost, 0.35)
 
 
 def reason_delta(message: str, script) -> float:
@@ -170,11 +195,7 @@ def search_scripts(session, message: str, provider, k: int = 6, status: str = "p
         else:
             score = 0.48 * vec + 0.30 * kw + 0.22 * step_score + brand_boost
         score += reason_delta(message, script)
-        if any(cue in folded_message for cue in ("bcavneid", "dinh danh muc 2", "nhap so can cuoc")):
-            if script.id == "vneid-cap-nhat":
-                score += 0.55
-            elif script.id == "dvc-apk-ho-tro-truy-cap" and ".apk" not in folded_message and "ho tro truy cap" not in folded_message:
-                score -= 0.45
+        score += ioc_overlap_boost(message, script)
         ranked.append(
             {
                 "script": script,

@@ -260,8 +260,12 @@ def check_text(session, text: str, provider, persona=None) -> dict:
     explained = score_text(text, found, matched if not benign else None)
     flag = getattr(analyst, "is_scam", None)
     demanded = strong_demand(text)
-    # Strong cues raise. Advisory wording lowers only when the model itself says benign.
-    if demanded or flag is True:
+    # Strong cues raise. A genuine notice with no demand stays benign even if the model is jumpy.
+    from app.services.risk import official_notice as _notice
+
+    if _notice(text) and not demanded:
+        verdict, is_scam, benign = "benign", False, True
+    elif demanded or flag is True:
         verdict, is_scam, benign = "scam", True, False
     elif flag is False or (advisory and _model_says_benign(analyst, hot, text)):
         verdict, is_scam, benign = "benign", False, True
