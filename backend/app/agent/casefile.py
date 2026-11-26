@@ -220,9 +220,34 @@ def _add(bucket: list[str], value: str, kind: str = "") -> None:
         bucket.append(cleaned[:120])
 
 
+_STRONG_ACCOUNT = re.compile(r"(số tài khoản|số tk|\bstk\b)", re.IGNORECASE)
+_OTP_BEFORE = re.compile(r"(otp|mã\s*xác\s*thực|mã\s*otp|\bcode)\s*$", re.IGNORECASE)
+
+
 def _near_bank(body: str, start: int, end: int) -> bool:
     window = body[max(0, start - 40) : min(len(body), end + 24)]
     return bool(_BANK_CUE.search(window))
+
+
+def _strong_account(body: str, start: int, end: int) -> bool:
+    window = body[max(0, start - 40) : min(len(body), end + 24)]
+    return bool(_STRONG_ACCOUNT.search(window))
+
+
+def _otp_number(body: str, start: int) -> bool:
+    return bool(_OTP_BEFORE.search(body[max(0, start - 28) : start]))
+
+
+def _inside_lettered_token(body: str, start: int, end: int) -> bool:
+    """Digits inside an alphanumeric wallet-like token are not a bank account."""
+    left = start
+    while left > 0 and body[left - 1].isalnum():
+        left -= 1
+    right = end
+    while right < len(body) and body[right].isalnum():
+        right += 1
+    token = body[left:right]
+    return any(ch.isalpha() for ch in token)
 
 
 def _hotline(digits: str) -> bool:
@@ -250,14 +275,20 @@ def harvest_indicators(text: str) -> dict:
         _add(found["phones"], digits, "phones")
     for match in re.finditer(r"\d[\d\s.]{4,}\d", body):
         digits = re.sub(r"\D", "", match.group(0))
+        if _inside_lettered_token(body, match.start(), match.end()) or _otp_number(body, match.start()):
+            continue
         if _hotline(digits):
             _add(found["hotlines"], digits, "hotlines")
             _add(found["phones"], digits, "phones")
             continue
-        if _near_bank(body, match.start(), match.end()) and 6 <= len(digits) <= 19:
+        strong = _strong_account(body, match.start(), match.end())
+        if strong and 6 <= len(digits) <= 19:
             _add(found["bank_accounts"], digits, "bank_accounts")
             continue
-        if len(digits) < 10:
+        if len(digits) < 8:
+            continue
+        if _near_bank(body, match.start(), match.end()) and len(digits) <= 19:
+            _add(found["bank_accounts"], digits, "bank_accounts")
             continue
         phone_shaped = digits.startswith("0") and len(digits) <= 11
         if phone_shaped:

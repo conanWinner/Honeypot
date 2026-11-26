@@ -80,16 +80,37 @@ def _surface(text: str) -> set[str]:
     return cues
 
 
+def _negated(text: str, word: str) -> bool:
+    """True when every hit of the word sits after a negation in the same clause."""
+    from app.agent.textutil import fold
+
+    folded = fold(text or "")
+    hits = list(re.finditer(re.escape(fold(word)), folded))
+    if not hits:
+        return False
+    for match in hits:
+        window = folded[max(0, match.start() - 28) : match.start()]
+        if not re.search(r"(khong|chua|chang|\bko\b)", window):
+            return False
+    return True
+
+
 def _model_says_benign(analyst, hot: bool) -> bool:
     from app.agent.textutil import fold
 
+    flag = getattr(analyst, "is_scam", None)
+    if flag is False:
+        return True
+    if flag is True:
+        return False
     if hot or float(analyst.scammer_suspicion or 0) >= 0.4:
         return False
     raw = (analyst.scammer_intent or "").lower()
     folded = fold(raw)
     # "chuyện" and "chuyển" fold to the same letters, so keep the diacritics for single words.
-    if any(word in raw for word in ("otp", "chuyển", "cài", "trúng", "thưởng", "lừa", "phí", "giám định", "nạp", "link")):
-        return False
+    for word in ("otp", "chuyển", "cài", "trúng", "thưởng", "lừa", "phí", "giám định", "nạp", "link"):
+        if word in raw and not _negated(raw, word):
+            return False
     return not any(phrase in folded for phrase in ("chuyen khoan", "chuyen tien", "nap tien", "gui tien", "trung thuong", "cai app"))
 
 
@@ -242,12 +263,19 @@ def check_text(session, text: str, provider, persona=None) -> dict:
 
     found = harvest_indicators(text)
     explained = score_text(text, found, matched if not benign else None)
-    if not benign and verdict != "scam" and strong_count(explained) >= 2 and explained["score"] >= 50:
+    flag = getattr(analyst, "is_scam", None)
+    if flag is False and not hard:
+        verdict, is_scam, benign = "benign", False, True
+    elif flag is True and not benign:
         verdict, is_scam = "scam", True
-        if level in {"thap", "trung_binh"}:
-            level, label = "cao", "Cao"
-    if verdict == "scam" and explained["score"] >= 85 and strong_count(explained) >= 2 and level != "rat_cao":
-        level, label = "rat_cao", "Rất cao"
+    elif not benign and verdict != "scam" and strong_count(explained) >= 2 and explained["score"] >= 50:
+        verdict, is_scam = "scam", True
+    # The label follows the 0–100 score. Search confidence must not promote a low score to Rất cao.
+    if benign:
+        level, label = "thap", "Thấp"
+        explained = {**explained, "score": 0, "factors": [], "level": "thap", "label": "Thấp"}
+    else:
+        level, label = explained["level"], explained["label"]
     try:
         links = lookup(session, found)
     except Exception:

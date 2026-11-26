@@ -114,6 +114,7 @@ class AnalystOutput(BaseModel):
     red_flags: list[str] = Field(default_factory=list)
     extracted_fact: str = ""
     scammer_suspicion: float = 0
+    is_scam: bool | None = None
     matches: list[MatchOut] = Field(default_factory=list)
     branch: BranchOut = Field(default_factory=BranchOut)
     notes: str = ""
@@ -122,6 +123,15 @@ class AnalystOutput(BaseModel):
     @classmethod
     def _strings(cls, value):
         return _text(value)
+
+    @field_validator("is_scam", mode="before")
+    @classmethod
+    def _is_scam(cls, value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "co", "có", "scam"}
+        return bool(value)
 
     @field_validator("red_flags", mode="before")
     @classmethod

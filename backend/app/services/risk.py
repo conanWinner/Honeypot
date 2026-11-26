@@ -18,7 +18,7 @@ _AUTHORITY = (
 )
 _URGENT = (
     "ngay lap tuc", "trong 15 phut", "trong hom nay", "truoc 17h", "khan cap", "gap", "sau 2 gio", "toi nay cat",
-    "bi khoa", "phong toa", "bi bat", "dong pham", "het han",
+    "bi khoa", "tam khoa", "phong toa", "bi bat", "dong pham", "het han",
 )
 _ISOLATE = ("khong duoc ke", "dung goi cho ai", "dung noi voi ai", "giu bi mat", "khong noi voi ai", "cam ke")
 _MONEY = (
@@ -36,11 +36,36 @@ _GROUP = ("t.me/", "telegram", "zalo.me/", "nhom zalo", "room vip")
 
 LEVELS = ((85, "rat_cao", "Rất cao"), (50, "cao", "Cao"), (25, "trung_binh", "Trung bình"), (0, "thap", "Thấp"))
 
+_OFFICIAL_HOSTS = (
+    "evn.com.vn", "evnhanoi.vn", "evnhcmc.vn", "cskh.evnspc.vn", "vietcombank.com.vn", "bidv.com.vn",
+    "momo.vn", "shopee.vn", "ghn.vn", "viettel.vn", "vnpost.vn",
+)
+
+
+def band_for(score: int, strong: int) -> tuple[str, str]:
+    """The visible band comes only from the score. Rất cao needs two strong factors."""
+    if score >= 85 and strong >= 2:
+        return "rat_cao", "Rất cao"
+    if score >= 50:
+        return "cao", "Cao"
+    if score >= 25:
+        return "trung_binh", "Trung bình"
+    return "thap", "Thấp"
+
 
 def official_notice(text: str) -> bool:
     """Real bank, utility, delivery, and wallet notices. They mention OTP or money without asking the reader to comply with a stranger."""
     folded = fold(text or "")
     if any(word in folded for word in (".apk", "ho tro truy cap", "tro nang", "ultraviewer", "anydesk", "doc ma", "doc otp", "chuyen vao stk", "tai khoan giam dinh")):
+        return False
+    # A real notice never carries a payee, a non-official link, or a request to send the code back.
+    found = harvest_indicators(text or "")
+    if any(len(account) >= 8 for account in found.get("bank_accounts") or []) or found.get("crypto_wallets") or found.get("lookalikes") or found.get("apk") or found.get("telegram"):
+        return False
+    if any(word in folded for word in ("nhan lai", "gui lai ma", "doc lai", "gui lai 6 so", "nhan 6 so", "kich hoat vao", "vao vi", "vao stk", "vao so tai khoan", "hoan don", "luu kho")):
+        return False
+    hosts = [url.split("/")[0].lower() for url in found.get("urls") or []]
+    if any(host and not any(host == domain or host.endswith("." + domain) for domain in _OFFICIAL_HOSTS) for host in hosts):
         return False
     refuses_share = any(word in folded for word in ("khong chia se", "khong cung cap", "dung cung cap", "khong doc ma"))
     if "otp" in folded and refuses_share and not any(word in folded for word in ("doc cho", "doc giup", "gui ma cho")):
@@ -92,7 +117,7 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
     if found.get("techniques"):
         add("technique", "Thủ thuật chiếm quyền", 10, ", ".join(found["techniques"][:2]))
     if (w := _find(folded, _OTP)):
-        add("otp", "Đòi mã OTP / mã đăng nhập", 22, _snippet(text, w))
+        add("otp", "Đòi mã OTP / mã đăng nhập", 30, _snippet(text, w))
     if found.get("crypto_wallets"):
         add("crypto", "Ví tiền ảo do người lạ đưa", 18, found["crypto_wallets"][0])
     if (w := _find(folded, _BIOMETRIC)):
@@ -113,6 +138,8 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
         add("group", "Kéo vào nhóm kín / kênh riêng", 6, (found.get("telegram") or found.get("zalo") or [""])[0])
     if found.get("urls") and not found.get("lookalikes"):
         add("link", "Có đường dẫn", 6, found["urls"][0])
+    elif "link" in folded or "duong dan" in folded:
+        add("link", "Nhắc bấm đường dẫn", 12, _snippet(text, "link" if "link" in folded else "duong dan"))
     if match and float(match.get("confidence") or 0) >= 0.45:
         add("known", f"Giống kịch bản đã biết: {match.get('title', '')}", int(round(20 * min(1.0, float(match["confidence"])))), match.get("id", ""))
     score = min(100, sum(item["weight"] for item in factors))
@@ -122,7 +149,7 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
     if len(strong_here) < 2:
         score = min(score, 74)
     factors.sort(key=lambda item: item["weight"], reverse=True)
-    level, label = next((lv, lb) for floor, lv, lb in LEVELS if score >= floor)
+    level, label = band_for(score, len(strong_here))
     return {"score": score, "level": level, "label": label, "factors": factors}
 
 
@@ -140,7 +167,7 @@ def merge_factors(previous: list[dict] | None, current: list[dict]) -> dict:
     strong_here = [item for item in factors if item["code"] in STRONG]
     if len(strong_here) < 2:
         score = min(score, 74)
-    level, label = next((lv, lb) for floor, lv, lb in LEVELS if score >= floor)
+    level, label = band_for(score, len(strong_here))
     return {"score": score, "level": level, "label": label, "factors": factors}
 
 

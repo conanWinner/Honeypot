@@ -51,7 +51,7 @@ PLAYBOOKS: dict[str, dict] = {
             _WHO,
             _t("link", "Đường dẫn / app 'hỗ trợ'", "ask_link", "hỏi cập nhật ở trang nào, xin đường dẫn", ["urls", "apk"]),
             _t("ask", "Họ đòi gì: OTP, khuôn mặt, video", "ask_purpose", "hỏi phải làm những bước gì", ["checklist:payment"]),
-            _t("hotline", "Số tổng đài họ tự xưng", "ask_identity", "hỏi số tổng đài để gọi lại", ["hotlines", "phones"]),
+            _t("fee", "Phí hoặc bước họ bắt làm trong app", "ask_purpose", "hỏi họ muốn mình bấm gì, có đòi phí hay mã không", ["checklist:payment", "apk"]),
         ],
     },
     "investment": {

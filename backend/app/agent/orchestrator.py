@@ -509,9 +509,22 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     nxt = next_unasked(book, state.asked_keys)
     who_done = any(item.get("key") == "who" and item.get("done") for item in state.checklist)
     identity_spent = who_done or "who" in state.asked_keys or state.goals_used.count("ask_identity") >= 1
-    if nxt and identity_spent and goal == "ask_identity" and nxt.get("goal") != "ask_identity":
-        goal = nxt["goal"]
-        note = f"{note} Playbook «{book['label']}»: đã hỏi danh tính, chuyển sang «{nxt['label']}»."
+    if identity_spent and (nxt is None or nxt.get("goal") == "ask_identity"):
+        nxt = next(
+            (
+                row
+                for row in book["targets"]
+                if not row["done"] and row["key"] not in state.asked_keys and row.get("goal") != "ask_identity"
+            ),
+            None,
+        )
+    if identity_spent and goal == "ask_identity":
+        if nxt and nxt.get("goal") != "ask_identity":
+            goal = nxt["goal"]
+            note = f"{note} Playbook «{book['label']}»: đã hỏi danh tính, chuyển sang «{nxt['label']}»."
+        else:
+            goal = "stall"
+            note = f"{note} Danh tính đã có. Không hỏi lại, chỉ giữ cuộc thoại."
     elif (
         nxt
         and not real_suspicion

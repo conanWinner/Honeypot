@@ -351,11 +351,18 @@ def check(body: CheckIn, request: Request, session=Depends(get_db)):
         return check_text(session, text, request.app.state.provider)
     except LLMError:
         log.warning("Chưa đọc được tin nhắn.")
+        from app.services.risk import score_text, strong_count
+
+        # The model is down, but the deterministic score still works: never show "Thấp" for an APK + OTP text.
+        explained = score_text(text)
+        caught = strong_count(explained) >= 2 and explained["score"] >= 50
         return {
-            "risk": "thap",
-            "risk_label": "Thấp",
-            "is_scam": False,
-            "verdict": "unclear",
+            "risk_score": explained["score"],
+            "risk_factors": explained["factors"],
+            "risk": explained["level"],
+            "risk_label": explained["label"],
+            "is_scam": caught,
+            "verdict": "scam" if caught else "unclear",
             "confidence": 0,
             "intent": "Chưa đọc được tin này. Thử lại sau.",
             "red_flags": [],
