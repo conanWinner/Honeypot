@@ -449,7 +449,34 @@ def test_disguised_courier_and_utility_notices_stay_scams(client):
         assert body["verdict"] == "scam" and body["is_scam"] is True, (text, body["verdict"], body["risk"])
     otp = "Vietcombank: ma OTP 482193 cua quy khach. Khong chia se ma nay voi bat ky ai."
     assert notice_may_override(otp, 0.4)
-    assert not notice_may_override(otp, 0.85)
+    assert notice_may_override(otp, 0.85)  # a refusal-style OTP SMS stays benign even when the model is confident
+    assert not notice_may_override("Vietcombank: ma OTP 482193. Goi ngay 0912345678 de huy giao dich.", 0.85)
+
+
+def test_confident_model_cannot_override_a_bank_otp_refusal(client):
+    from app.agent.schemas import MatchOut
+
+    benign = "Vietcombank: Mã OTP 482193 để xác thực giao dịch chuyển 2.500.000đ. Tuyệt đối không cung cấp mã OTP cho bất kỳ ai."
+    callback = "Vietcombank: ma OTP 482193. Goi ngay 0912345678 de huy giao dich."
+
+    class Confident(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "AnalystOutput":
+                base = super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+                matches = list(base.matches) or [MatchOut(script_id="otp", title="OTP", confidence=0.88)]
+                matches[0] = matches[0].model_copy(update={"confidence": 0.88})
+                return base.model_copy(update={"is_scam": True, "scammer_intent": "Nghi là lừa đảo.", "matches": matches})
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = Confident()
+    try:
+        body = client.post("/api/check", json={"text": benign}).json()
+        assert body["confidence"] >= 0.88
+        assert body["verdict"] == "benign" and body["is_scam"] is False and body["risk"] == "thap", body
+        called = client.post("/api/check", json={"text": callback}).json()
+        assert called["verdict"] == "scam" and called["is_scam"] is True, called
+    finally:
+        client.app.state.provider = MockProvider()
 
 
 def test_model_scam_with_handover_or_channel_is_at_least_cao(client):

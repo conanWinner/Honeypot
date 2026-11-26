@@ -182,7 +182,11 @@ def has_deadline_or_threat(text: str) -> bool:
 
 def notice_may_override(text: str, confidence: float = 0, found: dict | None = None) -> bool:
     """A notice may overrule a scam verdict only with no channel, no threat, and a weak script match."""
-    if float(confidence or 0) >= 0.8:
+    folded = fold(text or "")
+    # A bank OTP SMS that tells the reader never to share the code is the most common real notice;
+    # the model is often confidently wrong on it, so confidence alone must not block it.
+    otp_refusal = "otp" in folded and any(word in folded for word in ("khong cung cap", "khong chia se", "dung cung cap"))
+    if float(confidence or 0) >= 0.8 and not otp_refusal:
         return False
     found = found if found is not None else harvest_indicators(text or "")
     if has_contact_channel(text, found) or has_deadline_or_threat(text):
