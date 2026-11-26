@@ -14,4 +14,4 @@ Lần này không có `LLM_API_KEY`, `OPENAI_API_KEY` hay `GEMINI_API_KEY` trong
 - Trắc nghiệm `n=8` có cả hai đáp án, mọi câu hỏi qua bộ lọc an toàn.
 - Lượt luyện chỉ gọi vai `sim` và `analyst`.
 
-Khi có khóa router, chạy lại ít nhất ba phiên cho mỗi kiểu kết (`safe`, `scammed`, `timeout`) trên ít nhất năm nhóm, ghi độ trễ từng lượt (trung vị cần dưới 6 giây) và số lần bộ lọc an toàn bắt được. Chỉ dùng `MODEL_SIM=cx/gpt-6-luna` (dự phòng `cx/gpt-5.6-luna`) và `MODEL_ANALYST=ag/gemini-3.8-flash-low`.
+Khi có khóa router, chạy lại ít nhất ba phiên cho mỗi kiểu kết (`safe`, `scammed`, `timeout`) trên ít nhất năm nhóm, ghi độ trễ từng lượt (trung vị cần dưới 6 giây) và số lần bộ lọc an toàn bắt được. Chỉ dùng `MODEL_SIM=ag/gemini-3.8-flash-low` (dự phòng `cx/gpt-5.6-luna`) và `MODEL_ANALYST=ag/gemini-3.8-flash-low`.

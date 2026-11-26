@@ -321,6 +321,15 @@ def test_asking_for_a_number_is_not_handing_one_over(client):
     assert judge_rules("Mã OTP của tôi là 482913") == "fell"
 
 
+def test_tutor_refusals_include_dont_read_otp():
+    from app.services.training import _is_tutor_voice
+
+    assert _is_tutor_voice("Đừng đọc OTP cho bất kỳ ai.")
+    assert _is_tutor_voice("Đừng cung cấp mã xác thực.")
+    assert _is_tutor_voice("Bạn không nên làm theo.")
+    assert not _is_tutor_voice("Anh nghe máy, chuyển vào [STK_GIẢ] giúp tôi.")
+
+
 def test_tutor_voice_is_replaced_by_the_script_line(client):
     from app.services.training import _is_tutor_voice
 

@@ -173,8 +173,11 @@ def http_timeout(seconds: float) -> httpx.Timeout:
 
 def post_chat(url: str, api_key: str, payload: dict, timeout: float = 40) -> tuple[int, str, str]:
     headers = request_headers(api_key)
+    body = dict(payload)
+    # Gemini on 9router otherwise answers as SSE and the JSON body comes back empty.
+    body["stream"] = False
     try:
-        response = httpx.post(url, headers=headers, json=payload, timeout=http_timeout(timeout))
+        response = httpx.post(url, headers=headers, json=body, timeout=http_timeout(timeout))
     except httpx.TimeoutException as exc:
         raise LLMError(f"timeout calling router: {exc}") from exc
     except httpx.HTTPError as exc:

@@ -44,7 +44,7 @@ Trang chủ là ô kiểm tra tin. Kết quả hiện ngay bên dưới: điểm
 
 `/luyen-tap` mở hai đường: mô phỏng hội thoại khoảng năm phút, và trắc nghiệm tám câu. Kịch bản lấy từ thư viện đã xuất bản, gom chín nhóm (công an, ngân hàng và ví, giao hàng, việc làm, đầu tư, QR, deepfake, cài app, khác). Độ khó Dễ / Vừa / Khó đổi số lượt và số lần người lừa đảo được trấn an. Chế độ Học lộ cờ đỏ; Thử thách chỉ đếm cờ.
 
-Mỗi lượt: che OTP, số thẻ, căn cước và mật khẩu của người chơi trước khi lưu; luật gán nhãn `refuse`, `verify`, `suspicious`, `comply`, `leak`, `fell` hoặc `neutral`; vai `analyst` (`ag/gemini-3.8-flash-low`) chỉ được tinh chỉnh nhãn, không được hạ một cú ngã. Vai `sim` (`cx/gpt-6-luna`, dự phòng `cx/gpt-5.6-luna`) viết lời người lừa đảo. Mọi câu trả về đều đi qua `sanitize_scammer_text`: không số dài, không đường dẫn, không ví, không ID điều khiển, không tên chủ tài khoản. Hết bài là điểm do luật tính, không do mô hình. Phiên luyện không tạo kịch bản mới và không vào xu hướng.
+Mỗi lượt: che OTP, số thẻ, căn cước và mật khẩu của người chơi trước khi lưu; luật gán nhãn `refuse`, `verify`, `suspicious`, `comply`, `leak`, `fell` hoặc `neutral`; vai `analyst` (`ag/gemini-3.8-flash-low`) chỉ được tinh chỉnh nhãn, không được hạ một cú ngã. Vai `sim` (`ag/gemini-3.8-flash-low`, dự phòng `cx/gpt-5.6-luna`) viết lời người lừa đảo. Mọi câu trả về đều đi qua `sanitize_scammer_text`: không số dài, không đường dẫn, không ví, không ID điều khiển, không tên chủ tài khoản. Hết bài là điểm do luật tính, không do mô hình. Phiên luyện không tạo kịch bản mới và không vào xu hướng.
 
 `LLM_PROVIDER=mock` chơi được hết bài, không cần khóa. Phiên cũ hơn bảy ngày bị xóa lúc khởi động.
 
@@ -95,7 +95,7 @@ Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một
 | Persona | `cx/gpt-6-luna` | `MODEL_PERSONA` |
 | Analyst, planner, guard | `ag/gemini-3.8-flash-low` | `MODEL_ANALYST`, `MODEL_PLANNER`, `MODEL_GUARD` |
 | Trích kịch bản | `cx/gpt-5.6-luna` | `MODEL_EXTRACT` |
-| Giọng luyện tập | `cx/gpt-6-luna` | `MODEL_SIM`, dự phòng `cx/gpt-5.6-luna` |
+| Giọng luyện tập | `ag/gemini-3.8-flash-low` | `MODEL_SIM`, dự phòng `cx/gpt-5.6-luna` |
 | Chat dự phòng | `gemini-2.5-flash` | Khi router trả 4xx/5xx, Cloudflare 403/530, hoặc timeout |
 | Embedding | `openrouter/openai/text-embedding-3-small` | `MODEL_EMBED`. Qua 9router `/v1/embeddings`, 768 chiều, `dimensions` được tôn trọng |
 
@@ -116,8 +116,9 @@ Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi
 | `MODEL_PLANNER` | Mặc định `ag/gemini-3.8-flash-low` |
 | `MODEL_GUARD` | Mặc định `ag/gemini-3.8-flash-low` |
 | `MODEL_EXTRACT` | Mặc định `cx/gpt-5.6-luna` |
-| `MODEL_SIM` | Mặc định `cx/gpt-6-luna`. Giọng người lừa đảo trong bài luyện, model nhỏ |
-| `TIMEOUT_SIM` | Mặc định 6 giây, lần dự phòng 5 giây. Hết giờ thì dùng câu kịch bản đã lọc |
+| `MODEL_SIM` | Mặc định `ag/gemini-3.8-flash-low`. Giọng người lừa đảo trong bài luyện, model nhỏ |
+| `MODEL_SIM_FALLBACK` | Mặc định `cx/gpt-5.6-luna`, cổng khác với model chính |
+| `TIMEOUT_SIM` | Mặc định 7 giây, lần dự phòng 5 giây. Hết giờ thì dùng câu kịch bản đã lọc |
 | `MODEL_*_FALLBACK` | Một model nhỏ thay vai khi lần gọi chính hết giờ. Persona, analyst, planner, guard mặc định `cx/gpt-5.6-luna` |
 | `TIMEOUT_PERSONA` | Mặc định 12 giây |
 | `TIMEOUT_ANALYST` / `TIMEOUT_PLANNER` | Mặc định 18 giây |
