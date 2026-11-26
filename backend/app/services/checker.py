@@ -25,7 +25,17 @@ _HOUSEHOLD = ("tien dien", "tien nuoc", "tien nha", "hoc phi", "tien hoc", "cho 
 _IMPERSONATION = ("cong an", "canh sat", "thieu ta", "dieu tra", "ngan hang goi")
 _STRANGER = ("chuyen cho anh", "chuyen cho chi", "vao so", "so tai khoan", "nguoi la", "chuyen vao stk")
 _URGENCY = ("khan cap", "ngay lap tuc", "trong 15 phut", "trong vai phut", "bi bat ngay", "het han ngay")
-_OTP_CUE = ("otp", "ma xac thuc", "ma otp")
+_OTP_CUE = ("otp", "ma xac thuc", "ma otp", "ma dang nhap", "ma 6 so")
+_INSTALL_CUE = (
+    ".apk", "ho tro truy cap", "tro nang", "ultraviewer", "anydesk", "teamviewer", "rustdesk",
+    "cai ung dung", "tai ung dung", "cai app", "tai app", "file cai",
+)
+_CRYPTO_CUE = ("usdt", "trc20", "erc20", "bep20", "vi tien ao", "tien ma hoa")
+_ADVANCE_CUE = (
+    "hoa hong", "hoan goc", "lai moi ngay", "phi thu hoi", "lay lai tien", "phi phong toa", "phi giai ngan",
+    "combo", "nap toi thieu", "phi bao hiem khoan vay", "giu suat", "giu phong",
+)
+_THREAT_CUE = ("khoa 2 chieu", "khoa hai chieu", "sau 2 gio", "cat dien", "dung giao dich", "bi tam giu", "tam dung chuyen tien")
 
 
 def _surface(text: str) -> set[str]:
@@ -55,6 +65,18 @@ def _surface(text: str) -> set[str]:
         cues.add("stranger")
     if any(word in folded for word in _HOUSEHOLD):
         cues.add("household")
+    if found.get("apk") or found.get("remote_ids") or any(word in folded for word in _INSTALL_CUE):
+        cues.add("install")
+    if found.get("crypto_wallets") or any(word in folded for word in _CRYPTO_CUE):
+        cues.add("crypto")
+    if found.get("lookalikes"):
+        cues.add("lookalike")
+    if any(word in folded for word in _ADVANCE_CUE):
+        cues.add("advance")
+    if any(word in folded for word in _THREAT_CUE):
+        cues.add("urgency")
+    if found.get("telegram") or found.get("zalo"):
+        cues.add("link")
     return cues
 
 
@@ -129,12 +151,34 @@ def check_text(session, text: str, provider, persona=None) -> dict:
         level, label = "trung_binh", "Trung bình"
     else:
         level, label = "thap", "Thấp"
+    from app.services.risk import official_notice
+
+    if official_notice(text):
+        return {
+            "risk_score": 0,
+            "risk_factors": [],
+            "indicators": {},
+            "ioc_links": [],
+            "warnings": [],
+            "risk": "thap",
+            "risk_label": "Thấp",
+            "is_scam": False,
+            "verdict": "benign",
+            "confidence": 0,
+            "intent": "Thông báo từ kênh quen, không đòi làm theo người lạ.",
+            "red_flags": [],
+            "matched_script": None,
+            "next_step": None,
+            "advice": "Tin này giống thông báo của ngân hàng, điện lực, giao hàng hoặc ví. Không đọc mã cho ai, không bấm đường dẫn lạ.",
+            "branch": hint,
+            "mock": provider.is_mock,
+        }
     surface = _surface(text)
     model_benign = _model_says_benign(analyst, hot)
     plain = _plain_note(text) or _everyday(text)
     # A clock time (8h) or a room number (302) is not a phone or an account.
     # Money alone (tiền điện, học phí cho trường) is not a scam. It needs a second signal.
-    second = surface & {"prize", "phone", "link", "urgency", "otp", "account", "impersonation", "stranger"}
+    second = surface & {"prize", "phone", "link", "urgency", "otp", "account", "impersonation", "stranger", "install", "crypto", "lookalike", "advance"}
     hard = set(second)
     if "money" in surface and second and "household" not in surface:
         hard.add("money")
@@ -191,7 +235,35 @@ def check_text(session, text: str, provider, persona=None) -> dict:
         matched = None
         next_step = None
         advice = "Tin này giống lời chúc hoặc trò chuyện thường. Không cần làm gì thêm."
+    from app.agent.casefile import harvest_indicators
+    from app.data.warnings import cards_for_category
+    from app.services.intel import lookup
+    from app.services.risk import score_text, strong_count
+
+    found = harvest_indicators(text)
+    explained = score_text(text, found, matched if not benign else None)
+    if not benign and verdict != "scam" and strong_count(explained) >= 2 and explained["score"] >= 50:
+        verdict, is_scam = "scam", True
+        if level in {"thap", "trung_binh"}:
+            level, label = "cao", "Cao"
+    if verdict == "scam" and explained["score"] >= 85 and strong_count(explained) >= 2 and level != "rat_cao":
+        level, label = "rat_cao", "Rất cao"
+    try:
+        links = lookup(session, found)
+    except Exception:
+        links = []
+    cards = []
+    if not benign and matched:
+        cards = [
+            {"id": card["id"], "title": card["title"], "rising": card["rising"], "do": card["do"], "sources": card["sources"][:2]}
+            for card in cards_for_category(matched["category"])[:2]
+        ]
     return {
+        "risk_score": 0 if benign else explained["score"],
+        "risk_factors": [] if benign else explained["factors"],
+        "indicators": {key: value for key, value in found.items() if value and key not in ("brands", "pressure")} if not benign else {},
+        "ioc_links": links,
+        "warnings": cards,
         "risk": level,
         "risk_label": label,
         "is_scam": is_scam,

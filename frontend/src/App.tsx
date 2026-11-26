@@ -5,9 +5,11 @@ import { ChatPage } from './pages/ChatPage'
 import { CheckPage } from './pages/CheckPage'
 import { DemoPage } from './pages/DemoPage'
 import { HomePage } from './pages/HomePage'
+import { IntelPage } from './pages/IntelPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { ScriptPage } from './pages/ScriptPage'
 import { TrendsPage } from './pages/TrendsPage'
+import { WarningsPage } from './pages/WarningsPage'
 
 export default function App() {
   return (
@@ -20,6 +22,8 @@ export default function App() {
         <Route path="kich-ban/:id" element={<ScriptPage />} />
         <Route path="kiem-tra" element={<CheckPage />} />
         <Route path="xu-huong" element={<TrendsPage />} />
+        <Route path="canh-bao" element={<WarningsPage />} />
+        <Route path="mang-luoi" element={<IntelPage />} />
         <Route path="kiem-duyet" element={<AdminPage />} />
         <Route path="demo" element={<DemoPage />} />
         <Route path="*" element={<p className="text-ink-soft">Không có trang này.</p>} />

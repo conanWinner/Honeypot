@@ -731,3 +731,8 @@ SCRIPTS: list[dict] = [
         "occurrence_count": 14,
     },
 ]
+
+
+from app.data.scripts_2026 import SCRIPTS_2026  # noqa: E402
+
+SCRIPTS += SCRIPTS_2026

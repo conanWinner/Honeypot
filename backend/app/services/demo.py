@@ -19,3 +19,24 @@ DEMO = {
         "Bác đọc mã OTP ngân hàng vừa nhận để tôi đối soát giao dịch.",
     ],
 }
+
+DEMO_APK = {
+    "id": "app-dich-vu-cong-ong-sau",
+    "title": "Cán bộ phường bắt ông Sáu cài app Dịch vụ công",
+    "blurb": "Xu hướng 2025–2026: lợi dụng sáp nhập tỉnh, kẻ gian gửi file .apk giả Dịch vụ công rồi bắt bật quyền Hỗ trợ truy cập.",
+    "persona_id": "ong-sau",
+    "channel": "web",
+    "expected_script": "dvc-apk-ho-tro-truy-cap",
+    "lines": [
+        "Alo chú Sáu ạ, cháu là cán bộ Công an phường Kiến Xương. Sau sáp nhập tỉnh, hồ sơ cư trú của chú bị sai địa chỉ, phải cập nhật trong hôm nay.",
+        "Nếu không cập nhật, căn cước của chú sẽ bị khóa và lương hưu tháng sau bị treo ạ.",
+        "Chú kết bạn Zalo số 0901000999 để cháu gửi ứng dụng Dịch vụ công bản mới nhé.",
+        "Cháu gửi chú file DichVuCong.apk ở đường dẫn dichvucong-gov.top/app, chú bấm tải rồi bấm Cài đặt.",
+        "Máy hỏi thì chú chọn cho phép cài từ nguồn không xác định, rồi bật quyền Hỗ trợ truy cập cho ứng dụng.",
+        "Chú mở ứng dụng, nhìn thẳng vào màn hình để hệ thống quét khuôn mặt xác thực.",
+        "Nếu máy chậm, chú cài thêm UltraViewer rồi đọc ID cho cháu xử lý giúp.",
+        "Hệ thống gửi mã OTP về máy chú, chú đọc giúp cháu để hoàn tất đồng bộ.",
+    ],
+}
+
+DEMOS = {DEMO["id"]: DEMO, DEMO_APK["id"]: DEMO_APK}

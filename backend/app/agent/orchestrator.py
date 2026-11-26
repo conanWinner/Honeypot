@@ -50,6 +50,7 @@ from app.agent.policy import (
     with_fake_otp,
 )
 from app.agent.prompts import ANALYST_SYSTEM, PERSONA_SYSTEM, PLANNER_SYSTEM, SAFETY_SYSTEM
+from app.data.playbooks import next_unasked, playbook_state
 from app.agent.schemas import AnalystOutput, BranchOut, MatchOut, PersonaOutput, PlannerOutput, SafetyOutput
 from app.agent.state import AgentState, MatchSnap
 from app.agent.textutil import digit_runs
@@ -222,6 +223,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         if cue:
             hint = cue
     before_checklist = checklist_signature(state)
+    before_iocs = {kind: list(values or []) for kind, values in (state.indicators or {}).items()}
     update_casefile(state, text)
     note_progress(state, before_checklist)
     candidates = candidate_payload(published)
@@ -278,6 +280,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "aggressiveness": state.aggressiveness or "normal",
         "next_gap": next_gap(state),
         "checklist": state.checklist,
+        "playbook": _playbook_brief(state, provisional_script),
     }
     # Analyst and planner both only need the retrieval packet, so they run together.
     # Each role call, including repair and failover, stops at one wall-clock cap.
@@ -500,6 +503,36 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         goal = asked
         note = f"{note} Hai lượt không có thêm gì, hỏi mục còn thiếu."
     state.stage = choose_stage(state, branch.kind, wrap, suspicion)
+    if top_script is not None:
+        state.playbook_category = top_script.category
+    book = playbook_state(state.playbook_category, state.checklist, state.indicators)
+    nxt = next_unasked(book, state.asked_keys)
+    who_done = any(item.get("key") == "who" and item.get("done") for item in state.checklist)
+    identity_spent = who_done or "who" in state.asked_keys or state.goals_used.count("ask_identity") >= 1
+    if nxt and identity_spent and goal == "ask_identity" and nxt.get("goal") != "ask_identity":
+        goal = nxt["goal"]
+        note = f"{note} Playbook «{book['label']}»: đã hỏi danh tính, chuyển sang «{nxt['label']}»."
+    elif (
+        nxt
+        and not real_suspicion
+        and branch.kind == "none"
+        and goal in ("ask_purpose", "ask_next_instruction", "stall")
+        and state.turn_index >= 1
+        and goal != nxt.get("goal")
+        and not asked
+    ):
+        goal = nxt["goal"]
+        note = f"{note} Playbook «{book['label']}»: còn thiếu «{nxt['label']}»."
+    repeated = next(
+        (row for row in book["targets"] if row["goal"] == goal and (row["done"] or row["key"] in state.asked_keys)),
+        None,
+    )
+    if nxt and repeated and nxt.get("goal") != goal:
+        goal = nxt["goal"]
+        note = f"{note} Playbook «{book['label']}»: «{repeated['label']}» đã hỏi, chuyển sang «{nxt['label']}»."
+    aimed = next((row for row in book["targets"] if row["goal"] == goal and row["key"] not in state.asked_keys and not row["done"]), None)
+    if aimed:
+        state.asked_keys.append(aimed["key"])
     plan = plan.model_copy(update={"goal": goal, "rationale": note})
 
     persona_ctx = {
@@ -527,6 +560,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "otp_allowed": goal == "read_fake_otp",
         "jailbreak": inbound["jailbreak"],
         "recent_openings": [],
+        "ask_hint": (aimed or {}).get("hint", "") if aimed and goal == (aimed or {}).get("goal") else "",
     }
     recent_replies = [message.content for message in conversation.messages if message.role == "victim"][-4:]
     persona_ctx["recent_openings"] = [item.strip().split("\n", 1)[0][:48] for item in recent_replies[-3:]]
@@ -701,6 +735,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     state.provider = provider.name
     state.turn_index += 1
 
+    live_risk, ioc_links, warning_refs = _intel_turn(session, conversation, state, text, top, top_script, before_iocs, goal)
     script_steps = []
     if top_script is not None:
         script_steps = [{"actor": step.get("actor"), "intent": step.get("intent")} for step in (top_script.steps or [])]
@@ -729,6 +764,11 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "stage_label": STAGE_LABELS.get(state.stage, state.stage),
         "checklist": state.checklist,
         "indicators": state.indicators,
+        "risk": live_risk,
+        "timeline": state.timeline[-20:],
+        "playbook": book,
+        "ioc_links": ioc_links,
+        "warnings": warning_refs,
         "aggressiveness": state.aggressiveness or "normal",
         "degraded": degraded,
         "latencies_ms": {
@@ -810,6 +850,11 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "stage_label": STAGE_LABELS.get(state.stage, state.stage),
         "checklist": state.checklist,
         "indicators": state.indicators,
+        "risk": live_risk,
+        "timeline": state.timeline[-20:],
+        "playbook": book,
+        "ioc_links": ioc_links,
+        "warnings": warning_refs,
         "aggressiveness": state.aggressiveness or "normal",
         "degraded": degraded,
     }
@@ -876,3 +921,74 @@ def _message_dict(message: Message) -> dict:
         "reasoning": message.reasoning,
         "created_at": message.created_at.isoformat(),
     }
+
+
+def _playbook_brief(state: AgentState, script) -> dict:
+    category = (script.category if script is not None else "") or state.playbook_category
+    book = playbook_state(category, state.checklist, state.indicators)
+    return {
+        "family": book["label"],
+        "next": (book.get("next") or {}).get("label", ""),
+        "next_goal": (book.get("next") or {}).get("goal", ""),
+        "open": [row["label"] for row in book["targets"] if not row["done"]][:4],
+    }
+
+
+_IOC_LABELS = {
+    "bank_accounts": "TK",
+    "crypto_wallets": "Ví",
+    "apk": "APK",
+    "urls": "Link",
+    "telegram": "Telegram",
+    "zalo": "Zalo",
+    "remote_ids": "ID điều khiển",
+    "phones": "ĐT",
+    "apps": "App",
+    "lookalikes": "Tên miền giả",
+    "techniques": "Thủ thuật",
+}
+
+
+def _intel_turn(session, conversation, state: AgentState, text: str, top, top_script, before_iocs: dict, goal: str):
+    """Live risk, the stage timeline entry, cross-conversation IOC links and warning cards for this turn."""
+    from app.data.warnings import cards_for_category
+    from app.services.intel import lookup
+    from app.services.risk import merge_factors, score_text
+
+    match = {"id": top_script.id, "title": top_script.title, "confidence": float(top.confidence or 0)} if top_script is not None and top else None
+    turn_risk = score_text(text, None, match)
+    live = merge_factors(state.risk_factors, turn_risk["factors"])
+    state.risk_factors = live["factors"]
+    new_iocs = []
+    for kind, label in _IOC_LABELS.items():
+        old = set(before_iocs.get(kind) or [])
+        for value in (state.indicators or {}).get(kind) or []:
+            if value not in old:
+                new_iocs.append(f"{label} {value}" if kind not in ("lookalikes", "techniques") else str(value))
+    previous_risk = state.timeline[-1]["risk"] if state.timeline else 0
+    state.timeline.append(
+        {
+            "turn": state.turn_index,
+            "stage": state.stage,
+            "stage_label": STAGE_LABELS.get(state.stage, state.stage),
+            "script_id": top_script.id if top_script is not None else "",
+            "script_title": top_script.title if top_script is not None else "",
+            "goal": goal,
+            "goal_label": GOALS.get(goal, goal),
+            "new_iocs": new_iocs[:6],
+            "risk": live["score"],
+            "risk_delta": live["score"] - previous_risk,
+            "factors_new": [item["label"] for item in turn_risk["factors"]][:3],
+        }
+    )
+    state.timeline = state.timeline[-30:]
+    links = []
+    if new_iocs or state.turn_index % 3 == 0:
+        try:
+            links = lookup(session, state.indicators, exclude=f"conv:{conversation.id}")
+        except Exception:
+            log.warning("Không tra được chỉ dấu chéo.")
+            links = []
+    cards = cards_for_category(top_script.category) if top_script is not None else []
+    refs = [{"id": card["id"], "title": card["title"], "rising": card["rising"]} for card in cards[:2]]
+    return live, links, refs

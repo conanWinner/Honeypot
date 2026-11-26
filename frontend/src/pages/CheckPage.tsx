@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { IocChips, RiskGauge } from '../components/Intel'
 import { Banner, Button } from '../components/ui'
-import { api, type Persona } from '../lib/api'
+import { api, type Indicators, type Persona, type RiskFactor } from '../lib/api'
 
 type CheckResult = {
   risk: string
@@ -14,12 +15,17 @@ type CheckResult = {
   matched_script: { id: string; title: string; confidence: number } | null
   next_step: { intent: string; phrases: string[] } | null
   advice: string
+  risk_score?: number
+  risk_factors?: RiskFactor[]
+  indicators?: Indicators
 }
 
 const samples = [
   'Ví MoMo của bạn bị tạm khóa do đăng nhập lạ. Bấm link để xác thực và nhập mã OTP trong 15 phút.',
   'Tôi là thiếu tá cơ quan cảnh sát điều tra. Anh chuyển toàn bộ số dư sang tài khoản giám định, không được kể cho ai.',
   'Đơn hàng của bạn không phát được do sai địa chỉ. Bấm link thanh toán phí ship 25 nghìn.',
+  'Cán bộ phường báo hồ sơ cư trú sai. Bác tải DichVuCong.apk ở dichvucong-gov.top/app rồi bật quyền Hỗ trợ truy cập.',
+  'Vietcombank: ma OTP 482193 cua quy khach. Khong chia se ma nay voi bat ky ai.',
 ]
 
 export function CheckPage() {
@@ -108,6 +114,17 @@ export function CheckPage() {
               {result.verdict === 'benign' ? ' · không thấy dấu hiệu lừa đảo' : result.verdict === 'scam' ? ' · có dấu hiệu lừa đảo' : ''}
               {' '}· độ gần {Math.round(result.confidence * 100)}%
             </Banner>
+            {result.risk_factors && result.risk_factors.length > 0 && (
+              <section className="dossier rounded-3xl p-5">
+                <p className="text-[11px] uppercase tracking-[0.14em] text-seal">Vì sao rủi ro</p>
+                <div className="mt-2">
+                  <RiskGauge risk={{ score: result.risk_score ?? 0, level: result.risk, label: result.risk_label, factors: result.risk_factors }} />
+                </div>
+                <div className="mt-3">
+                  <IocChips indicators={result.indicators} />
+                </div>
+              </section>
+            )}
             <section className="dossier rounded-3xl p-5">
               <p className="text-[11px] uppercase tracking-[0.14em] text-ink-soft">Ý định</p>
               <p className="mt-1 text-lg font-semibold">{result.intent}</p>

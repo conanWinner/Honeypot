@@ -125,8 +125,10 @@ Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi
 - Hội thoại tiếp quản, persona chọn được, độ trễ gõ và chữ «đang nhập» trong lúc chờ model.
 - Panel: kịch bản khớp, bước hiện tại, cờ đỏ, nhánh mới, mục tiêu, luận giải bật tắt.
 - Thư viện dạng cây, lọc, tìm, thẻ cảnh báo tải PNG.
-- Kiểm tra tin: mức rủi ro, bước kế, nút giao cho agent.
-- Xu hướng theo loại, tháng, thương hiệu.
+- Kiểm tra tin: mức rủi ro có giải thích, bước kế, nút giao cho agent. Thông báo OTP, tiền điện, giao hàng và khuyến mãi từ kênh quen ở mức thấp.
+- Xu hướng theo loại, tháng, thương hiệu, kèm bảng phương thức đang nổi.
+- Thẻ cảnh báo tại `/canh-bao` và mạng lưới chỉ dấu tại `/mang-luoi`.
+- Playbook theo loại lừa: đã hỏi danh tính thì chuyển sang phí, tài khoản, đường dẫn.
 - Hàng chờ duyệt.
 - Demo một nhịp cho giám khảo.
 - 28 kịch bản gốc và các nhánh, viết từ kiến thức công khai. Không có đường dẫn lừa sống.

@@ -1,5 +1,6 @@
 import type { Panel } from '../lib/api'
 import { GOAL_LABELS } from '../lib/utils'
+import { IocChips, IocLinks, PlaybookCard, RiskGauge, StageTimeline, WarningRefs } from './Intel'
 
 const STAGES = ['mo_dau', 'danh_tinh', 'ly_do', 'co_lap', 'tien', 'kenh_nhan', 'ep', 'nhanh', 'phuc_hoi', 'kep']
 const STAGE_SHORT: Record<string, string> = {
@@ -27,17 +28,6 @@ export function CasePanel({ panel, reasoning, explain = false }: { panel: Panel 
   const confidence = panel.matches[0]?.confidence ?? 0
   const risk = Math.round(Math.max(confidence, panel.suspicion) * 100)
   const stageIndex = Math.max(0, STAGES.indexOf(panel.stage || 'mo_dau'))
-  const chips = [
-    ...(panel.indicators?.hotlines ?? []).map((item) => `Tổng đài ${item}`),
-    ...(panel.indicators?.phones ?? [])
-      .filter((item) => !(panel.indicators?.hotlines ?? []).includes(item))
-      .map((item) => `ĐT ${item}`),
-    ...(panel.indicators?.bank_accounts ?? []).map((item) => `TK ${item}`),
-    ...(panel.indicators?.urls ?? []),
-    ...(panel.indicators?.apps ?? []),
-    ...(panel.indicators?.brands ?? []),
-    ...(panel.indicators?.pressure ?? []),
-  ]
   return (
     <aside className="space-y-3">
       <section className="dossier rounded-3xl p-5">
@@ -54,11 +44,24 @@ export function CasePanel({ panel, reasoning, explain = false }: { panel: Panel 
             />
           ))}
         </ol>
-        <p className="mt-3 text-sm text-ink-soft">Mức khớp / nghi ngờ</p>
-        <div className="meter mt-1">
-          <span style={{ width: `${risk}%` }} />
-        </div>
-        <p className="mt-1 text-xs text-ink-soft">{risk}%</p>
+        {panel.risk ? (
+          <div className="mt-4">
+            <RiskGauge risk={panel.risk} compact />
+          </div>
+        ) : (
+          <>
+            <p className="mt-3 text-sm text-ink-soft">Mức khớp / nghi ngờ</p>
+            <div className="meter mt-1">
+              <span style={{ width: `${risk}%` }} />
+            </div>
+            <p className="mt-1 text-xs text-ink-soft">{risk}%</p>
+          </>
+        )}
+        {panel.warnings && panel.warnings.length > 0 && (
+          <div className="mt-3">
+            <WarningRefs refs={panel.warnings} />
+          </div>
+        )}
       </section>
 
       <section className="dossier rounded-3xl p-5">
@@ -67,6 +70,15 @@ export function CasePanel({ panel, reasoning, explain = false }: { panel: Panel 
         <p className="mt-2 text-sm leading-6 text-ink-soft">{panel.goal.rationale}</p>
         {panel.degraded && <p className="mt-2 text-sm text-seal">Mô hình vừa chậm. Câu này là câu giữ chỗ trong vai.</p>}
       </section>
+
+      {panel.playbook && panel.playbook.targets.length > 0 && (
+        <section className="dossier rounded-3xl p-5">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-gold">Playbook theo loại lừa</p>
+          <div className="mt-2">
+            <PlaybookCard playbook={panel.playbook} />
+          </div>
+        </section>
+      )}
 
       <section className="dossier rounded-3xl p-5">
         <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Bảng khai thác</p>
@@ -102,15 +114,22 @@ export function CasePanel({ panel, reasoning, explain = false }: { panel: Panel 
 
       <section className="dossier rounded-3xl p-5">
         <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Chỉ dấu vừa lộ</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {chips.length === 0 && <p className="text-sm text-ink-soft">Chưa có số, link hay tên ứng dụng.</p>}
-          {chips.map((chip) => (
-            <span key={chip} className="rounded-full bg-[#fde7ef] px-2.5 py-1 text-xs text-seal-deep">
-              {chip}
-            </span>
-          ))}
+        <div className="mt-3">
+          <IocChips indicators={panel.indicators} />
         </div>
+        {panel.ioc_links && panel.ioc_links.length > 0 && (
+          <div className="mt-3">
+            <IocLinks links={panel.ioc_links} />
+          </div>
+        )}
       </section>
+
+      {panel.timeline && panel.timeline.length > 0 && (
+        <section className="dossier rounded-3xl p-5">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Dòng thời gian kịch bản</p>
+          <StageTimeline timeline={panel.timeline} />
+        </section>
+      )}
 
       <section className="dossier rounded-3xl p-5">
         <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Bước trong kịch bản</p>

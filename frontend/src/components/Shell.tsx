@@ -1,4 +1,4 @@
-import { ClipboardCheck, Library, LineChart, MessageSquareText, ScanSearch, Shield } from 'lucide-react'
+import { ClipboardCheck, Library, LineChart, MessageSquareText, Network, ScanSearch, Shield, TriangleAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { api, type Health, type LlmHealth } from '../lib/api'
@@ -10,6 +10,8 @@ const links = [
   { to: '/thu-vien', label: 'Thư viện', icon: Library },
   { to: '/kiem-tra', label: 'Kiểm tra', icon: ScanSearch },
   { to: '/xu-huong', label: 'Xu hướng', icon: LineChart },
+  { to: '/canh-bao', label: 'Cảnh báo', icon: TriangleAlert },
+  { to: '/mang-luoi', label: 'Mạng lưới', icon: Network },
   { to: '/kiem-duyet', label: 'Duyệt', icon: ClipboardCheck },
 ]
 

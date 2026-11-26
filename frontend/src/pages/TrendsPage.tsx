@@ -21,6 +21,9 @@ type Trends = {
   by_month: { month: string; count: number }[]
   newest: Brief[]
   rising: Brief[]
+  emerging?: { id: string; label: string; new_scripts: number; total: number; new_branches_30d: number; score: number }[]
+  watch?: { id: string; title: string; rising: boolean; first_reported: string; scripts: number; source: { title: string; url: string } | null }[]
+  stats?: { label: string; value: string; url: string }[]
 }
 
 export function TrendsPage() {
@@ -43,6 +46,34 @@ export function TrendsPage() {
           {data.total} hồ sơ công khai, trong đó {data.variants} nhánh. Mốc thời gian lấy từ lần đầu thấy và lần thấy gần nhất của từng kịch bản.
         </p>
       </div>
+      {data.emerging && data.emerging.length > 0 && (
+        <section className="dossier rounded-3xl p-5">
+          <h2 className="font-display text-2xl">Đang nổi lên</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {data.emerging.map((item) => (
+              <li key={item.id}>
+                {item.label}: {item.new_scripts}/{item.total} kịch bản mới
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {data.watch && data.watch.length > 0 && (
+        <section className="dossier rounded-3xl p-5">
+          <h2 className="font-display text-2xl">Theo dõi phương thức</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {data.watch.map((item) => (
+              <li key={item.id}>
+                <Link className="underline" to={`/canh-bao#${item.id}`}>
+                  {item.rising ? '▲ ' : ''}
+                  {item.title}
+                </Link>
+                <span className="text-ink-soft"> · {item.scripts} kịch bản</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="dossier rounded-3xl p-5">
           <h2 className="font-display text-2xl">Theo loại</h2>

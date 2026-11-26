@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChatRoom } from '../components/ChatRoom'
 import { Banner, Button } from '../components/ui'
 import { api, type Conversation } from '../lib/api'
@@ -7,12 +7,19 @@ export function DemoPage() {
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [demos, setDemos] = useState<{ id: string; title: string; blurb: string }[]>([])
 
-  async function start() {
+  useEffect(() => {
+    api<{ all?: { id: string; title: string; blurb: string }[] }>('/api/demo')
+      .then((meta) => setDemos(meta.all ?? []))
+      .catch(() => setDemos([]))
+  }, [])
+
+  async function start(id = '') {
     setBusy(true)
     setError('')
     try {
-      setConversation(await api<Conversation>('/api/demo/start', { method: 'POST' }))
+      setConversation(await api<Conversation>(`/api/demo/start${id ? `?id=${encodeURIComponent(id)}` : ''}`, { method: 'POST' }))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Không mở được demo.')
     } finally {
@@ -43,6 +50,19 @@ export function DemoPage() {
         <Button className="mt-5" variant="seal" disabled={busy} onClick={() => void start()}>
           Bắt đầu demo
         </Button>
+        {demos.length > 1 && (
+          <div className="mt-8 space-y-3">
+            {demos.slice(1).map((demo) => (
+              <div key={demo.id} className="dossier rounded-3xl p-5">
+                <h2 className="font-display text-2xl">{demo.title}</h2>
+                <p className="mt-2 text-sm leading-6 text-ink-soft">{demo.blurb}</p>
+                <Button className="mt-3" variant="ink" disabled={busy} onClick={() => void start(demo.id)}>
+                  Chạy demo này
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     )
   }

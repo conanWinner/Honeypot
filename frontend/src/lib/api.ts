@@ -75,7 +75,8 @@ export type Script = {
   hooks: string[]
   red_flags: string[]
   advice: string
-  sources: { type: string; ref: string }[]
+  sources: { type: string; ref: string; url?: string }[]
+  warnings?: WarningRef[]
   first_seen: string
   last_seen: string
   occurrence_count: number
@@ -135,23 +136,70 @@ export type Panel = {
   stage?: string
   stage_label?: string
   checklist?: { key: string; label: string; done: boolean; detail: string }[]
-  indicators?: {
-    phones: string[]
-    bank_accounts: string[]
-    urls: string[]
-    apps: string[]
-    brands: string[]
-    pressure: string[]
-    hotlines?: string[]
-  }
+  indicators?: Indicators
   aggressiveness?: string
   degraded?: boolean
+  risk?: RiskInfo
+  timeline?: TimelineEntry[]
+  playbook?: Playbook
+  ioc_links?: IocLink[]
+  warnings?: WarningRef[]
   rejected_draft?: {
     text: string
     reasons: string[]
     labels: string[]
     action: string
   } | null
+}
+
+export type RiskFactor = { code: string; label: string; weight: number; evidence: string }
+export type RiskInfo = { score: number; level: string; label: string; factors: RiskFactor[] }
+export type TimelineEntry = {
+  turn: number
+  stage: string
+  stage_label: string
+  goal: string
+  goal_label: string
+  new_iocs: string[]
+  risk: number
+  risk_delta: number
+}
+export type PlaybookRow = { key: string; label: string; goal: string; hint: string; done: boolean; detail: string }
+export type Playbook = { category: string; label: string; targets: PlaybookRow[]; next: PlaybookRow | null }
+export type IocLink = { kind: string; kind_label: string; value: string; count: number; seen_in: { type: string; label: string; ref: string }[] }
+export type WarningRef = { id: string; title: string; rising: boolean }
+export type Source = { title: string; url: string; date: string }
+export type WarningCard = {
+  id: string
+  title: string
+  categories: string[]
+  category_labels?: string[]
+  channels: string[]
+  targets: string
+  rising: boolean
+  first_reported: string
+  how: string[]
+  lines: string[]
+  red_flags: string[]
+  do: string
+  sources: Source[]
+  scripts?: { id: string; title: string; category: string }[]
+}
+export type Indicators = {
+  phones?: string[]
+  bank_accounts?: string[]
+  urls?: string[]
+  apps?: string[]
+  brands?: string[]
+  pressure?: string[]
+  hotlines?: string[]
+  apk?: string[]
+  telegram?: string[]
+  zalo?: string[]
+  crypto_wallets?: string[]
+  remote_ids?: string[]
+  techniques?: string[]
+  lookalikes?: string[]
 }
 
 export type Conversation = {
@@ -206,6 +254,11 @@ export function panelFromMessage(message: Message | undefined): Panel | null {
     stage_label: reasoning.stage_label,
     checklist: reasoning.checklist,
     indicators: reasoning.indicators,
+    risk: reasoning.risk,
+    timeline: reasoning.timeline,
+    playbook: reasoning.playbook,
+    ioc_links: reasoning.ioc_links,
+    warnings: reasoning.warnings,
     aggressiveness: reasoning.aggressiveness,
     degraded: Boolean(reasoning.degraded),
     rejected_draft: reasoning.outbound_safety?.rejected_draft ?? null,

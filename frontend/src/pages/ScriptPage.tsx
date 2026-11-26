@@ -138,7 +138,15 @@ export function ScriptPage() {
           <ul className="mt-2 space-y-1 text-ink-soft">
             {script.sources.map((source, index) => (
               <li key={`${source.ref}-${index}`}>
-                {source.type}: {source.ref}
+                {source.url ? (
+                  <a className="underline" href={source.url} target="_blank" rel="noreferrer">
+                    {source.ref}
+                  </a>
+                ) : (
+                  <>
+                    {source.type}: {source.ref}
+                  </>
+                )}
               </li>
             ))}
           </ul>

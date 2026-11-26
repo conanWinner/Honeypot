@@ -16,7 +16,7 @@ from app.channels import get_adapter
 from app.llm.base import LLMError
 from app.models import Conversation, Message, Persona, Script
 from app.services.checker import check_text
-from app.services.demo import DEMO
+from app.services.demo import DEMO, DEMOS
 from app.services.library import embed_script, finish_conversation, get_script, list_scripts, script_public, set_status, variant_counts
 from app.services.trends import build_trends
 from app.taxonomy import CATEGORIES, CHANNELS, GOALS
@@ -381,6 +381,47 @@ def trends(session=Depends(get_db)):
     return build_trends(session)
 
 
+@router.get("/warnings")
+def warnings_list():
+    from app.data.warnings import STATS, WARNINGS
+    from app.taxonomy import CATEGORIES as cats
+
+    cards = [{**card, "category_labels": [cats.get(item, item) for item in card["categories"]]} for card in WARNINGS]
+    cards.sort(key=lambda card: (not card["rising"], card["first_reported"]))
+    return {"cards": cards, "stats": STATS}
+
+
+@router.get("/warnings/{card_id}")
+def warning_detail(card_id: str, session=Depends(get_db)):
+    from app.data.warnings import BY_ID
+
+    card = BY_ID.get(card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="Không có thẻ cảnh báo này.")
+    rows = session.scalars(select(Script).where(Script.status == "published", Script.category.in_(card["categories"]))).all()
+    return {**card, "scripts": [{"id": row.id, "title": row.title, "category": row.category} for row in rows]}
+
+
+@router.get("/intel/graph")
+def intel_graph(session=Depends(get_db), min_sources: int = 1):
+    from app.services.intel import build_graph
+
+    return build_graph(session, min_sources=min_sources)
+
+
+@router.get("/intel/lookup")
+def intel_lookup(q: str, session=Depends(get_db)):
+    from app.agent.casefile import harvest_indicators
+    from app.services.intel import lookup
+
+    found = harvest_indicators(q)
+    digits = "".join(ch for ch in q if ch.isdigit())
+    if not any(found.get(key) for key in ("bank_accounts", "phones", "urls", "apk", "telegram", "zalo", "crypto_wallets", "remote_ids")) and len(digits) >= 6:
+        found["bank_accounts"] = [digits]
+        found["phones"] = [digits]
+    return {"query": q, "hits": lookup(session, found)}
+
+
 @router.get("/moderation")
 def moderation(session=Depends(get_db), _: None = Depends(require_admin)):
     rows = session.scalars(select(Script).where(Script.status == "pending").order_by(Script.created_at.desc())).all()
@@ -413,19 +454,27 @@ def reject(script_id: str, session=Depends(get_db), _: None = Depends(require_ad
 
 
 @router.post("/demo/start")
-def start_demo(request: Request, session=Depends(get_db)):
-    created = create_conversation(ConversationIn(persona_id=DEMO["persona_id"], channel=DEMO["channel"]), request, session)
+def start_demo(request: Request, session=Depends(get_db), id: str = ""):
+    demo = DEMOS.get(id) or DEMO
+    created = create_conversation(ConversationIn(persona_id=demo["persona_id"], channel=demo["channel"]), request, session)
     conversation = _load_conversation(session, created["id"])
     state = AgentState.model_validate(conversation.state)
-    state.demo_lines = list(DEMO["lines"])
+    state.demo_lines = list(demo["lines"])
     conversation.state = state.model_dump()
     conversation.is_demo = True
     session.flush()
     payload = _conversation_public(_load_conversation(session, conversation.id))
-    payload["demo"] = {"id": DEMO["id"], "title": DEMO["title"], "blurb": DEMO["blurb"], "expected_script": DEMO["expected_script"]}
+    payload["demo"] = {"id": demo["id"], "title": demo["title"], "blurb": demo["blurb"], "expected_script": demo["expected_script"]}
     return payload
 
 
 @router.get("/demo")
 def demo_meta():
-    return {"id": DEMO["id"], "title": DEMO["title"], "blurb": DEMO["blurb"], "lines": DEMO["lines"], "persona_id": DEMO["persona_id"]}
+    return {
+        "id": DEMO["id"],
+        "title": DEMO["title"],
+        "blurb": DEMO["blurb"],
+        "lines": DEMO["lines"],
+        "persona_id": DEMO["persona_id"],
+        "all": [{"id": item["id"], "title": item["title"], "blurb": item["blurb"], "persona_id": item["persona_id"], "lines": item["lines"]} for item in DEMOS.values()],
+    }

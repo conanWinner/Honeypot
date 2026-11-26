@@ -46,7 +46,7 @@ _DOMAIN = re.compile(
 # Syllables that show up after a dot in ordinary Vietnamese, not as a public suffix.
 _NOT_TLD = {
     "anh", "chi", "em", "oi", "nhe", "nha", "nay", "mai", "sao", "dau", "gi",
-    "html", "php", "jpg", "jpeg", "png", "pdf", "doc", "txt", "js", "css", "json",
+    "apk", "html", "php", "jpg", "jpeg", "png", "pdf", "doc", "txt", "js", "css", "json",
 }
 _BANK_CUE = re.compile(
     r"(số tài khoản|số tk|\bstk\b|ngân hàng|\bbank\b|"
@@ -55,7 +55,40 @@ _BANK_CUE = re.compile(
     re.IGNORECASE,
 )
 _CUE = re.compile(r"(?:tôi thấy|tôi biết|chúng tôi biết|bên tôi thấy)\s+([^.]{8,90})", re.IGNORECASE)
-_APPS = ("ultraviewer", "anydesk", "teamviewer", "zalo", "telegram", "vneid", "momo")
+_APPS = (
+    "ultraviewer", "anydesk", "teamviewer", "rustdesk", "airdroid", "zalo", "telegram", "vneid", "momo",
+    "vssid", "etax", "dịch vụ công", "dichvucong", "evn cskh", "evncskh", "sms forwarder",
+)
+_TECHNIQUES = (
+    ("hỗ trợ truy cập", "Bật quyền Hỗ trợ truy cập"),
+    ("ho tro truy cap", "Bật quyền Hỗ trợ truy cập"),
+    ("trợ năng", "Bật quyền trợ năng"),
+    ("accessibility", "Bật quyền Hỗ trợ truy cập"),
+    ("quét khuôn mặt", "Đòi quét khuôn mặt"),
+    ("sinh trắc học", "Nhắc sinh trắc học"),
+    ("chia sẻ màn hình", "Đòi chia sẻ màn hình"),
+    ("nguồn không xác định", "Cài từ nguồn không xác định"),
+)
+_APK = re.compile(r"(?:https?://)?[^\s]*?[\w.-]+\.apk\b(?:\?[^\s]*)?", re.IGNORECASE)
+_TELEGRAM = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me)/(?:joinchat/|\+)?[A-Za-z0-9_+-]{3,64}|(?<![\w.])@[A-Za-z][A-Za-z0-9_]{4,31}\b", re.IGNORECASE)
+_ZALO = re.compile(r"(?:https?://)?zalo\.me/(?:g/)?[A-Za-z0-9_-]{3,64}", re.IGNORECASE)
+_TRON = re.compile(r"(?<![A-Za-z0-9])T[1-9A-HJ-NP-Za-km-z]{33}(?![A-Za-z0-9])")
+_ETH = re.compile(r"(?<![A-Za-z0-9])0x[a-fA-F0-9]{40}(?![A-Za-z0-9])")
+_BTC_BECH32 = re.compile(r"(?<![A-Za-z0-9])bc1[ac-hj-np-z02-9]{25,62}(?![A-Za-z0-9])")
+_BTC_BASE58 = re.compile(r"(?<![A-Za-z0-9])[13][1-9A-HJ-NP-Za-km-z]{25,33}(?![A-Za-z0-9])")
+_WALLET_CUE = re.compile(r"(?:ví|vi|wallet|địa chỉ ví|dia chi vi)\s*(?:usdt|trc20|erc20|bep20)?\s*[:：]?\s*([A-Za-z0-9]{20,64})", re.IGNORECASE)
+_REMOTE_ID = re.compile(r"(ultraviewer|anydesk|teamviewer|rustdesk)[^\d]{0,30}?((?:\d[\s-]?){8,11}\d)", re.IGNORECASE)
+_B58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+OFFICIAL_DOMAINS = (
+    "gov.vn", "vietcombank.com.vn", "techcombank.com.vn", "techcombank.com", "bidv.com.vn", "agribank.com.vn", "vpbank.com.vn",
+    "mbbank.com.vn", "momo.vn", "evn.com.vn", "evnspc.vn", "evnhanoi.vn", "napas.com.vn", "viettel.vn", "vinaphone.com.vn",
+    "mobifone.vn", "vnpost.vn", "shopee.vn", "zalo.me", "t.me", "ssi.com.vn", "baohiemxahoi.gov.vn", "vneid.gov.vn", "moet.gov.vn",
+)
+BRAND_TOKENS = (
+    "vcb", "vietcombank", "techcombank", "tcb", "bidv", "agribank", "vpbank", "mbbank", "momo", "evn", "napas", "viettel",
+    "vnpost", "shopee", "vneid", "bocongan", "bca", "congan", "dichvucong", "dvc", "vssid", "bhxh", "thue", "ssi", "sinhtrachoc",
+)
+SUSPECT_TLDS = ("top", "vip", "xyz", "cc", "icu", "shop", "online", "site", "club", "live", "info", "io", "app", "click", "link", "buzz", "cyou", "sbs")
 _BRANDS = (
     ("công an", "Công an"),
     ("cong an", "Công an"),
@@ -71,6 +104,14 @@ _BRANDS = (
     ("evn", "EVN"),
     ("bhxh", "BHXH"),
     ("vneid", "VNeID"),
+    ("napas", "NAPAS"),
+    ("vssid", "BHXH"),
+    ("bưu điện", "Bưu điện"),
+    ("vnpost", "Bưu điện"),
+    ("techcombank", "Techcombank"),
+    ("điện lực", "EVN"),
+    ("nhà mạng", "Nhà mạng"),
+    ("telegram", "Telegram"),
 )
 _PRESSURE = (
     ("15 phút", "Giục trong vài phút"),
@@ -80,6 +121,13 @@ _PRESSURE = (
     ("bị bắt", "Dọa bắt"),
     ("khóa tài khoản", "Dọa khóa tài khoản"),
     ("phong tỏa", "Dọa phong tỏa"),
+    ("khóa 2 chiều", "Dọa khóa thuê bao"),
+    ("khóa hai chiều", "Dọa khóa thuê bao"),
+    ("cắt điện", "Dọa cắt điện"),
+    ("trong hôm nay", "Hạn chót trong ngày"),
+    ("đừng gọi cho ai", "Cấm nói với người thân"),
+    ("đừng nói với ai", "Cấm nói với người thân"),
+    ("2 giờ", "Hạn chót tính bằng giờ"),
 )
 _WHO = re.compile(
     r"(thiếu tá|trung tá|cán bộ|nhân viên|tôi là [^.]{0,40}(?:công an|ngân hàng|viettel|momo|shopee|bảo hiểm))",
@@ -103,7 +151,48 @@ def empty_checklist() -> list[dict]:
 
 
 def empty_indicators() -> dict:
-    return {"phones": [], "bank_accounts": [], "urls": [], "apps": [], "brands": [], "pressure": [], "hotlines": []}
+    return {
+        "phones": [], "bank_accounts": [], "urls": [], "apps": [], "brands": [], "pressure": [], "hotlines": [],
+        "apk": [], "telegram": [], "zalo": [], "crypto_wallets": [], "remote_ids": [], "techniques": [], "lookalikes": [],
+    }
+
+
+def _host(url: str) -> str:
+    text = re.sub(r"^[a-z]+://", "", (url or "").lower())
+    return text.split("/", 1)[0].split("?", 1)[0]
+
+
+def lookalike_reason(url: str) -> str:
+    """Why a domain looks like it borrows a brand. Empty when it is official or carries no brand word."""
+    host = _host(url)
+    if not host or "." not in host:
+        return ""
+    if any(host == dom or host.endswith("." + dom) for dom in OFFICIAL_DOMAINS):
+        return ""
+    label = host.rsplit(".", 1)[0]
+    tld = host.rsplit(".", 1)[-1]
+    flat = re.sub(r"[^a-z0-9]", "", label)
+    brand = next((tok for tok in BRAND_TOKENS if tok in flat), "")
+    if brand:
+        return f"Tên miền mượn chữ «{brand}» nhưng không phải trang chính thức"
+    if tld in SUSPECT_TLDS and "-" in label:
+        return f"Tên miền đuôi .{tld} ghép gạch nối, hay gặp ở trang lừa"
+    return ""
+
+
+def valid_crypto_wallet(value: str) -> bool:
+    """TRC20 is T plus 33 base58 chars. ERC20 is 0x plus 40 hex. BTC is bech32 or a 26–35 char base58 address."""
+    text = (value or "").strip()
+    if re.fullmatch(r"T[1-9A-HJ-NP-Za-km-z]{33}", text):
+        return all(ch in _B58 for ch in text)
+    if re.fullmatch(r"0x[a-fA-F0-9]{40}", text):
+        return True
+    if text.lower().startswith("bc1"):
+        rest = text[3:].lower()
+        return 25 <= len(rest) <= 62 and all(ch in "023456789acdefghjklmnpqrstuvwxyz" for ch in rest)
+    if text[:1] in {"1", "3"} and 26 <= len(text) <= 35 and all(ch in _B58 for ch in text):
+        return True
+    return False
 
 
 def normalize_indicator(kind: str, value: str) -> str:
@@ -112,8 +201,12 @@ def normalize_indicator(kind: str, value: str) -> str:
         return re.sub(r"\D", "", text)
     if kind == "apps":
         return text.casefold()
-    if kind == "urls":
+    if kind in {"urls", "apk", "zalo"}:
         return text.lower().rstrip("/")
+    if kind == "telegram":
+        return re.sub(r"^https?://", "", text.lower()).rstrip("/")
+    if kind == "remote_ids":
+        return re.sub(r"\D", "", text)
     return text[:120]
 
 
@@ -179,7 +272,41 @@ def harvest_indicators(text: str) -> dict:
         if tld in _NOT_TLD or len(label) < 2:
             continue
         _remember_url(found, match.group(0))
+    for match in _APK.finditer(body):
+        _add(found["apk"], match.group(0), "apk")
+    for match in _TELEGRAM.finditer(body):
+        raw = match.group(0)
+        if raw.startswith("@") and "telegram" not in body.lower() and "tele" not in body.lower():
+            continue
+        _add(found["telegram"], raw, "telegram")
+    for match in _ZALO.finditer(body):
+        _add(found["zalo"], match.group(0), "zalo")
+    for rx in (_TRON, _ETH, _BTC_BECH32, _BTC_BASE58):
+        for match in rx.finditer(body):
+            if valid_crypto_wallet(match.group(0)):
+                _add(found["crypto_wallets"], match.group(0))
+    for match in _WALLET_CUE.finditer(body):
+        value = match.group(1)
+        if valid_crypto_wallet(value) and value not in found["crypto_wallets"]:
+            _add(found["crypto_wallets"], value)
+    if found["crypto_wallets"]:
+        joined = " ".join(found["crypto_wallets"])
+        found["bank_accounts"] = [item for item in found["bank_accounts"] if item not in joined]
+        found["phones"] = [item for item in found["phones"] if item not in joined]
+    for match in _REMOTE_ID.finditer(body):
+        digits = re.sub(r"\D", "", match.group(2))
+        _add(found["remote_ids"], digits, "remote_ids")
+        found["phones"] = [item for item in found["phones"] if item != digits]
+        found["bank_accounts"] = [item for item in found["bank_accounts"] if item != digits]
+    found["urls"] = [url for url in found["urls"] if not re.match(r"^(?:https?://)?(?:t\.me|telegram\.me|zalo\.me)/", url)]
+    for url in found["urls"] + [item for item in found["apk"] if "/" in item]:
+        reason = lookalike_reason(url)
+        if reason:
+            _add(found["lookalikes"], f"{_host(url)} — {reason}")
     lowered = body.lower()
+    for needle, label in _TECHNIQUES:
+        if needle in lowered:
+            _add(found["techniques"], label)
     for app in _APPS:
         if app in lowered:
             _add(found["apps"], app, "apps")
@@ -231,9 +358,15 @@ def update_casefile(state: AgentState, message: str) -> None:
     if harvested["urls"]:
         by_key["link"]["done"] = True
         by_key["link"]["detail"] = harvested["urls"][-1]
-    if harvested["apps"]:
+    if harvested["apps"] or harvested["apk"] or harvested["remote_ids"]:
         by_key["app"]["done"] = True
-        by_key["app"]["detail"] = ", ".join(harvested["apps"])
+        by_key["app"]["detail"] = ", ".join(harvested["apk"][-1:] + harvested["apps"] + harvested["remote_ids"][-1:])
+    if harvested["crypto_wallets"]:
+        by_key["account"]["done"] = True
+        by_key["account"]["detail"] = harvested["crypto_wallets"][-1]
+    if (harvested["telegram"] or harvested["zalo"] or harvested["apk"]) and not by_key["link"]["done"]:
+        by_key["link"]["done"] = True
+        by_key["link"]["detail"] = (harvested["telegram"] + harvested["zalo"] + harvested["apk"])[-1]
     if harvested["pressure"]:
         by_key["pressure"]["done"] = True
         by_key["pressure"]["detail"] = harvested["pressure"][-1]

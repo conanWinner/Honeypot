@@ -54,6 +54,7 @@ def seed(session) -> None:
                 occurrence_count=row["occurrence_count"],
                 status="published",
                 novelty_note="",
+                indicators=row.get("indicators") or {},
             )
         )
     session.flush()
@@ -84,6 +85,9 @@ def script_public(script: Script, variant_count: int = 0, parent: Script | None 
         "variant_count": variant_count,
     }
     if with_steps:
+        from app.data.warnings import cards_for_category
+
+        data["warnings"] = [{"id": c["id"], "title": c["title"], "rising": c["rising"]} for c in cards_for_category(script.category)[:3]]
         data["steps"] = script.steps or []
     if parent is not None:
         data["parent"] = {"id": parent.id, "title": parent.title}

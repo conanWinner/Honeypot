@@ -45,3 +45,7 @@ class AgentState(BaseModel):
     demo_lines: list[str] = Field(default_factory=list)
     known_numbers: list[str] = Field(default_factory=list)
     address_term: str = ""
+    timeline: list[dict] = Field(default_factory=list)
+    risk_factors: list[dict] = Field(default_factory=list)
+    playbook_category: str = ""
+    asked_keys: list[str] = Field(default_factory=list)

@@ -19,6 +19,12 @@ CATEGORIES: dict[str, str] = {
     "deepfake": "Deepfake / cuộc gọi giả",
     "charity": "Từ thiện",
     "rental": "Nhà ở / cọc",
+    "rat": "Cài app chiếm quyền",
+    "recovery": "Lấy lại tiền bị lừa",
+    "telco": "Nhà mạng / SIM",
+    "travel": "Du lịch / đặt phòng",
+    "qr": "Mã QR giả",
+    "course": "Khóa học / chứng chỉ",
     "other": "Khác",
 }
 
