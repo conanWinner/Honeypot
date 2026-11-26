@@ -142,6 +142,7 @@ def health(request: Request, session=Depends(get_db)):
     ) or 0
     return {
         "ok": True,
+        "service": "Honeypot",
         "llm": {"provider": provider.name, "model": provider.model, "mock": provider.is_mock},
         "embeddings": {
             "model": provider.embed_model,

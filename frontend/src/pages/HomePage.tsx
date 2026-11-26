@@ -24,11 +24,11 @@ export function HomePage() {
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-seal">Anti-fraud · sơ khảo 03/12/2026</p>
           <h1 className="mt-3 max-w-3xl font-display text-5xl leading-[1.05] text-ink md:text-6xl">
-            Biết mình đang bị lừa? Để một người giả đóng nạn nhân.
+            Honeypot — AI đóng vai nạn nhân, bóc kịch bản lừa đảo.
           </h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-ink-soft">
             Theo khảo sát NCA, chỉ khoảng 32% nạn nhân trình báo. Phần lớn gác máy, mất tiền, và kịch bản biến mất.
-            Giả Nạn làm ngược lại: một người giả ở lại trong cuộc thoại, kéo đối phương nói hết các bước, rồi đưa hồ sơ
+            Honeypot làm ngược lại: vai Giả Nạn ở lại trong cuộc thoại, kéo đối phương nói hết các bước, rồi đưa hồ sơ
             vào thư viện để người kế tiếp nhận ra trước khi chuyển khoản.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">

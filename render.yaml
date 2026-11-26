@@ -3,7 +3,7 @@
 # `vector` nếu gói cho phép. Nếu không bật được, dùng docker compose trên một VPS.
 services:
   - type: web
-    name: gianan-api
+    name: honeypot-api
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
@@ -22,7 +22,7 @@ services:
       - key: ADMIN_TOKEN
         generateValue: true
   - type: web
-    name: gianan-web
+    name: honeypot-web
     runtime: docker
     dockerfilePath: ./frontend/Dockerfile
     dockerContext: ./frontend

@@ -47,7 +47,7 @@ def test_embedder_sends_dimensions_and_truncates(monkeypatch):
     monkeypatch.setattr(op.httpx, "post", fake_post)
     emb = op.OpenAIEmbedder("k", "https://x/v1", "m", 768)
     vectors = emb.embed(["a", "b"])
-    assert seen["dimensions"] == 768 and seen["ua"].startswith("gia-nan")
+    assert seen["dimensions"] == 768 and seen["ua"].startswith("honeypot")
     assert len(vectors) == 2 and len(vectors[0]) == 768
     assert math.isclose(sum(v * v for v in vectors[0]), 1.0, rel_tol=1e-6)
 

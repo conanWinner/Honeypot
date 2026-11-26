@@ -1,6 +1,7 @@
 services:
-  db:
+  honeypot-db:
     image: pgvector/pgvector:pg16
+    container_name: honeypot-db
     environment:
       POSTGRES_USER: gianan
       POSTGRES_PASSWORD: gianan
@@ -15,10 +16,12 @@ services:
       timeout: 5s
       retries: 20
 
-  api:
+  honeypot-api:
+    image: honeypot-api
+    container_name: honeypot-api
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://gianan:gianan@db:5432/gianan
+      DATABASE_URL: postgresql+psycopg://gianan:gianan@honeypot-db:5432/gianan
       LLM_API_KEY: ${LLM_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://rm7g66d.abc-tunnel.us/v1}
@@ -38,7 +41,7 @@ services:
     ports:
       - "8091:8000"
     depends_on:
-      db:
+      honeypot-db:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
@@ -46,12 +49,14 @@ services:
       timeout: 5s
       retries: 12
 
-  web:
+  honeypot-web:
+    image: honeypot-web
+    container_name: honeypot-web
     build: ./frontend
     ports:
       - "4178:80"
     depends_on:
-      api:
+      honeypot-api:
         condition: service_healthy
 
 volumes:

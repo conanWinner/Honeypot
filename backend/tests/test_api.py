@@ -9,6 +9,7 @@ def test_provider_is_mock_without_keys():
 
 def test_library_is_seeded(client):
     health = client.get("/api/health").json()
+    assert health["service"] == "Honeypot"
     assert health["llm"]["mock"] is True
     assert health["database"] == "sqlite"
     listed = client.get("/api/scripts").json()["items"]

@@ -17,7 +17,7 @@ export function WarningCard({ script, cardRef }: { script: Script; cardRef: RefO
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ letterSpacing: '0.16em', fontSize: 12, textTransform: 'uppercase', color: '#e7b089' }}>
-          Giả Nạn · Cảnh báo lừa đảo
+          Honeypot · Cảnh báo lừa đảo
         </span>
         <span style={{ border: '1px solid #b64022', color: '#f0b2a2', borderRadius: 999, padding: '4px 10px', fontSize: 12 }}>
           {script.category_label}

@@ -1,4 +1,4 @@
-"""Giả Nạn API. One process: agent, library, and the moderation queue."""
+"""Honeypot API. One process: the Giả Nạn victim agent, the library, and the moderation queue."""
 
 import logging
 import threading
@@ -83,9 +83,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine.dispose()
 
     app = FastAPI(
-        title="Giả Nạn",
+        title="Honeypot",
         version="1.0.0",
-        summary="Nền tảng bóc kịch bản lừa đảo: agent đóng vai nạn nhân và giữ cuộc thoại.",
+        summary="Honeypot — AI đóng vai nạn nhân, bóc kịch bản lừa đảo. Vai Giả Nạn giữ cuộc thoại.",
         lifespan=lifespan,
     )
     app.state.settings = settings

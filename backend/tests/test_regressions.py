@@ -20,7 +20,7 @@ from app.services.matching import search_scripts
 
 def test_request_headers_include_user_agent_and_accept():
     headers = request_headers("secret")
-    assert headers["User-Agent"] == "gia-nan/1.0"
+    assert headers["User-Agent"] == "honeypot/1.0"
     assert "application/json" in headers["Accept"]
     assert headers["Authorization"] == "Bearer secret"
 
@@ -53,7 +53,7 @@ def test_post_chat_sends_schema_then_prompt_only_on_400(monkeypatch):
         fallback_model="cx/gpt-5.6-luna",
     )
     assert parsed.goal == "ask_link"
-    assert calls[0][0]["User-Agent"] == "gia-nan/1.0"
+    assert calls[0][0]["User-Agent"] == "honeypot/1.0"
     assert calls[0][1]["response_format"]["type"] == "json_schema"
     assert calls[0][1]["model"] == "ag/gemini-3.8-flash-low"
     assert calls[0][1]["max_tokens"] == 260

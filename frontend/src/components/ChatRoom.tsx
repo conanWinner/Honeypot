@@ -15,7 +15,11 @@ function DemoCoach({ sent }: { sent: number }) {
     [8, '2:30 — Bấm Trích xuất. Hồ sơ vào hàng chờ, duyệt để thấy trên thư viện.'],
   ]
   const line = [...beats].reverse().find(([at]) => sent >= Number(at))?.[1] ?? beats[0][1]
-  return <p className="border-b border-line bg-[#fde7ef] px-4 py-2 text-sm text-seal-deep">{line}</p>
+  return (
+    <p className="border-b border-line bg-[#fde7ef] px-4 py-2 text-sm text-seal-deep">
+      <span className="font-semibold">Honeypot.</span> {line}
+    </p>
+  )
 }
 
 type ExtractResult = { action: string; relation: string; script: Script }

@@ -1,6 +1,6 @@
-# Giả Nạn
+# Honeypot
 
-Nền tảng bóc kịch bản lừa đảo tiếng Việt cho MoMo Tech Contest 2026, bảng Anti-fraud. Người dùng biết mình đang bị lừa thì đưa cuộc thoại cho một agent. Agent đóng vai nạn nhân, giữ đối phương nói tiếp, và rút ra kịch bản có cấu trúc. Mỗi cuộc hội thoại thành một hồ sơ trong thư viện dùng để cảnh báo người khác.
+Honeypot — AI đóng vai nạn nhân, bóc kịch bản lừa đảo. Nền tảng tiếng Việt cho MoMo Tech Contest 2026, bảng Anti-fraud. Người dùng biết mình đang bị lừa thì đưa cuộc thoại cho agent. Vai Giả Nạn giữ đối phương nói tiếp và rút ra kịch bản có cấu trúc. Mỗi cuộc hội thoại thành một hồ sơ trong thư viện dùng để cảnh báo người khác.
 
 Hạn sơ khảo 03/12/2026. Bản này là pha 1, chỉ có web. Telegram (Telethon, MTProto trên chính tài khoản người dùng) và cuộc gọi thoại gắn sau, qua cùng một agent.
 
@@ -16,7 +16,7 @@ docker compose up --build
 
 - Giao diện: http://localhost:4178
 - API: http://localhost:8091/api/health
-- Postgres (pgvector) lộ cổng 5433 cho máy host, user/password/db đều là `gianan`
+- Postgres (pgvector) lộ cổng 5433 cho máy host, user/password/db đều là `gianan`. Trong Compose, service và container là `honeypot-db`, `honeypot-api`, `honeypot-web`; cổng host vẫn 5433, 8091 và 4178.
 
 Không có Docker, chỉ để phát triển giao diện:
 
@@ -84,7 +84,7 @@ Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một
 | Chat dự phòng | `gemini-2.5-flash` | Khi router trả 4xx/5xx, Cloudflare 403/530, hoặc timeout |
 | Embedding | `openrouter/openai/text-embedding-3-small` | `MODEL_EMBED`. Qua 9router `/v1/embeddings`, 768 chiều, `dimensions` được tôn trọng |
 
-Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi một lần sang model nhỏ của vai đó (persona, analyst và guard sang `cx/gpt-5.6-luna`), rồi mới tới Gemini. Không gọi lại cùng model. Mỗi vai có trần thời gian: persona 12 giây, analyst và planner 10, guard 8, trích 30. `GET /api/health/llm` là ping làm nóng lúc khởi động. Mọi request có `User-Agent: gia-nan/1.0`. Biến vai để trống thì dùng `OPENAI_MODEL`. Gemini chat gọi `v1beta`.
+Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi một lần sang model nhỏ của vai đó (persona, analyst và guard sang `cx/gpt-5.6-luna`), rồi mới tới Gemini. Không gọi lại cùng model. Mỗi vai có trần thời gian: persona 12 giây, analyst và planner 10, guard 8, trích 30. `GET /api/health/llm` là ping làm nóng lúc khởi động. Mọi request có `User-Agent: honeypot/1.0`. Biến vai để trống thì dùng `OPENAI_MODEL`. Gemini chat gọi `v1beta`.
 
 `LLM_PROVIDER=auto` (và `openai-compatible`) gọi router trước, Gemini khi tunnel lỗi. `gemini` đảo thứ tự. `mock` chỉ cho test. Embedding đi riêng: `EMBED_PROVIDER=auto` dùng 9router khi có khóa router, không thì Gemini. `gemini` ép Gemini. `none` chỉ tìm theo từ khóa. Vector của hai model không trộn: router lỗi thì tìm theo từ khóa, không đổi sang model khác. Cosine được co về 0–1 trước khi trộn điểm: `(cos - 0.28) / 0.5` với text-embedding-3. Đổi `MODEL_EMBED` thì app gắn lại embedding lúc khởi động. Gắn lại tay: `cd backend && python -m app.reembed` (thêm `--all` để xóa hết rồi gắn lại).
 
@@ -173,7 +173,7 @@ Mở cổng 4178, hoặc sửa compose để `web` nghe cổng 80. Dữ liệu n
 
 **Render.** `render.yaml` khai hai service Docker và một Postgres. Sau khi có DB, chạy `CREATE EXTENSION IF NOT EXISTS vector;` nếu gói cho phép. `DATABASE_URL` dạng `postgres://` được chuẩn hóa trong code. Đặt `GEMINI_API_KEY`. Nếu Postgres của Render không có pgvector, đừng dùng blueprint này — dùng VPS.
 
-**Railway.** Hai service từ `backend/Dockerfile` và `frontend/Dockerfile`, cộng plugin Postgres. Biến giống `.env.example`. Service web không cần biết URL API vì nginx trong image proxy `/api` tới hostname `api`. Trên Railway hãy đặt tên service API là `api`, hoặc sửa `frontend/nginx.conf` cho đúng hostname nội bộ rồi build lại.
+**Railway.** Hai service từ `backend/Dockerfile` và `frontend/Dockerfile`, cộng plugin Postgres. Biến giống `.env.example`. Service web không cần biết URL API vì nginx trong image proxy `/api` tới hostname `honeypot-api`. Trên Railway hãy đặt tên service API là `honeypot-api`, hoặc sửa `frontend/nginx.conf` cho đúng hostname nội bộ rồi build lại.
 
 **Fly.** `fly.toml` là app API (region `sin`, không tự tắt máy). Tạo Postgres có image pgvector, rồi:
 

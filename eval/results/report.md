@@ -1,4 +1,4 @@
-# Báo cáo đánh giá agent Giả Nạn
+# Báo cáo đánh giá agent Honeypot
 
 - Thời điểm: 2026-11-25 16:54 UTC
 - Nhà cung cấp: mock / mock

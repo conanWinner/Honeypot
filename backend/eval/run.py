@@ -133,7 +133,7 @@ def _report(rows: list[dict], provider) -> str:
     roles = getattr(provider, "role_models", None) or role_models(get_settings())
     mix = ", ".join(f"{name}={model}" for name, model in roles.items())
     lines = [
-        "# Báo cáo đánh giá agent Giả Nạn",
+        "# Báo cáo đánh giá agent Honeypot",
         "",
         f"- Thời điểm: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
         f"- Nhà cung cấp: {provider.name} / {provider.model}",

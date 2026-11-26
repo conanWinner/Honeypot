@@ -66,7 +66,7 @@ def request_headers(api_key: str) -> dict[str, str]:
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
-        "User-Agent": "gia-nan/1.0",
+        "User-Agent": "honeypot/1.0",
     }
 
 

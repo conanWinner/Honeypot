@@ -34,9 +34,9 @@ export function Shell() {
       <header className="sticky top-0 z-30 border-b border-line/80 bg-[#f7f1e6]/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3">
           <NavLink to="/" className="flex items-center gap-3">
-            <span className="stamp text-sm">GN</span>
+            <img src="/favicon.svg" alt="" width={36} height={36} />
             <span>
-              <span className="block font-display text-xl leading-none text-ink">Giả Nạn</span>
+              <span className="block font-display text-xl leading-none text-ink">Honeypot</span>
               <span className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">MoMo Tech Contest 2026</span>
             </span>
           </NavLink>
@@ -110,7 +110,7 @@ export function Shell() {
       </nav>
       <footer className="mx-auto hidden max-w-6xl items-center justify-between px-4 pb-8 text-xs text-ink-soft md:flex">
         <span className="inline-flex items-center gap-2">
-          <Shield size={14} /> Dữ liệu hồ sơ đóng vai là giả. Không chuyển tiền, không đọc OTP thật.
+          <Shield size={14} /> Honeypot — AI đóng vai nạn nhân, bóc kịch bản lừa đảo. Hồ sơ vai Giả Nạn là giả.
         </span>
         <span>Anti-fraud · hạn sơ khảo 03/12/2026</span>
       </footer>
