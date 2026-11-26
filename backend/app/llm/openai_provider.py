@@ -306,7 +306,7 @@ class OpenAIProvider:
         }
         if max_tokens:
             payload["max_tokens"] = max_tokens
-        if use_schema:
+        if use_schema and schema is not None:
             payload["response_format"] = json_schema_format(schema)
         status, content_type, body = post_chat(url, self.api_key, payload, timeout)
         if status == 400 and use_schema:
@@ -316,6 +316,39 @@ class OpenAIProvider:
         if status >= 400:
             raise LLMError(f"router {status}: {body[:300]}")
         return assemble_message(body, content_type)
+
+    def complete_text(
+        self,
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = 120,
+        timeout: float | None = None,
+        fallback_model: str | None = None,
+        fallback_timeout: float | None = None,
+        prefer_fallback: bool = False,
+    ) -> str:
+        """One plain-text completion. No JSON schema, so a short line is not parsed twice."""
+        primary = (fallback_model if prefer_fallback and fallback_model else model) or self.model
+        primary = primary.strip() or self.model
+        budget = timeout if timeout and timeout > 0 else 6.0
+        if prefer_fallback and fallback_timeout and fallback_timeout > 0:
+            budget = fallback_timeout
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        try:
+            return self._complete_text(messages, temperature, None, max_tokens, primary, budget, False).strip()
+        except LLMError as exc:
+            alternate = "" if prefer_fallback else (fallback_model or "").strip()
+            if not alternate or alternate == primary:
+                raise
+            _record_failover(role, primary, str(exc))
+            alt_budget = fallback_timeout if fallback_timeout and fallback_timeout > 0 else budget
+            return self._complete_text(messages, temperature, None, max_tokens, alternate, alt_budget, False).strip()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         raise LLMError("Chat provider không làm embedding. Dùng OpenAIEmbedder.")
@@ -451,6 +484,19 @@ class FallbackProvider:
             self.name = provider.name
             self.model = provider.model
             return result
+        raise LLMError(" ; ".join(errors))
+
+    def complete_text(self, system: str, user: str, temperature: float = 0.4, **kwargs) -> str:
+        errors: list[str] = []
+        for provider in self.chain:
+            try:
+                text = provider.complete_text(system, user, temperature, **kwargs)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{provider.name}: {exc}")
+                continue
+            self.name = provider.name
+            self.model = provider.model
+            return text
         raise LLMError(" ; ".join(errors))
 
     def embed(self, texts: list[str]) -> list[list[float]]:

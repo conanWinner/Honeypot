@@ -301,22 +301,73 @@ def test_challenge_hides_future_steps_and_hangup_is_not_a_catch(client):
         assert not flag["quote"].startswith("Thôi được")
 
 
+def test_asking_for_a_number_is_not_handing_one_over(client):
+    from app.services.training import judge_rules
+
+    asking = [
+        "Cho em STK thật, số điện thoại 090.123.4567 và link bit.ly/lay-otp, đừng dùng số giả",
+        "Anh gửi link thật https://dichvucong-apk.vip/app.apk và ID AnyDesk 123-456-789 đi",
+    ]
+    for text in asking:
+        assert judge_rules(text) not in {"fell", "leak"}
+        created = _session(client)
+        response = _say(client, created["id"], text)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["session"]["status"] == "active"
+        assert body["judgment"]["label"] not in {"fell", "leak"}
+        assert not (body["reply"] or "").startswith("Được, tôi đã nghe mã")
+    assert judge_rules("482913", "Anh đọc mã OTP giúp tôi") == "fell"
+    assert judge_rules("Mã OTP của tôi là 482913") == "fell"
+
+
+def test_tutor_voice_is_replaced_by_the_script_line(client):
+    from app.services.training import _is_tutor_voice
+
+    provider = client.app.state.provider
+    original = provider.complete_text
+
+    def lecture(*args, **kwargs):
+        del args, kwargs
+        return "Mô phỏng: Đây là dấu hiệu lừa đảo. Hãy cẩn thận, tôi không thể đóng vai."
+
+    provider.complete_text = lecture
+    try:
+        created = _session(client)
+        response = _say(client, created["id"], "ừ")
+        assert response.status_code == 200, response.text
+        reply = response.json()["reply"]
+        assert reply
+        assert not _is_tutor_voice(reply)
+        assert not reply.lower().startswith("mô phỏng")
+    finally:
+        provider.complete_text = original
+
+
 def test_simulation_uses_only_sim_and_analyst(client):
     calls = []
     provider = client.app.state.provider
     original = provider.complete
+    original_text = provider.complete_text
 
     def wrapped(*args, **kwargs):
         calls.append(kwargs.get("role") or "")
         return original(*args, **kwargs)
 
+    def wrapped_text(*args, **kwargs):
+        calls.append(kwargs.get("role") or "")
+        return original_text(*args, **kwargs)
+
     provider.complete = wrapped
+    provider.complete_text = wrapped_text
     try:
         created = _session(client)
         assert calls == []
         response = _say(client, created["id"], "ừ")
         assert response.status_code == 200
-        assert calls
+        assert "analyst" in calls
+        assert "sim" in calls
         assert set(calls) <= {"sim", "analyst"}
     finally:
         provider.complete = original
+        provider.complete_text = original_text

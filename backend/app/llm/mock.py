@@ -111,6 +111,28 @@ class MockProvider:
             return self._sim_scammer(context)
         raise TypeError(f"Mock không biết schema {name}")
 
+    def complete_text(
+        self,
+        system: str,
+        user: str,
+        temperature: float = 0.4,
+        model: str | None = None,
+        role: str = "",
+        max_tokens: int | None = 120,
+        timeout: float | None = None,
+        fallback_model: str | None = None,
+        fallback_timeout: float | None = None,
+        prefer_fallback: bool = False,
+    ) -> str:
+        del system, temperature, model, role, max_tokens, timeout, fallback_model, fallback_timeout, prefer_fallback
+        context = read_context(user)
+        phrase = (context.get("phrase") or "").strip()
+        if not phrase:
+            examples = context.get("examples") or []
+            phrase = (examples[0] if examples else "").strip()
+        line = phrase or "Anh nghe máy, có việc gấp."
+        return f"{line} Anh xác nhận giúp tôi nhé."[:350]
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         vectors = []
         for text in texts:

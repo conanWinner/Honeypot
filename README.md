@@ -117,7 +117,7 @@ Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi
 | `MODEL_GUARD` | Mặc định `ag/gemini-3.8-flash-low` |
 | `MODEL_EXTRACT` | Mặc định `cx/gpt-5.6-luna` |
 | `MODEL_SIM` | Mặc định `cx/gpt-6-luna`. Giọng người lừa đảo trong bài luyện, model nhỏ |
-| `TIMEOUT_SIM` | Mặc định 20 giây, lần dự phòng 12 giây |
+| `TIMEOUT_SIM` | Mặc định 6 giây, lần dự phòng 5 giây. Hết giờ thì dùng câu kịch bản đã lọc |
 | `MODEL_*_FALLBACK` | Một model nhỏ thay vai khi lần gọi chính hết giờ. Persona, analyst, planner, guard mặc định `cx/gpt-5.6-luna` |
 | `TIMEOUT_PERSONA` | Mặc định 12 giây |
 | `TIMEOUT_ANALYST` / `TIMEOUT_PLANNER` | Mặc định 18 giây |
