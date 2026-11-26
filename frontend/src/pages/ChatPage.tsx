@@ -53,7 +53,7 @@ function NewChat() {
         method: 'POST',
         body: JSON.stringify({ persona_id: personaId, channel }),
       })
-      navigate(`/hoi-thoai/${created.id}`)
+      navigate(`/phan-tich/hoi-thoai/${created.id}`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Không tạo được hội thoại.')
       setBusy(false)
@@ -115,7 +115,7 @@ function NewChat() {
           {recent.length === 0 && <li className="text-sm text-ink-soft">Chưa có. Cuộc đầu tiên sẽ hiện ở đây.</li>}
           {recent.map((item) => (
             <li key={item.id}>
-              <Link to={`/hoi-thoai/${item.id}`} className="block rounded-2xl px-3 py-2 hover:bg-paper-deep">
+              <Link to={`/phan-tich/hoi-thoai/${item.id}`} className="block rounded-2xl px-3 py-2 hover:bg-paper-deep">
                 <span className="font-medium">{item.persona_name}</span>
                 <span className="mt-0.5 block text-xs text-ink-soft">
                   {item.persona_label} · {item.channel_label} · {item.turn_index} lượt · {item.status === 'ended' ? 'đã trích' : 'đang mở'}

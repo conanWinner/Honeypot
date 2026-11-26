@@ -82,7 +82,7 @@ export function IntelPage() {
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
               {cluster.sources.map((src) => (
-                <Link key={src.id} className="underline" to={src.type === 'script' ? `/kich-ban/${src.ref}` : `/hoi-thoai/${src.ref}`}>
+                <Link key={src.id} className="underline" to={src.type === 'script' ? `/canh-bao/kich-ban/${src.ref}` : `/phan-tich/hoi-thoai/${src.ref}`}>
                   {src.label}
                 </Link>
               ))}

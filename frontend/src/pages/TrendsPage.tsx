@@ -134,7 +134,7 @@ function List({ title, items, empty }: { title: string; items: Brief[]; empty: s
         {items.length === 0 && <li className="text-sm text-ink-soft">{empty}</li>}
         {items.map((item) => (
           <li key={item.id}>
-            <Link to={`/kich-ban/${item.id}`} className="font-medium underline">
+            <Link to={`/canh-bao/kich-ban/${item.id}`} className="font-medium underline">
               {item.title}
             </Link>
             <p className="text-xs text-ink-soft">

@@ -221,6 +221,112 @@ export type Conversation = {
   demo?: { id: string; title: string; blurb: string; expected_script: string }
 }
 
+export type TrainingScenario = {
+  script_id: string
+  title: string
+  category: string
+  category_label: string
+  group: string
+  channel: string
+  brand: string
+  occurrence_count: number
+  stages: number
+  rising: boolean
+}
+
+export type TrainingGroup = { id: string; label: string; count: number }
+
+export type TrainingStage = { index: number; intent: string; reached: boolean }
+
+export type TrainingChatMessage = {
+  id: string
+  role: 'scammer' | 'user' | 'system'
+  text: string
+  stage_index: number
+  flags?: number[]
+  created_at: string
+}
+
+export type VisibleFlags =
+  | { mode: 'hoc'; items: { id: number; text: string; stage_index: number }[] }
+  | { mode: 'thu_thach'; count: number }
+
+export type TrainingSession = {
+  id: string
+  status: 'active' | 'safe' | 'scammed' | 'timeout'
+  end_reason: string
+  score: number | null
+  scenario: {
+    script_id: string
+    title: string
+    category: string
+    category_label: string
+    channel: string
+    channel_label: string
+    scammer_name: string
+    brand: string
+  }
+  difficulty: 'de' | 'vua' | 'kho'
+  mode: 'hoc' | 'thu_thach'
+  turn_index: number
+  max_turns: number
+  stage_index: number
+  stages: TrainingStage[]
+  messages: TrainingChatMessage[]
+  visible_flags: VisibleFlags
+  hints_used: number
+}
+
+export type TrainingDebrief = {
+  score: number
+  label: string
+  status: string
+  end_reason: string
+  turns: number
+  duration_s: number
+  stopped_before: string
+  stages: { index: number; intent: string; outcome: 'caught' | 'missed' | 'not_reached' | 'fell'; user_quote?: string }[]
+  flags: { text: string; stage_index: number; quote: string; caught: boolean }[]
+  leaked: string[]
+  tips: string[]
+  warning_card_ids: string[]
+  hints_used: number
+  script: { id: string; title: string; occurrence_count: number; last_seen: string; sources: Script['sources'] }
+}
+
+export type QuizQuestion = {
+  id: string
+  text: string
+  channel: string
+  answer: 'scam' | 'safe'
+  explain: string
+  script_id?: string | null
+}
+
+export type CheckResult = {
+  risk: string
+  risk_label: string
+  is_scam?: boolean
+  verdict?: 'benign' | 'scam' | 'unclear'
+  confidence: number
+  intent: string
+  red_flags: string[]
+  matched_script: { id: string; title: string; confidence: number } | null
+  next_step: { intent: string; phrases: string[] } | null
+  advice: string
+  risk_score?: number
+  risk_factors?: RiskFactor[]
+  indicators?: Indicators
+}
+
+export type IntelHit = {
+  kind: string
+  kind_label: string
+  value: string
+  count: number
+  seen_in: { type: string; label: string; ref: string }[]
+}
+
 export function panelFromMessage(message: Message | undefined): Panel | null {
   const reasoning = message?.reasoning as Record<string, any> | null
   if (!reasoning?.analyst) return null

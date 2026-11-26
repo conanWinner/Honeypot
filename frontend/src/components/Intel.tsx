@@ -145,7 +145,7 @@ export function IocLinks({ links }: { links?: IocLink[] }) {
           </li>
         ))}
       </ul>
-      <Link to="/mang-luoi" className="mt-2 inline-block text-xs font-semibold text-seal underline">
+      <Link to="/phan-tich/mang-luoi" className="mt-2 inline-block text-xs font-semibold text-seal underline">
         Xem mạng lưới chỉ dấu
       </Link>
     </div>
