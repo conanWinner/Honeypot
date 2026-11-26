@@ -543,13 +543,13 @@ SCRIPTS: list[dict] = [
         "category": "vneid",
         "channel": "sms",
         "brand": "VNeID",
-        "summary": "Tin nhắn dẫn vào form trên web VNeID, không phải file apk, bảo điền căn cước hai mặt và khuôn mặt.",
+        "summary": "Tin nhắn định danh mức 2 dẫn vào trang web dạng bcavneid, bảo nhập số căn cước và mã OTP trên form, không cài app.",
+        "hooks": ["Sợ mất sim và tài khoản", "Định danh mức 2 trên web", "Nghe nói nhà nước đang siết định danh"],
         "steps": [
             _s("scammer", "Báo giấy tờ hết hạn", "tài khoản vneid của bạn sẽ bị khóa", "căn cước gắn thuê bao hết hiệu lực"),
-            _s("scammer", "Dẫn vào form web, không gửi apk", "bấm vào link mở form trên web", "điền form vneid trên trang web, không phải file apk", "chụp căn cước hai mặt và khuôn mặt để xác thực"),
+            _s("scammer", "Dẫn vào form web, không gửi apk", "bấm vào link mở form trên web", "nhập số căn cước và mã OTP trên trang bcavneid", "không cài app"),
             _s("scammer", "Đe khóa thuê bao và ngân hàng", "không cập nhật sẽ khóa sim và tài khoản ngân hàng"),
         ],
-        "hooks": ["Sợ mất sim và tài khoản", "Nghe nói nhà nước đang siết định danh"],
         "red_flags": [
             "VNeID chỉ cập nhật trong ứng dụng chính thức",
             "Không gửi ảnh căn cước cho link trong SMS",

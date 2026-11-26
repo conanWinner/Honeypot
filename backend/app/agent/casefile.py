@@ -72,6 +72,10 @@ _TECHNIQUES = (
 _APK = re.compile(r"(?:https?://)?[^\s]*?[\w.-]+\.apk\b(?:\?[^\s]*)?", re.IGNORECASE)
 _TELEGRAM = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me)/(?:joinchat/|\+)?[A-Za-z0-9_+-]{3,64}|(?<![\w.])@[A-Za-z][A-Za-z0-9_]{4,31}\b", re.IGNORECASE)
 _ZALO = re.compile(r"(?:https?://)?zalo\.me/(?:g/)?[A-Za-z0-9_-]{3,64}", re.IGNORECASE)
+_EWALLET = re.compile(
+    r"ví\s*(momo|zalopay|viettel\s*pay|vnpay)\s*(?:số)?\s*((?:\+84|0)[35789]\d{8})",
+    re.IGNORECASE,
+)
 _TRON = re.compile(r"(?<![A-Za-z0-9])T[1-9A-HJ-NP-Za-km-z]{33}(?![A-Za-z0-9])")
 _ETH = re.compile(r"(?<![A-Za-z0-9])0x[a-fA-F0-9]{40}(?![A-Za-z0-9])")
 _BTC_BECH32 = re.compile(r"(?<![A-Za-z0-9])bc1[ac-hj-np-z02-9]{25,62}(?![A-Za-z0-9])")
@@ -153,7 +157,7 @@ def empty_checklist() -> list[dict]:
 def empty_indicators() -> dict:
     return {
         "phones": [], "bank_accounts": [], "urls": [], "apps": [], "brands": [], "pressure": [], "hotlines": [],
-        "apk": [], "telegram": [], "zalo": [], "crypto_wallets": [], "remote_ids": [], "techniques": [], "lookalikes": [],
+        "apk": [], "telegram": [], "zalo": [], "crypto_wallets": [], "ewallets": [], "remote_ids": [], "techniques": [], "lookalikes": [],
     }
 
 
@@ -295,6 +299,11 @@ def harvest_indicators(text: str) -> dict:
             _add(found["bank_accounts"], digits, "bank_accounts")
             continue
         _add(found["phones"], digits, "phones")
+    for match in _EWALLET.finditer(body):
+        wallet = match.group(1).lower().replace(" ", "")
+        number = match.group(2)
+        _add(found["ewallets"], f"{wallet}:{number}")
+        _add(found["phones"], number, "phones")
     for match in re.finditer(r"\d[\d\s.]{4,}\d", body):
         digits = re.sub(r"\D", "", match.group(0))
         if _inside_lettered_token(body, match.start(), match.end()) or _otp_number(body, match.start()):

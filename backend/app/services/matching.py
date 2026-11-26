@@ -32,6 +32,7 @@ _REASON_GROUPS = (
     ("phi ship", ("phi ship", "phi phat sinh", "shipper")),
     ("trung thuong", ("trung thuong", "trung giai")),
     ("tai nan", ("tai nan", "vien phi", "phau thuat", "benh vien", "tien vien")),
+    ("vneid web", ("bcavneid", "dinh danh muc 2", "nhap so can cuoc", "form tren web", "khong cai app")),
 )
 
 
@@ -169,6 +170,11 @@ def search_scripts(session, message: str, provider, k: int = 6, status: str = "p
         else:
             score = 0.48 * vec + 0.30 * kw + 0.22 * step_score + brand_boost
         score += reason_delta(message, script)
+        if any(cue in folded_message for cue in ("bcavneid", "dinh danh muc 2", "nhap so can cuoc")):
+            if script.id == "vneid-cap-nhat":
+                score += 0.55
+            elif script.id == "dvc-apk-ho-tro-truy-cap" and ".apk" not in folded_message and "ho tro truy cap" not in folded_message:
+                score -= 0.45
         ranked.append(
             {
                 "script": script,

@@ -53,21 +53,26 @@ def band_for(score: int, strong: int) -> tuple[str, str]:
     return "thap", "Thấp"
 
 
+def _clauses(folded: str) -> list[str]:
+    return [part.strip() for part in re.split(r"[.!?;\n]+", folded or "") if part.strip()]
+
+
 def _phrase_negated(folded: str, needle: str) -> bool:
-    """True when every occurrence of the cue sits after không/chưa yêu cầu or không gọi."""
+    """True when every hit of the cue is negated inside the same clause, not a later sentence."""
     if not needle:
         return False
-    start = 0
     seen = False
-    while True:
-        index = folded.find(needle, start)
-        if index < 0:
-            break
-        seen = True
-        window = folded[max(0, index - 48) : index]
-        if not re.search(r"(khong|chua)\s.{0,32}(goi|yeu cau|bat|bao gio)|khong bao gio|khong yeu cau|khong goi", window):
-            return False
-        start = index + len(needle)
+    for clause in _clauses(folded):
+        start = 0
+        while True:
+            index = clause.find(needle, start)
+            if index < 0:
+                break
+            seen = True
+            window = clause[max(0, index - 48) : index]
+            if not re.search(r"(khong|chua)\s.{0,32}(goi|yeu cau|bat|bao gio)|khong bao gio|khong yeu cau|khong goi", window):
+                return False
+            start = index + len(needle)
     return seen
 
 
@@ -80,6 +85,13 @@ def safe_advisory(text: str) -> bool:
     if any(len(account) >= 8 for account in found.get("bank_accounts") or []):
         return False
     if "http" in folded or ".apk" in folded:
+        return False
+    # An advisory never asks the reader to act: no code to read, nothing to install, no remote ID.
+    if found.get("remote_ids"):
+        return False
+    if _find(folded, _OTP) and re.search(r"(doc|nhan|gui|cho em|cho admin|cung cap)", folded.replace("khong cung cap", "")):
+        return False
+    if re.search(r"(ultraviewer|anydesk|teamviewer|rustdesk|khong bat buoc|nhung chi|nhung anh|nhung ban|chi can|chi viec)", folded):
         return False
     if re.search(r"khong (goi|yeu cau|bao gio|bat)", folded) and not re.search(r"(stk|chuyen khoan|chuyen tien|chuyen vao|\.apk)", folded):
         return True
@@ -143,9 +155,29 @@ def _snippet(text: str, needle: str) -> str:
     return ("…" if start else "") + text[start : i + len(needle) + 35].strip() + "…"
 
 
+def strong_demand(text: str) -> bool:
+    """A cue strong enough to call a text a scam without waiting for the model."""
+    folded = fold(text or "")
+    found = harvest_indicators(text or "")
+    if found.get("apk") or found.get("remote_ids") or found.get("lookalikes"):
+        return True
+    if re.search(r"(ultraviewer|anydesk|teamviewer|rustdesk|tro nang|ho tro truy cap|\.apk)", folded):
+        return True
+    if re.search(r"(doc|nhan lai|gui|cho em|cho admin|chi can).{0,32}(otp|ma xac|6 so)|(otp|6 so).{0,24}(cho em|cho admin|xac minh)", folded):
+        return True
+    if payee_demand(text):
+        return True
+    if re.search(r"(usdt|san |tien ma hoa|crypto)", folded) and re.search(r"(lai|loi nhuan|moi ngay|gap doi)", folded):
+        return True
+    if re.search(r"(mau nhi|casting|be nha)", folded) and re.search(r"(hoa hong|nhiem vu|giu suat)", folded) and re.search(r"(nap|chuyen|coc)", folded):
+        return True
+    return False
+
+
 def score_text(text: str, indicators: dict | None = None, match: dict | None = None) -> dict:
     """Return {score, level, label, factors[]} for one message or a joined transcript."""
-    if official_notice(text) or safe_advisory(text):
+    # Advisory wording may lower a model-free score. It must not erase a real demand.
+    if (official_notice(text) or safe_advisory(text)) and not strong_demand(text):
         return {"score": 0, "level": "thap", "label": "Thấp", "factors": []}
     folded = fold(text or "")
     found = indicators if indicators is not None else harvest_indicators(text or "")
@@ -191,6 +223,15 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
     if payee_demand(text):
         add("payee", "Bắt chuyển vào tài khoản kèm hạn cắt", 18, (found.get("bank_accounts") or [""])[0])
         add("cutoff", "Hạn chót hoặc đe cắt dịch vụ", 14, "")
+    if re.search(r"(doc|nhan|gui|cho em|cho admin|chi can).{0,32}(otp|ma xac|6 so)|(otp|6 so).{0,24}(cho em|cho admin|xac minh)", folded):
+        add("code_handover", "Bắt đọc hoặc gửi mã cho người lạ", 28, _snippet(text, "otp" if "otp" in folded else "ma"))
+    if (found.get("apk") or ".apk" in folded or "cai " in folded) and re.search(r"(tro nang|ho tro truy cap|accessibility)", folded):
+        add("takeover", "Bắt cài app và bật quyền chiếm máy", 25, "")
+    if re.search(r"(usdt|san |tien ma hoa|crypto)", folded) and re.search(r"(lai|loi nhuan|moi ngay|gap doi)", folded):
+        add("profit_lure", "Hứa lãi khi nạp tiền ảo", 28, "")
+    if re.search(r"(mau nhi|casting|be nha)", folded) and re.search(r"(hoa hong|nhiem vu|giu suat)", folded) and re.search(r"(nap|chuyen|coc)", folded):
+        add("task_fee", "Bắt nạp tiền để nhận hoa hồng", 28, "")
+        add("deposit", "Khoản đặt cọc hoặc phí giữ suất", 22, "")
     if match and float(match.get("confidence") or 0) >= 0.45:
         add("known", f"Giống kịch bản đã biết: {match.get('title', '')}", int(round(20 * min(1.0, float(match["confidence"])))), match.get("id", ""))
     score = min(100, sum(item["weight"] for item in factors))
@@ -204,7 +245,10 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
     return {"score": score, "level": level, "label": label, "factors": factors}
 
 
-STRONG = {"lookalike", "install", "otp", "crypto", "biometric", "payee", "cutoff"}
+STRONG = {
+    "lookalike", "install", "otp", "crypto", "biometric", "payee", "cutoff",
+    "code_handover", "takeover", "profit_lure", "task_fee", "deposit",
+}
 
 
 def merge_factors(previous: list[dict] | None, current: list[dict]) -> dict:

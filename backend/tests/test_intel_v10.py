@@ -392,10 +392,101 @@ def test_same_ask_rotates_after_two_turns_and_remote_id_is_a_goal(client):
 def test_vneid_web_form_ranks_above_the_apk_script(client):
     items = client.get(
         "/api/scripts",
-        params={"q": "VNeID bấm vào link mở form trên web, điền căn cước hai mặt"},
+        params={"q": "Anh cập nhật định danh mức 2 tại bcavneid-xacthuc.com, nhập số căn cước và mã OTP trên form web."},
     ).json()["items"]
     assert items
     assert items[0]["id"] == "vneid-cap-nhat"
+    top3 = [item["id"] for item in items[:3]]
+    assert "vneid-cap-nhat" in top3
+
+
+def test_advisory_rules_do_not_override_a_scam_model_or_real_cues(client, monkeypatch):
+    scams = [
+        "Bên em không bao giờ hỏi mật khẩu, chị chỉ cần đọc 6 số OTP vừa gửi để em xác minh nhé.",
+        "Không bắt buộc đâu chị, nhưng chị đọc giúp em mã OTP để em hủy giao dịch lạ.",
+        "Bạn đã nạp thành công 500.000đ vào tài khoản game. Để nhận thưởng gấp đôi, đọc mã OTP cho admin.",
+        "Công an phường: ông mang CCCD đến trụ sở chiều nay, trước đó cài UltraViewer và đọc ID 123 456 789 cho cán bộ kiểm tra.",
+    ]
+
+    class SaysScam(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "AnalystOutput":
+                base = super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+                return base.model_copy(update={"is_scam": True, "scammer_intent": "Đây là lừa đảo, bắt làm theo."})
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = SaysScam()
+    try:
+        for text in scams:
+            body = client.post("/api/check", json={"text": text}).json()
+            assert body["verdict"] == "scam" and body["is_scam"] is True, (text, body["verdict"], body["risk"])
+            assert body["risk"] != "thap"
+    finally:
+        client.app.state.provider = MockProvider()
+
+    def boom(*_args, **_kwargs):
+        raise LLMError("timeout")
+
+    monkeypatch.setattr("app.api.routes.check_text", boom)
+    for text in scams:
+        body = client.post("/api/check", json={"text": text}).json()
+        assert body["verdict"] == "scam", (text, body["verdict"], body["risk_score"])
+        assert body["risk"] in {"cao", "rat_cao", "trung_binh"}
+        assert body["risk"] != "thap"
+
+
+def test_model_down_catches_install_crypto_and_task_deposits(client, monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise LLMError("timeout")
+
+    monkeypatch.setattr("app.api.routes.check_text", boom)
+    samples = [
+        "Tải file dichvucong.apk rồi bật quyền trợ năng cho ứng dụng.",
+        "Nạp USDT vào sàn này, lãi 8% mỗi ngày, rút lúc nào cũng được.",
+        "Bé qua vòng casting, chị nạp 2 triệu làm nhiệm vụ để nhận hoa hồng giữ suất.",
+    ]
+    for text in samples:
+        body = client.post("/api/check", json={"text": text}).json()
+        assert body["verdict"] == "scam", (text, body)
+        assert body["risk"] in {"cao", "rat_cao"}
+        assert body["risk_score"] >= 50
+
+
+def test_negation_does_not_cross_a_sentence():
+    explained = score_text(
+        "Ngân hàng không gọi điện yêu cầu cài app. Chị tự cập nhật sinh trắc tại vcb-capnhat.com/sinhtrac nhé."
+    )
+    codes = {item["code"] for item in explained["factors"]}
+    assert "lookalike" in codes
+    assert "biometric" in codes
+    assert "install" not in codes
+
+
+def test_momo_wallet_is_an_ewallet_and_a_phone():
+    found = harvest_indicators("Anh nạp 2 triệu vào ví MoMo 0987654321 để kích hoạt.")
+    assert any(item.endswith("0987654321") for item in found["ewallets"])
+    assert "0987654321" in found["phones"]
+
+
+def test_remote_id_is_not_asked_before_the_tool_is_named(client):
+    class WantsRemote(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "PlannerOutput":
+                return PlannerOutput(goal="ask_remote_id", rationale="Hỏi ID.", tone="ngắn", must_not=[], facts_to_use=[])
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = WantsRemote()
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "ong-sau"}).json()
+        plain = client.post(f"/api/conversations/{created['id']}/messages", json={"text": "Alo chú, cháu gọi từ phường."}).json()
+        assert plain["panel"]["goal"]["goal"] != "ask_remote_id"
+        named = client.post(
+            f"/api/conversations/{created['id']}/messages",
+            json={"text": "Chú cài UltraViewer rồi đọc ID trên màn hình cho cháu."},
+        ).json()
+        assert named["panel"]["goal"]["goal"] == "ask_remote_id"
+    finally:
+        client.app.state.provider = MockProvider()
 
 
 def test_trends_and_demos(client):

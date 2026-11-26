@@ -116,8 +116,22 @@ def list_scripts(session, q: str = "", category: str = "", channel: str = "", st
     if q.strip():
         from app.services.matching import keyword_score, reason_delta
 
+        from app.agent.textutil import fold
+
+        folded_q = fold(q)
+
+        def _family_boost(row) -> float:
+            web = any(cue in folded_q for cue in ("bcavneid", "dinh danh muc 2", "nhap so can cuoc"))
+            if not web:
+                return 0.0
+            if row.id == "vneid-cap-nhat":
+                return 0.55
+            if row.id == "dvc-apk-ho-tro-truy-cap" and ".apk" not in folded_q and "ho tro truy cap" not in folded_q:
+                return -0.45
+            return 0.0
+
         scored = [
-            (keyword_score(q, script_blob(row)) + reason_delta(q, row) + (0.05 if q.lower() in (row.title or "").lower() else 0), row)
+            (keyword_score(q, script_blob(row)) + reason_delta(q, row) + _family_boost(row) + (0.05 if q.lower() in (row.title or "").lower() else 0), row)
             for row in rows
         ]
         scored = [item for item in scored if item[0] > 0.08]

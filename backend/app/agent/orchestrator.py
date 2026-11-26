@@ -559,6 +559,17 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         )
         goal = alt["goal"] if alt else "stall"
         note = f"{note} Đã hỏi cùng một việc hai lần, chuyển sang bước khác."
+    if goal == "ask_remote_id" and not _remote_was_mentioned(text):
+        alt = next(
+            (
+                row
+                for row in book["targets"]
+                if not row["done"] and row.get("goal") not in {"ask_remote_id", "ask_identity"}
+            ),
+            None,
+        )
+        goal = alt["goal"] if alt else "ask_link"
+        note = f"{note} Chưa nghe tên phần mềm điều khiển, chưa hỏi ID."
     aimed = next((row for row in book["targets"] if row["goal"] == goal and row["key"] not in state.asked_keys and not row["done"]), None)
     if aimed:
         state.asked_keys.append(aimed["key"])
@@ -950,6 +961,19 @@ def _message_dict(message: Message) -> dict:
         "reasoning": message.reasoning,
         "created_at": message.created_at.isoformat(),
     }
+
+
+def _remote_was_mentioned(text: str) -> bool:
+    from app.agent.textutil import fold
+
+    folded = fold(text or "")
+    return any(
+        word in folded
+        for word in (
+            "ultraviewer", "anydesk", "teamviewer", "rustdesk", "chia se man hinh",
+            "ho tro truy cap", "tro nang", ".apk", "cai app", "cai ung dung", "tai ung dung", "file cai",
+        )
+    )
 
 
 def _playbook_brief(state: AgentState, script) -> dict:

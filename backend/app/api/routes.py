@@ -354,8 +354,14 @@ def check(body: CheckIn, request: Request, session=Depends(get_db)):
         from app.services.risk import score_text, strong_count
 
         # The model is down, but the deterministic score still works: never show "Thấp" for an APK + OTP text.
+        from app.services.risk import official_notice, safe_advisory, strong_demand
+
         explained = score_text(text)
-        caught = strong_count(explained) >= 2 and explained["score"] >= 50
+        if (official_notice(text) or safe_advisory(text)) and not strong_demand(text):
+            explained = {"score": 0, "level": "thap", "label": "Thấp", "factors": []}
+        caught = strong_demand(text) or (strong_count(explained) >= 2 and explained["score"] >= 50)
+        if caught and explained["score"] < 50:
+            explained = {**explained, "score": 50, "level": "cao", "label": "Cao"}
         return {
             "risk_score": explained["score"],
             "risk_factors": explained["factors"],

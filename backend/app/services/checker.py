@@ -95,14 +95,18 @@ def _negated(text: str, word: str) -> bool:
     return True
 
 
-def _model_says_benign(analyst, hot: bool) -> bool:
+def _model_says_benign(analyst, hot: bool, text: str = "") -> bool:
     from app.agent.textutil import fold
+    from app.services.risk import official_notice, safe_advisory
 
     flag = getattr(analyst, "is_scam", None)
     if flag is False:
         return True
     if flag is True:
         return False
+    # The model did not contradict an advisory hint, so the hint may lower the verdict.
+    if text and (official_notice(text) or safe_advisory(text)):
+        return True
     if hot or float(analyst.scammer_suspicion or 0) >= 0.4:
         return False
     raw = (analyst.scammer_intent or "").lower()
@@ -144,13 +148,25 @@ def check_text(session, text: str, provider, persona=None) -> dict:
     hint = {"detected": False, "kind": "none", "hook": "", "description": "", "variant_script_id": ""}
     if persona is not None and ranked:
         hint = branch_hint(text, persona, ranked, scripts)
+    from app.services.risk import official_notice, safe_advisory
+
+    advisory = official_notice(text) or safe_advisory(text)
     candidates = candidate_payload(ranked)
     analyst = provider.complete(
         AnalystOutput,
         ANALYST_SYSTEM,
         pack(
             "Đây là một tin nhắn hoặc đoạn hội thoại nghi lừa đảo, chưa có nạn nhân đóng vai.",
-            {"message": text, "history": [], "persona_hooks": [], "candidates": candidates, "branch_hint": hint, "inbound": {}, "turn_index": 0},
+            {
+                "message": text,
+                "history": [],
+                "persona_hooks": [],
+                "candidates": candidates,
+                "branch_hint": hint,
+                "inbound": {},
+                "turn_index": 0,
+                "advisory_hint": advisory,
+            },
         ),
         0.2,
         thinking=False,
@@ -172,28 +188,7 @@ def check_text(session, text: str, provider, persona=None) -> dict:
         level, label = "trung_binh", "Trung bình"
     else:
         level, label = "thap", "Thấp"
-    from app.services.risk import official_notice, safe_advisory
-
-    if official_notice(text) or safe_advisory(text):
-        return {
-            "risk_score": 0,
-            "risk_factors": [],
-            "indicators": {},
-            "ioc_links": [],
-            "warnings": [],
-            "risk": "thap",
-            "risk_label": "Thấp",
-            "is_scam": False,
-            "verdict": "benign",
-            "confidence": 0,
-            "intent": "Thông báo từ kênh quen, không đòi làm theo người lạ.",
-            "red_flags": [],
-            "matched_script": None,
-            "next_step": None,
-            "advice": "Tin này giống thông báo của ngân hàng, điện lực, giao hàng hoặc ví. Không đọc mã cho ai, không bấm đường dẫn lạ.",
-            "branch": hint,
-            "mock": provider.is_mock,
-        }
+    # Advisory rules never decide benign while the model answered. They are only a hint.
     surface = _surface(text)
     model_benign = _model_says_benign(analyst, hot)
     plain = _plain_note(text) or _everyday(text)
@@ -259,15 +254,17 @@ def check_text(session, text: str, provider, persona=None) -> dict:
     from app.agent.casefile import harvest_indicators
     from app.data.warnings import cards_for_category
     from app.services.intel import lookup
-    from app.services.risk import score_text, strong_count
+    from app.services.risk import score_text, strong_count, strong_demand
 
     found = harvest_indicators(text)
     explained = score_text(text, found, matched if not benign else None)
     flag = getattr(analyst, "is_scam", None)
-    if flag is False and not hard:
+    demanded = strong_demand(text)
+    # Strong cues raise. Advisory wording lowers only when the model itself says benign.
+    if demanded or flag is True:
+        verdict, is_scam, benign = "scam", True, False
+    elif flag is False or (advisory and _model_says_benign(analyst, hot, text)):
         verdict, is_scam, benign = "benign", False, True
-    elif flag is True and not benign:
-        verdict, is_scam = "scam", True
     elif not benign and verdict != "scam" and strong_count(explained) >= 2 and explained["score"] >= 50:
         verdict, is_scam = "scam", True
     # The label follows the 0–100 score. Search confidence must not promote a low score to Rất cao.
