@@ -159,7 +159,7 @@ def test_router_failure_falls_through_to_next_chat_provider():
     assert provider.name == "gemini"
 
 
-def test_default_chat_order_is_router_then_gemini_embeddings_stay_gemini():
+def test_default_chat_order_is_router_then_gemini_embeddings_via_router():
     settings = Settings(
         llm_api_key="router-key",
         gemini_api_key="gem-key",
@@ -170,7 +170,7 @@ def test_default_chat_order_is_router_then_gemini_embeddings_stay_gemini():
     provider = build_provider(settings)
     assert provider.is_mock is False
     assert provider.embeddings_mock is False
-    assert provider.embed_model == "gemini-embedding-001"
+    assert provider.embed_model == "openrouter/openai/text-embedding-3-small"
     assert provider.role_models["persona"] == "cx/gpt-6-luna"
     assert provider.role_models["analyst"] == "ag/gemini-3.8-flash-low"
     assert provider.role_models["guard"] == "ag/gemini-3.8-flash-low"
@@ -192,8 +192,8 @@ def test_gemini_mode_reverses_the_chat_order():
     assert provider._chat.chain[1].name == "openai-compatible"
 
 
-def test_router_without_gemini_does_not_embed_via_router():
-    settings = Settings(llm_api_key="router-key", gemini_api_key="", llm_provider="openai-compatible")
+def test_embed_provider_none_keeps_keyword_search():
+    settings = Settings(llm_api_key="router-key", gemini_api_key="", llm_provider="openai-compatible", embed_provider="none")
     provider = build_provider(settings)
     assert provider.is_mock is False
     assert provider.embeddings_mock is True

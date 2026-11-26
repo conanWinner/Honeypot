@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     gemini_model_fallback: str = "gemini-2.5-flash"
     gemini_embed_model: str = "gemini-embedding-001"
     embed_dim: int = 768
+    # Embeddings: auto = 9router when a router key is set, else Gemini. 9router | gemini | none.
+    embed_provider: str = "auto"
+    # Small, fast, honors dimensions=768. qwen3-embedding-8b is the quality alternative (4 s/query).
+    model_embed: str = "openrouter/openai/text-embedding-3-small"
+    # Must share the vector space of MODEL_EMBED (same model on another route). Empty = keyword fallback.
+    model_embed_fallback: str = ""
+    timeout_embed: float = 6
+    # Cosine is rescaled to 0..1 before the hybrid score: (cos - floor) / span. -1 = provider default.
+    embed_cos_floor: float = -1
+    embed_cos_span: float = -1
     # cautious | normal | persistent. Persistent pushes the planner toward the next open checklist item.
     agent_aggressiveness: str = "normal"
     admin_token: str = ""

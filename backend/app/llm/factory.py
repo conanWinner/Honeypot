@@ -1,14 +1,17 @@
 """Chat and embeddings are chosen separately.
 
-Default chat order is the OpenAI-compatible router, then Gemini. Embeddings stay
-on Gemini even when chat is the router. No key at all means the bannered mock.
+Default chat order is the OpenAI-compatible router, then Gemini. Embeddings go
+through the router (/v1/embeddings) when EMBED_PROVIDER is auto or 9router and a
+router key exists; Gemini is the optional alternative. Vectors from different
+models are never mixed: an outage falls back to keyword search, not to another
+model. No key at all means the bannered mock.
 """
 
 from app.config import Settings
 from app.llm.base import LLMError
 from app.llm.gemini import GeminiProvider
 from app.llm.mock import MockProvider
-from app.llm.openai_provider import FallbackProvider, OpenAIProvider
+from app.llm.openai_provider import FallbackProvider, OpenAIEmbedder, OpenAIProvider
 
 
 class SplitProvider:
@@ -34,6 +37,8 @@ class SplitProvider:
         self.model = chat.model
         self.embed_model = getattr(embedder, "embed_model", "") or ""
         self.embeddings_mock = bool(getattr(embedder, "is_mock", True))
+        self.embed_cos_floor = 0.0
+        self.embed_cos_span = 1.0
 
     @property
     def is_mock(self) -> bool:
@@ -84,7 +89,7 @@ class SplitProvider:
         import time as _time
 
         if self.embeddings_mock:
-            raise LLMError("Chưa cấu hình Gemini cho embedding.")
+            raise LLMError("Chưa cấu hình embedding.")
         paused_until = float(getattr(self._embedder, "embed_paused_until", 0) or 0)
         if _time.monotonic() < paused_until:
             self.embed_paused_until = paused_until
@@ -172,7 +177,7 @@ def build_provider(settings: Settings):
     if not chain:
         return MockProvider()
     chat = chain[0] if len(chain) == 1 else FallbackProvider(chain)
-    embedder = gemini if gemini is not None else MockProvider()
+    embedder, floor, span = build_embedder(settings, gemini, key)
     provider = SplitProvider(
         chat,
         embedder,
@@ -182,4 +187,27 @@ def build_provider(settings: Settings):
         role_fallback_timeouts(settings),
     )
     provider.turn_deadline = float(settings.turn_deadline)
+    provider.embed_cos_floor = floor if settings.embed_cos_floor < 0 else float(settings.embed_cos_floor)
+    provider.embed_cos_span = span if settings.embed_cos_span <= 0 else float(settings.embed_cos_span)
     return provider
+
+
+def build_embedder(settings: Settings, gemini, router_key: str):
+    """Returns (embedder, default cosine floor, default cosine span)."""
+    choice = (settings.embed_provider or "auto").strip().lower()
+    if choice in {"none", "off", "keyword"}:
+        return MockProvider(), 0.0, 1.0
+    if choice in {"auto", "9router", "router", "openai"} and router_key:
+        embedder = OpenAIEmbedder(
+            router_key,
+            settings.openai_base_url,
+            settings.model_embed,
+            settings.embed_dim,
+            timeout=settings.timeout_embed,
+            fallback_model=settings.model_embed_fallback,
+        )
+        # text-embedding-3 cosines sit around 0.28 (unrelated) to 0.8 (same scam).
+        return embedder, 0.28, 0.5
+    if gemini is not None and choice in {"auto", "gemini"}:
+        return gemini, 0.0, 1.0
+    return MockProvider(), 0.0, 1.0

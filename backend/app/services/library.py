@@ -146,10 +146,53 @@ def _clean_channel(value: str) -> str:
     return value if value in CHANNELS else "web"
 
 
-def backfill_embeddings(session, provider) -> int:
-    if provider.is_mock:
+_MARKER_SQL = "SELECT col_description('scripts'::regclass, (SELECT attnum FROM pg_attribute WHERE attrelid = 'scripts'::regclass AND attname = 'embedding_vec'))"
+
+
+def embedding_marker(session) -> str:
+    """The embedding model that wrote the stored vectors (a Postgres column comment)."""
+    if session.get_bind().dialect.name != "postgresql":
+        return ""
+    from sqlalchemy import text
+
+    return session.execute(text(_MARKER_SQL)).scalar() or ""
+
+
+def set_embedding_marker(session, model: str) -> None:
+    if session.get_bind().dialect.name != "postgresql" or not model:
+        return
+    from sqlalchemy import text
+
+    safe = model.replace("'", "")
+    session.execute(text(f"COMMENT ON COLUMN scripts.embedding_vec IS '{safe}'"))
+
+
+def clear_embeddings(session) -> int:
+    """SQL NULL, not JSON null, so the backfill query (embedding IS NULL) finds every row again."""
+    from sqlalchemy import text
+
+    session.flush()
+    count = session.execute(text("SELECT count(*) FROM scripts WHERE embedding IS NOT NULL")).scalar() or 0
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(text("UPDATE scripts SET embedding = NULL, embedding_vec = NULL"))
+    else:
+        session.execute(text("UPDATE scripts SET embedding = NULL"))
+    session.expire_all()
+    return int(count)
+
+
+def backfill_embeddings(session, provider, force: bool = False) -> int:
+    if provider.is_mock or getattr(provider, "embeddings_mock", False):
         return 0
+    model = getattr(provider, "embed_model", "") or ""
+    marker = embedding_marker(session)
+    if force or (model and marker != model):
+        # Vectors from another model live in another space. Re-embed everything.
+        clear_embeddings(session)
     rows = list(session.scalars(select(Script).where(Script.embedding.is_(None))).all())
+    if not rows:
+        set_embedding_marker(session, model)
+        return 0
     if not rows:
         return 0
     updated = 0
@@ -159,6 +202,7 @@ def backfill_embeddings(session, provider) -> int:
         for script, vector in zip(chunk, vectors):
             _write_embedding(session, script, vector)
             updated += 1
+    set_embedding_marker(session, model)
     return updated
 
 

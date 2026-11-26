@@ -82,17 +82,17 @@ Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một
 | Analyst, planner, guard | `ag/gemini-3.8-flash-low` | `MODEL_ANALYST`, `MODEL_PLANNER`, `MODEL_GUARD` |
 | Trích kịch bản | `cx/gpt-5.6-luna` | `MODEL_EXTRACT` |
 | Chat dự phòng | `gemini-2.5-flash` | Khi router trả 4xx/5xx, Cloudflare 403/530, hoặc timeout |
-| Embedding | `gemini-embedding-001` | Luôn Gemini, từng câu một, 768 chiều, chuẩn hóa |
+| Embedding | `openrouter/openai/text-embedding-3-small` | `MODEL_EMBED`. Qua 9router `/v1/embeddings`, 768 chiều, `dimensions` được tôn trọng |
 
 Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi một lần sang model nhỏ của vai đó (persona, analyst và guard sang `cx/gpt-5.6-luna`), rồi mới tới Gemini. Không gọi lại cùng model. Mỗi vai có trần thời gian: persona 12 giây, analyst và planner 10, guard 8, trích 30. `GET /api/health/llm` là ping làm nóng lúc khởi động. Mọi request có `User-Agent: gia-nan/1.0`. Biến vai để trống thì dùng `OPENAI_MODEL`. Gemini chat gọi `v1beta`.
 
-`LLM_PROVIDER=auto` (và `openai-compatible`) gọi router trước, Gemini khi tunnel lỗi. `gemini` đảo thứ tự. `mock` chỉ cho test. Embedding không đi theo lựa chọn chat: có `GEMINI_API_KEY` thì dùng Gemini, không thì tìm theo từ khóa. Provider thật không rơi xuống mock giữa chừng.
+`LLM_PROVIDER=auto` (và `openai-compatible`) gọi router trước, Gemini khi tunnel lỗi. `gemini` đảo thứ tự. `mock` chỉ cho test. Embedding đi riêng: `EMBED_PROVIDER=auto` dùng 9router khi có khóa router, không thì Gemini. `gemini` ép Gemini. `none` chỉ tìm theo từ khóa. Vector của hai model không trộn: router lỗi thì tìm theo từ khóa, không đổi sang model khác. Cosine được co về 0–1 trước khi trộn điểm: `(cos - 0.28) / 0.5` với text-embedding-3. Đổi `MODEL_EMBED` thì app gắn lại embedding lúc khởi động. Gắn lại tay: `cd backend && python -m app.reembed` (thêm `--all` để xóa hết rồi gắn lại).
 
 ## Biến môi trường
 
 | Biến | Ý nghĩa |
 | --- | --- |
-| `GEMINI_API_KEY` | Khóa Google AI Studio. Bắt buộc nếu muốn embedding, và là chat dự phòng |
+| `GEMINI_API_KEY` | Khóa Google AI Studio. Chat dự phòng, và embedding khi `EMBED_PROVIDER=gemini` hoặc khi `auto` mà không có khóa router |
 | `LLM_API_KEY` | Khóa router. `OPENAI_API_KEY` dùng thay nếu biến này trống. Không commit khóa |
 | `OPENAI_BASE_URL` | Mặc định `https://rm7g66d.abc-tunnel.us/v1` |
 | `OPENAI_MODEL` | Mặc định `cx/gpt-6-luna`. Dùng khi một biến vai để trống |
@@ -112,7 +112,11 @@ Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi
 | `GEMINI_MODEL` | Mặc định `gemini-2.5-flash`. Không dùng `gemini-2.5-flash-lite` (404, bị đổi về 2.5-flash) |
 | `GEMINI_MODEL_PREFERRED` | Tuỳ chọn, ví dụ `gemini-3.5-flash`. 503, timeout hoặc 404 thì rơi về `GEMINI_MODEL` |
 | `GEMINI_MODEL_FALLBACK` | Mặc định `gemini-2.5-flash` |
-| `GEMINI_EMBED_MODEL` | Mặc định `gemini-embedding-001`, 768 chiều, chuẩn hóa. Mỗi câu một request |
+| `EMBED_PROVIDER` | `auto` (mặc định): 9router nếu có khóa router, không thì Gemini. `9router`, `gemini`, hoặc `none` (chỉ từ khóa) |
+| `MODEL_EMBED` | Mặc định `openrouter/openai/text-embedding-3-small`. Gửi `dimensions=768` |
+| `MODEL_EMBED_FALLBACK` | Để trống. Chỉ đặt model cùng không gian vector. Router lỗi thì tìm theo từ khóa |
+| `TIMEOUT_EMBED` | Mặc định 6 giây cho một câu. Lô gắn lại được chờ lâu hơn |
+| `GEMINI_EMBED_MODEL` | Mặc định `gemini-embedding-001` khi embedding đi qua Gemini. 768 chiều, chuẩn hóa |
 | `DATABASE_URL` | `postgresql+psycopg://...`. `postgres://` của Render/Railway được đổi sang driver psycopg |
 | `ADMIN_TOKEN` | Nếu đặt, hàng chờ duyệt cần header `X-Admin-Token`. Để trống thì cửa demo mở và UI nói rõ |
 
@@ -190,7 +194,7 @@ Hạ tầng: Postgres 16 với pgvector, nginx.
 
 Đây là mục contest yêu cầu khai báo.
 
-- Chat chạy qua router tương thích OpenAI tại `OPENAI_BASE_URL`. Persona `cx/gpt-6-luna`, analyst/planner/guard `ag/gemini-3.8-flash-low`, trích kịch bản `cx/gpt-5.6-luna`. Gemini `gemini-2.5-flash` là dự phòng chat. Embedding `gemini-embedding-001`.
+- Chat chạy qua router tương thích OpenAI tại `OPENAI_BASE_URL`. Persona `cx/gpt-6-luna`, analyst/planner/guard `ag/gemini-3.8-flash-low`, trích kịch bản `cx/gpt-5.6-luna`. Gemini `gemini-2.5-flash` là dự phòng chat. Embedding mặc định `openrouter/openai/text-embedding-3-small` qua `/v1/embeddings`.
 - Mã nguồn của repo này được viết với Cursor, mô hình Grok 4.7, trong một cloud agent. Không có khóa Gemini hay OpenAI trong môi trường lúc build, nên eval đã commit chạy bằng mock. Đường mô hình thật đã nối đủ schema JSON, embedding và fallback; cần khóa để kiểm lại bằng tay.
 
 ## Pha 2, chưa làm

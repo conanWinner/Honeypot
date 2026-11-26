@@ -153,7 +153,9 @@ def search_scripts(session, message: str, provider, k: int = 6, status: str = "p
                     found[script.id] = max(0.0, cosine(embedding, script.embedding))
         # An empty map is not a vector result. Treating it as zeros halves every keyword score.
         if found:
-            vector_scores = found
+            floor = float(getattr(provider, "embed_cos_floor", 0.0) or 0.0)
+            span = float(getattr(provider, "embed_cos_span", 1.0) or 1.0)
+            vector_scores = {key: min(1.0, max(0.0, (value - floor) / span)) for key, value in found.items()}
     ranked = []
     folded_message = fold(message)
     for script in scripts:

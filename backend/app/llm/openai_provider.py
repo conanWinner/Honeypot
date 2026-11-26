@@ -318,7 +318,86 @@ class OpenAIProvider:
         return assemble_message(body, content_type)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        raise LLMError("Embedding đi qua Gemini, không qua router.")
+        raise LLMError("Chat provider không làm embedding. Dùng OpenAIEmbedder.")
+
+
+def _fit_dim(vector: list[float], dim: int) -> list[float]:
+    """Matryoshka models (text-embedding-3, qwen3, nemotron) keep meaning in the prefix."""
+    if len(vector) < dim:
+        raise LLMError(f"embedding có {len(vector)} chiều, cần {dim}")
+    head = [float(value) for value in vector[:dim]]
+    norm = sum(value * value for value in head) ** 0.5 or 1.0
+    return [value / norm for value in head]
+
+
+class OpenAIEmbedder:
+    """POST /embeddings on the OpenAI-compatible router, batched, with a 429/5xx cooldown."""
+
+    is_mock = False
+    name = "openai-compatible-embed"
+    batch = 16
+    pause_seconds = 120
+
+    def __init__(self, api_key: str, base_url: str, model: str, dim: int = 768, timeout: float = 6, fallback_model: str = ""):
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.embed_model = model
+        self.dim = int(dim)
+        self.timeout = float(timeout)
+        self.fallback_model = (fallback_model or "").strip()
+        self.embed_paused_until = 0.0
+        self.embed_pause_logged = False
+
+    def _post(self, model: str, texts: list[str]) -> list[list[float]]:
+        payload = {"model": model, "input": texts, "dimensions": self.dim, "encoding_format": "float"}
+        try:
+            response = httpx.post(
+                f"{self.base_url}/embeddings",
+                headers=request_headers(self.api_key),
+                json=payload,
+                # One query text sits on the turn's critical path; a backfill batch may take longer.
+                timeout=http_timeout(self.timeout if len(texts) == 1 else max(self.timeout, 60.0)),
+            )
+        except httpx.HTTPError as exc:
+            raise LLMError(f"embedding timeout: {exc}") from exc
+        if response.status_code == 429 or response.status_code >= 500:
+            raise LLMError(f"embedding {response.status_code}: {response.text[:160]}")
+        if response.status_code >= 400:
+            raise LLMError(f"embedding {response.status_code}: {response.text[:300]}")
+        try:
+            data = sorted(response.json()["data"], key=lambda item: item.get("index", 0))
+            vectors = [_fit_dim(item["embedding"], self.dim) for item in data]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise LLMError(f"embedding trả sai định dạng: {exc}") from exc
+        if len(vectors) != len(texts):
+            raise LLMError(f"embedding trả {len(vectors)} vector cho {len(texts)} đoạn")
+        return vectors
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if time.monotonic() < self.embed_paused_until:
+            raise LLMError("semantic search paused")
+        out: list[list[float]] = []
+        for start in range(0, len(texts), self.batch):
+            chunk = texts[start : start + self.batch]
+            try:
+                out.extend(self._post(self.model, chunk))
+                continue
+            except LLMError as exc:
+                last = exc
+            if self.fallback_model:
+                try:
+                    out.extend(self._post(self.fallback_model, chunk))
+                    continue
+                except LLMError as exc:
+                    last = exc
+            self.embed_paused_until = time.monotonic() + self.pause_seconds
+            if not self.embed_pause_logged:
+                log.warning("Embedding router lỗi (%s), tìm theo từ khóa trong %s giây.", str(last)[:80], self.pause_seconds)
+                self.embed_pause_logged = True
+            raise LLMError("semantic search paused") from None
+        self.embed_pause_logged = False
+        return out
 
 
 class FallbackProvider:
