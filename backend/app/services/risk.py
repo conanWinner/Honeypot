@@ -122,6 +122,11 @@ def official_notice(text: str) -> bool:
         return False
     if any(word in folded for word in ("nhan lai", "gui lai ma", "doc lai", "gui lai 6 so", "nhan 6 so", "kich hoat vao", "vao vi", "vao stk", "vao so tai khoan", "hoan don", "luu kho")):
         return False
+    # A real notice points to the official app or hotline, never to a personal phone, Zalo, or a QR sent in chat.
+    if found.get("phones") or found.get("ewallets") or found.get("zalo"):
+        return False
+    if any(word in folded for word in ("zalo", "ket ban", "qr chung toi gui", "ma qr", "thanh toan truoc qua ma", "thanh toan truoc qua zalo", "can thanh toan truoc", "goi ngay", "ngat dien", "cat dien")):
+        return False
     hosts = [url.split("/")[0].lower() for url in found.get("urls") or []]
     if any(host and not any(host == domain or host.endswith("." + domain) for domain in _OFFICIAL_HOSTS) for host in hosts):
         return False
@@ -153,6 +158,66 @@ def _snippet(text: str, needle: str) -> str:
         return ""
     start = max(0, i - 25)
     return ("…" if start else "") + text[start : i + len(needle) + 35].strip() + "…"
+
+
+def has_contact_channel(text: str, found: dict | None = None) -> bool:
+    """A phone, Zalo, link, QR, wallet, or account the reader is pointed at."""
+    folded = fold(text or "")
+    found = found if found is not None else harvest_indicators(text or "")
+    if any(found.get(key) for key in ("phones", "ewallets", "zalo", "urls", "bank_accounts", "crypto_wallets", "telegram")):
+        return True
+    return any(word in folded for word in ("zalo", "ma qr", "ket ban", "http", "www."))
+
+
+def has_deadline_or_threat(text: str) -> bool:
+    folded = fold(text or "")
+    return any(
+        word in folded
+        for word in (
+            "ngat dien", "cat dien", "goi ngay", "qua han", "het han", "trong 1h",
+            "se cat", "se ngat", "truoc 17h", "trong hom nay", "thanh toan truoc", "can thanh toan truoc",
+        )
+    )
+
+
+def notice_may_override(text: str, confidence: float = 0, found: dict | None = None) -> bool:
+    """A notice may overrule a scam verdict only with no channel, no threat, and a weak script match."""
+    if float(confidence or 0) >= 0.8:
+        return False
+    found = found if found is not None else harvest_indicators(text or "")
+    if has_contact_channel(text, found) or has_deadline_or_threat(text):
+        return False
+    return True
+
+
+def pressed_stranger_channel(text: str, found: dict | None = None) -> bool:
+    """A courier or utility line that sends the reader to a personal channel under a deadline."""
+    folded = fold(text or "")
+    found = found if found is not None else harvest_indicators(text or "")
+    frame = any(word in folded for word in ("shipper", "giao hang", "don hang", "don cod", "dien luc", "tien dien", "evn", "cod"))
+    channel = bool(found.get("phones") or found.get("zalo") or found.get("ewallets")) or any(
+        word in folded for word in ("zalo", "ma qr", "ket ban")
+    )
+    return bool(frame and channel and (has_deadline_or_threat(text) or "thanh toan truoc" in folded or "goi ngay" in folded))
+
+
+_HANDOVER = re.compile(
+    r"(doc lai|day so|gui\s.{0,24}(cai ma|ma vua)|"
+    r"(doc|nhan lai|gui|cho em|cho admin)\s.{0,32}(otp|ma xac|6 so)|"
+    r"(otp|6 so).{0,24}(cho em|cho admin|de em xac minh))"
+)
+_REWARD_TOPUP = re.compile(r"(nap|tai khoan game).{0,48}(thuong|gap doi)|(thuong|gap doi).{0,40}(nap|otp|game)")
+
+
+def model_scam_should_be_high(text: str, found: dict | None = None) -> bool:
+    """Handover, a reward top-up, or a contact channel is enough for Cao once the model says scam."""
+    folded = fold(text or "")
+    found = found if found is not None else harvest_indicators(text or "")
+    if _HANDOVER.search(folded) or _REWARD_TOPUP.search(folded):
+        return True
+    if any(found.get(key) for key in ("phones", "zalo", "ewallets", "telegram", "bank_accounts")):
+        return True
+    return any(word in folded for word in ("zalo", "ma qr", "ket ban"))
 
 
 def strong_demand(text: str) -> bool:

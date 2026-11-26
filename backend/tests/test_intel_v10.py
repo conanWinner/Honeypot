@@ -392,7 +392,7 @@ def test_same_ask_rotates_after_two_turns_and_remote_id_is_a_goal(client):
 def test_vneid_web_form_ranks_above_the_apk_script(client):
     items = client.get(
         "/api/scripts",
-        params={"q": "Nhờ anh cập nhật định danh mức 2 trên bcavneid-xacthuc.com, nhập số căn cước và mã OTP."},
+        params={"q": "Cập nhật định danh mức 2 trên web vneid-bca.top, nhập số căn cước và mã OTP, không cài app."},
     ).json()["items"]
     assert items
     assert items[0]["id"] == "vneid-cap-nhat"
@@ -433,6 +433,49 @@ def test_quiet_notices_and_everyday_lines_stay_benign(client):
         assert body["risk"] == "thap"
     forwarded = client.post("/api/check", json={"text": "Con gửi mẹ cái mã vừa về máy, mẹ đọc giúp con với."}).json()
     assert forwarded["verdict"] == "scam"
+
+
+def test_disguised_courier_and_utility_notices_stay_scams(client):
+    from app.services.risk import notice_may_override, official_notice
+
+    scams = [
+        "Giao Hàng Nhanh: Đơn COD 450.000đ của bạn đang giao. Do chính sách mới, vui lòng thanh toán trước qua mã QR chúng tôi gửi trong Zalo, shipper sẽ giao trong 1h.",
+        "Thông báo từ Điện lực: quý khách còn nợ tiền điện kỳ 11, vui lòng gọi ngay 0912888777 gặp nhân viên thu để thanh toán, quá 17h hôm nay sẽ ngắt điện.",
+    ]
+    for text in scams:
+        assert not official_notice(text), text
+        assert not notice_may_override(text, 0.2), text
+        body = client.post("/api/check", json={"text": text}).json()
+        assert body["verdict"] == "scam" and body["is_scam"] is True, (text, body["verdict"], body["risk"])
+    otp = "Vietcombank: ma OTP 482193 cua quy khach. Khong chia se ma nay voi bat ky ai."
+    assert notice_may_override(otp, 0.4)
+    assert not notice_may_override(otp, 0.85)
+
+
+def test_model_scam_with_handover_or_channel_is_at_least_cao(client):
+    lines = [
+        "Chị đọc lại dãy số vừa về máy giúp em với.",
+        "Con gửi mẹ cái mã vừa về máy.",
+        "Nạp thêm vào tài khoản game để nhận thưởng gấp đôi.",
+        "Tổng cục Thuế báo bạn được hoàn thuế, kết bạn Zalo để nhận.",
+    ]
+
+    class SaysScam(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "AnalystOutput":
+                base = super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+                return base.model_copy(update={"is_scam": True, "scammer_intent": "Đây là lừa đảo."})
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = SaysScam()
+    try:
+        for text in lines:
+            body = client.post("/api/check", json={"text": text}).json()
+            assert body["verdict"] == "scam", (text, body["verdict"])
+            assert body["risk"] in {"cao", "rat_cao"}, (text, body["risk"], body["risk_score"])
+            assert body["risk_score"] >= 50
+    finally:
+        client.app.state.provider = MockProvider()
 
 
 def test_momo_number_without_vi_is_an_ewallet():

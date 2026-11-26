@@ -260,12 +260,18 @@ def check_text(session, text: str, provider, persona=None) -> dict:
     explained = score_text(text, found, matched if not benign else None)
     flag = getattr(analyst, "is_scam", None)
     demanded = strong_demand(text)
-    # Strong cues raise. A genuine notice with no demand stays benign even if the model is jumpy.
-    from app.services.risk import official_notice as _notice
+    # A genuine notice may overrule a jumpy model only when nothing points at a stranger.
+    from app.services.risk import (
+        model_scam_should_be_high,
+        notice_may_override,
+        official_notice as _notice,
+        pressed_stranger_channel,
+    )
 
-    if _notice(text) and not demanded:
+    clean_notice = _notice(text) and not demanded
+    if clean_notice and (flag is not True or notice_may_override(text, confidence, found)):
         verdict, is_scam, benign = "benign", False, True
-    elif demanded or flag is True:
+    elif demanded or flag is True or pressed_stranger_channel(text, found):
         verdict, is_scam, benign = "scam", True, False
     elif flag is False or (advisory and _model_says_benign(analyst, hot, text)):
         verdict, is_scam, benign = "benign", False, True
@@ -277,7 +283,10 @@ def check_text(session, text: str, provider, persona=None) -> dict:
         explained = {**explained, "score": 0, "factors": [], "level": "thap", "label": "Thấp"}
     else:
         level, label = explained["level"], explained["label"]
-        if (is_scam or verdict == "scam") and (level == "thap" or explained["score"] < 25):
+        if flag is True and model_scam_should_be_high(text, found) and explained["score"] < 50:
+            level, label = "cao", "Cao"
+            explained = {**explained, "score": 50, "level": level, "label": label}
+        elif (is_scam or verdict == "scam") and (level == "thap" or explained["score"] < 25):
             level, label = "trung_binh", "Trung bình"
             explained = {**explained, "score": max(explained["score"], 25), "level": level, "label": label}
     try:

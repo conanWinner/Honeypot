@@ -33,7 +33,7 @@ _REASON_GROUPS = (
     ("phi ship", ("phi ship", "phi phat sinh", "shipper")),
     ("trung thuong", ("trung thuong", "trung giai")),
     ("tai nan", ("tai nan", "vien phi", "phau thuat", "benh vien", "tien vien")),
-    ("vneid web", ("bcavneid", "dinh danh muc 2", "nhap so can cuoc", "form tren web", "khong cai app")),
+    ("vneid web", ("dinh danh muc 2", "nhap so can cuoc", "form tren web", "khong cai app")),
 )
 
 
@@ -48,16 +48,27 @@ def ioc_overlap_boost(message: str, script) -> float:
         + " ".join(str(value) for values in (getattr(script, "indicators", None) or {}).values() for value in (values or []))
     )
     compact = re.sub(r"[^a-z0-9]", "", blob)
+    brand_tokens = [
+        part
+        for part in re.split(r"[^a-z0-9]+", fold(f"{getattr(script, 'brand', '')} {getattr(script, 'title', '')}"))
+        if len(part) >= 4
+    ]
     boost = 0.0
     seen: set[str] = set()
     for raw in list(found.get("urls") or []) + list(found.get("lookalikes") or []) + list(found.get("apk") or []):
         host = fold(str(raw)).split("—")[0].split("/")[0]
+        compact_host = re.sub(r"[^a-z0-9]", "", host)
         for part in re.split(r"[^a-z0-9]+", host):
             if len(part) < 6 or part in seen or part in {"https", "http", "www"}:
                 continue
             seen.add(part)
             if part in compact:
                 boost += 0.22
+        for token in brand_tokens:
+            if token in seen or token not in compact_host:
+                continue
+            seen.add(token)
+            boost += 0.22
     return min(boost, 0.35)
 
 
