@@ -1,167 +1,169 @@
 # Honeypot
 
-Honeypot — AI đóng vai nạn nhân, bóc kịch bản lừa đảo. Nền tảng tiếng Việt cho MoMo Tech Contest 2026, bảng Anti-fraud. Người dùng biết mình đang bị lừa thì đưa cuộc thoại cho agent. Vai Giả Nạn giữ đối phương nói tiếp và rút ra kịch bản có cấu trúc. Mỗi cuộc hội thoại thành một hồ sơ trong thư viện dùng để cảnh báo người khác.
+Honeypot là nền tảng tiếng Việt cho MoMo Tech Contest 2026, bảng Anti-fraud. Agent đóng vai nạn nhân (Giả Nạn), giữ đối phương nói tiếp và rút ra kịch bản có cấu trúc. Kịch bản qua hàng chờ kiểm duyệt rồi vào thư viện, để cảnh báo người khác, theo dõi xu hướng, và cho người dân luyện tập mô phỏng. Hạn sơ khảo 03/12/2026. Bản này là pha 1, chỉ có web.
 
-Hạn sơ khảo 03/12/2026. Bản này là pha 1, chỉ có web. Telegram (Telethon, MTProto trên chính tài khoản người dùng) và cuộc gọi thoại gắn sau, qua cùng một agent.
+## Tính năng chính
 
-## Chạy local
+- **Kiểm tra tin** (`/`): dán tin nhắn, số điện thoại, số tài khoản, đường dẫn hoặc ví. Kết quả có điểm rủi ro, kịch bản khớp, cờ đỏ và lời khuyên, kèm lối sang luyện đúng tình huống đó.
+- **Luyện tập** (`/luyen-tap`): mô phỏng hội thoại trên kịch bản đã xuất bản, chín nhóm, độ khó Dễ / Vừa / Khó, chế độ Học hoặc Thử thách. Trắc nghiệm tám câu ở `/luyen-tap/trac-nghiem`.
+- **Cảnh báo** (`/canh-bao`): thẻ chiêu đang lưu hành, và tab kịch bản chi tiết. Trang kịch bản tải được thẻ PNG.
+- **Xu hướng** (`/xu-huong`): số vụ theo loại, tháng và thương hiệu, kèm phương thức đang nổi.
+- **Báo cáo** (`/bao-cao`): dán tin để đối chiếu kho, rồi có thể giao cuộc thoại cho agent.
+- **Bị lừa** (`/bi-lua`): bốn việc cần làm ngay sau khi chuyển tiền hoặc làm theo người lạ, gồm cảnh giác chiêu hứa lấy lại tiền.
+- **Phòng phân tích** (`/phan-tich`): hội thoại, mạng lưới chỉ dấu, hàng chờ kiểm duyệt, demo giám khảo và trạng thái hệ thống.
 
-Cần Docker. Đặt khóa vào `.env` (copy từ `.env.example`) nếu muốn đường demo dùng mô hình thật. Không có khóa thì API vẫn lên, giao diện hiện banner «chưa cấu hình khóa» và agent chạy heuristic — không được đem đường đó đi chấm như mô hình thật.
+Thanh trên có Trang chủ, Luyện tập, Cảnh báo, Xu hướng, nút Báo cáo lừa đảo, và liên kết Phòng phân tích. Điện thoại có bốn mục dưới cùng: Trang chủ, Luyện tập, Cảnh báo, Báo cáo. Khi chưa gắn khóa, chân trang ghi «Chế độ mô phỏng — chưa gắn khóa model».
+
+## Chạy nhanh
+
+Cần Docker. Copy `.env.example` thành `.env` rồi điền khóa nếu muốn mô hình thật. Không có `LLM_API_KEY` (hoặc `OPENAI_API_KEY`) và `GEMINI_API_KEY` thì API vẫn lên ở chế độ mô phỏng: giao diện hiện banner, agent chạy heuristic. Đường đó không dùng để chấm như mô hình thật. `LLM_PROVIDER=mock` cũng vào chế độ này.
 
 ```bash
 cp .env.example .env
-# sửa GEMINI_API_KEY
-docker compose up --build
+docker compose up -d --build
 ```
 
-- Giao diện: http://localhost:4178
-- API: http://localhost:8091/api/health
-- Postgres (pgvector) lộ cổng 5433 cho máy host, user/password/db đều là `gianan`. Trong Compose, service và container là `honeypot-db`, `honeypot-api`, `honeypot-web`; cổng host vẫn 5433, 8091 và 4178.
+| Dịch vụ | Địa chỉ |
+| --- | --- |
+| Giao diện | http://localhost:4178 |
+| API | http://localhost:8091/api/health |
+| Postgres (pgvector) | `localhost:5433`, user / mật khẩu / db đều là `gianan` |
 
-Không có Docker, chỉ để phát triển giao diện:
+Trong Compose, service và container là `honeypot-db`, `honeypot-api`, `honeypot-web`. API trong mạng nội bộ nghe cổng 8000, nginx của web proxy `/api` tới `honeypot-api`.
+
+Cập nhật bản đang chạy:
 
 ```bash
-cd backend && python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-cd ../frontend && npm install
+git pull && docker compose up -d --build
 ```
 
-Rồi một terminal `uvicorn app.main:app --app-dir backend --port 8091` với `DATABASE_URL` trỏ Postgres có pgvector, và terminal kia `npm run dev --prefix frontend` (Vite cổng 4178, proxy `/api`). SQLite chỉ dùng cho test, không phải đường chạy demo.
+Compose chỉ chuyển vào container các biến khai trong `docker-compose.yml` (khóa, model từng vai, `MODEL_SIM` và timeout của vai đó, Gemini, `ADMIN_TOKEN`). Các biến còn lại dùng mặc định trong `backend/app/config.py`. Bảng đầy đủ nằm ở [docs/bien-moi-truong.md](docs/bien-moi-truong.md). Cách chạy không Docker, demo giám khảo và đưa lên mạng nằm ở [docs/trien-khai.md](docs/trien-khai.md).
 
-## Demo cho giám khảo
+## Pipeline
 
-Mở giao diện, bấm **Demo giám khảo**. Một nhịp tạo cuộc gọi giả danh công an với bà Nguyễn Thị Năm. Bấm câu gợi ý hoặc **Tự đi nốt các câu gợi ý**, rồi **Trích xuất**. Nhánh «sống một mình» chưa có trong thư viện nên hồ sơ vào hàng chờ. Bấm **Duyệt ngay** là nó hiện trong thư viện.
+Ba sơ đồ dưới đây bám mã hiện tại: vòng agent trong `backend/app/agent/orchestrator.py`, trích và duyệt trong `backend/app/services/library.py`, luyện tập trong `backend/app/services/training.py`.
 
-Bật **Luận giải của agent** để xem JSON của phân tích, kế hoạch và lớp an toàn từng lượt. Demo nằm trong Phòng phân tích, đường `/phan-tich/demo`.
-
-## Màn hình
-
-Thanh trên có bốn mục công khai: **Trang chủ**, **Luyện tập**, **Cảnh báo**, **Xu hướng**, nút **Báo cáo lừa đảo**, và liên kết nét đứt **Phòng phân tích**. Điện thoại có đúng bốn mục dưới cùng: Trang chủ, Luyện tập, Cảnh báo, Báo cáo. Đường cũ chuyển hướng: `/kiem-tra` về trang chủ, `/thu-vien` về tab kịch bản của Cảnh báo, `/hoi-thoai`, `/mang-luoi`, `/kiem-duyet`, `/demo` vào Phòng phân tích.
-
-Trang chủ là ô kiểm tra tin. Kết quả hiện ngay bên dưới: điểm rủi ro, kịch bản khớp, ba cờ đỏ, lời khuyên, và nút luyện đúng tình huống đó. Banner khóa model và embedding chỉ còn trong Phòng phân tích. Khi chưa có khóa, chân trang ghi một dòng «Chế độ mô phỏng — chưa gắn khóa model».
-
-## Luyện tập
-
-`/luyen-tap` mở hai đường: mô phỏng hội thoại khoảng năm phút, và trắc nghiệm tám câu. Kịch bản lấy từ thư viện đã xuất bản, gom chín nhóm (công an, ngân hàng và ví, giao hàng, việc làm, đầu tư, QR, deepfake, cài app, khác). Độ khó Dễ / Vừa / Khó đổi số lượt và số lần người lừa đảo được trấn an. Chế độ Học lộ cờ đỏ; Thử thách chỉ đếm cờ.
-
-Mỗi lượt: che OTP, số thẻ, căn cước và mật khẩu của người chơi trước khi lưu; luật gán nhãn `refuse`, `verify`, `suspicious`, `comply`, `leak`, `fell` hoặc `neutral`; vai `analyst` (`ag/gemini-3.8-flash-low`) chỉ được tinh chỉnh nhãn, không được hạ một cú ngã. Vai `sim` (`ag/gemini-3.8-flash-low`, dự phòng `cx/gpt-5.6-luna`) viết lời người lừa đảo. Mọi câu trả về đều đi qua `sanitize_scammer_text`: không số dài, không đường dẫn, không ví, không ID điều khiển, không tên chủ tài khoản. Hết bài là điểm do luật tính, không do mô hình. Phiên luyện không tạo kịch bản mới và không vào xu hướng.
-
-`LLM_PROVIDER=mock` chơi được hết bài, không cần khóa. Phiên cũ hơn bảy ngày bị xóa lúc khởi động.
-
-## Kiến trúc
+### Tổng quan
 
 ```mermaid
-flowchart LR
-  subgraph channels [Kênh]
-    Web[Web]
-    Telegram[Telegram - pha 2]
-    Voice[Thoại - pha 2]
-  end
-  Web --> Adapter
-  Telegram --> Adapter
-  Voice --> Adapter
-  Adapter[Channel adapter] --> Orchestrator
-  subgraph agent [Agent]
-    Orchestrator --> Analyst[Phân tích lượt]
-    Analyst --> Planner[Kế hoạch]
-    Planner --> Persona[Đóng vai]
-    Persona --> Safety[An toàn]
-  end
-  Analyst --> Library[(Postgres + pgvector)]
-  Safety --> Library
-  Orchestrator --> Library
+flowchart TD
+  kenhs["Kênh web. Telegram và thoại là pha 2"] --> agent["Agent honeypot"]
+  agent --> trich["Trích kịch bản"]
+  trich --> phanloai{"Máy chủ phân loại"}
+  phanloai -->|"Trùng bản đã xuất bản"| gop["Gộp vào thư viện"]
+  phanloai -->|"Nhánh mới hoặc kịch bản mới"| hangcho["Hàng chờ kiểm duyệt"]
+  hangcho -->|"Duyệt"| thuvien[("Postgres và pgvector")]
+  gop --> thuvien
+  thuvien --> xuhuong["Xu hướng"]
+  thuvien --> luyentap["Luyện tập"]
+  thuvien --> kichban["Tab kịch bản của Cảnh báo"]
+  kiemtra["Kiểm tra tin"] --> thuvien
 ```
 
-Agent là một vòng bốn nút có hợp đồng Pydantic, không dùng LangGraph. Lý do: luồng này cố định, lớp an toàn và luật «chưa được khép» phải đè được mô hình. Một orchestrator ngắn, mỗi nút là một hàm trên state, test được bằng cách tiêm provider giả. LangGraph thêm một runtime checkpoint không cần cho vòng này, và dễ để mô hình «khép» kịch bản ngay câu chào. Adapter kênh đứng ngoài vòng, nên Telethon và thoại sau này chỉ gọi `handle_turn`.
+1. Kênh đi qua adapter rồi gọi cùng một `handle_turn`. Pha 1 chỉ có web. Telegram và thoại đã có adapter, chưa nối vận chuyển thật.
+2. Hết hội thoại, người dùng bấm trích xuất. Mô hình viết hồ sơ. Máy chủ quyết định quan hệ: trùng thì gộp vào bản đã xuất bản, nhánh mới hoặc kịch bản mới thì vào hàng chờ `pending`.
+3. Duyệt chuyển bản chờ sang `published` và gắn embedding. Từ chối thì `rejected`.
+4. Xu hướng, tab kịch bản và luyện tập đọc thư viện đã xuất bản. Kiểm tra tin cũng đối chiếu thư viện đó. Thẻ cảnh báo công khai là nội dung soạn sẵn trong `backend/app/data/warnings.py`, có liên kết sang kịch bản cùng nhóm.
+5. Luyện tập chỉ đọc kịch bản. Một phiên luyện không tạo kịch bản mới và không ghi chỉ dấu.
 
-Thứ tự một lượt:
+### Một lượt của agent honeypot
 
-1. Luật đầu vào: jailbreak và dấu hiệu đối phương đang nghi.
-2. Tìm thư viện: embedding (pgvector trên Postgres, cosine trong Python khi test) trộn với từ khóa. Cuộc thoại đang khớp một kịch bản thì không nhảy sang kịch bản khác chỉ vì một cụm trùng, trừ khi kịch bản kia hơn hẳn.
-3. Analyst (Gemini Flash, JSON schema): ý định, bước, cờ đỏ, rerank. Bước 0 bị luật đẩy lên nếu heuristic thấy rõ một bước sau.
-4. Luật khép: chỉ đề xuất khép khi ba lượt gần nhất cùng một họ kịch bản, độ tin cậy cao, bước đang tiến, và không có nhánh mới.
-5. Planner chọn mục tiêu kế tiếp. Máy chủ cấm `close_polite` khi chưa đủ điều kiện khép, và kéo về «giả vờ chưa hiểu» khi có jailbreak.
-6. Persona viết tin nhắn tiếng Việt theo hồ sơ giả và trí nhớ.
-7. An toàn đầu ra: luật là quyền phủ quyết, kể cả «trả liền», «chuyển liền», «ok em chuyển». Mô hình có thể viết lại. Câu vẫn phạm thì thay bằng câu an toàn trong vai. Cùng lúc kiểm tra cặp đại từ của persona và giọng tao/mày.
+```mermaid
+flowchart TD
+  luat["Luật đầu vào"] --> tim["Tìm thư viện"]
+  tim --> analyst["Analyst"]
+  tim --> planner["Planner"]
+  analyst --> persona["Persona"]
+  planner --> persona
+  persona --> antoan["An toàn đầu ra"]
+  antoan --> phuquyet{"Luật phủ quyết"}
+  phuquyet -->|"Sạch"| gui["Gửi"]
+  phuquyet -->|"Lệch vai hoặc vi phạm"| motlan["Viết lại một lần"]
+  motlan --> vancon{"Vẫn phạm"}
+  vancon -->|"Có"| fallback["Câu an toàn trong vai"]
+  vancon -->|"Không"| gui
+```
 
-Analyst và planner chạy song song vì cả hai chỉ cần gói tìm thư viện. Persona đợi mục tiêu. Lớp an toàn chỉ được gọi khi luật đã thấy câu nháp có vấn đề, để lượt sạch không phải chờ thêm một model. Nếu câu trả lời nghe như chuyên gia, sai đại từ, hoặc nhận trả tiền, persona viết lại một lần (cùng mức `AGENT_AGGRESSIVENESS` với câu gốc) rồi lớp an toàn mới cho gửi. Hai lượt không có thêm chỉ dấu thì agent hỏi mục còn thiếu (số tài khoản, link, ứng dụng, số tiền) thay vì giả vờ rối. Nghi ngờ chỉ làm agent lùi lại khi lượt hiện tại thật sự bị dò. Mỗi lượt còn ghi giai đoạn kịch bản, bảng mục còn thiếu và chỉ dấu: số điện thoại, số tài khoản, URL (kể cả tên miền trần), tên app. `AGENT_AGGRESSIVENESS` nhận `cautious`, `normal` hoặc `persistent`.
+1. Luật đầu vào (`assess_inbound`) đánh dấu jailbreak và dấu hiệu đối phương đang nghi. Số lạ được ghi vào hồ sơ vụ.
+2. Tìm thư viện đã xuất bản: embedding pgvector trộn với từ khóa. Cuộc thoại đang bám một kịch bản thì giữ kịch bản đó, trừ khi kịch bản khác hơn ít nhất 0.22 điểm.
+3. Analyst và Planner chạy song song, vì cả hai chỉ cần gói tìm kiếm. Analyst đọc ý định, bước và cờ đỏ. Planner chọn mục tiêu. Vai nào không trả lời thì lượt giữ mạch cũ.
+4. Máy chủ quyết định có được khép kịch bản hay không. `close_polite` bị kéo về hỏi tiếp khi chưa đủ điều kiện. Jailbreak hoặc nghi ngờ cao chuyển mục tiêu sang giả vờ chưa hiểu.
+5. Persona viết một tin tiếng Việt theo hồ sơ giả.
+6. Guard duyệt câu nháp ngay khi có nháp. Nếu luật chê câu (nhận chuyển tiền, nhận đã cài, nhận là máy, giọng dạy đời, sai đại từ, lặp câu mở), persona viết lại một lần, rồi câu mới được duyệt lại. Luật vẫn phủ quyết: câu còn vi phạm cứng thì thay bằng câu an toàn trong vai. Guard không trả lời thì không gửi bản nháp.
 
-Nhánh mới là hoàn cảnh riêng của persona (con ở Đức, sống một mình, shop, học phí…) mà kịch bản đang khớp và các biến thể của nó không có. Nếu thư viện đã có biến thể đó, UI báo «khớp nhánh đã có» và tiếp tục bám nhánh.
+Điều kiện khép, nhánh mới, playbook và cách trộn điểm embedding nằm ở [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md).
+
+### Một lượt luyện tập
+
+```mermaid
+flowchart TD
+  che["Che dữ liệu trước khi lưu"] --> luat["Luật chấm nhãn"]
+  luat --> sapket{"Sắp kết thúc"}
+  sapket -->|"Có"| cauket["Câu kết, không gọi model"]
+  sapket -->|"Nhãn còn trung tính"| song["Analyst tinh chỉnh, song song Sim"]
+  sapket -->|"Đã có nhãn"| sim["Sim viết lời"]
+  song --> giong["Lọc giọng gia sư và dữ liệu thật"]
+  sim --> giong
+  giong --> dung{"Câu dùng được"}
+  dung -->|"Không"| duphong["Model dự phòng"]
+  duphong --> dung2{"Dùng được"}
+  dung2 -->|"Không"| mau["Câu mẫu đã lọc trong kịch bản"]
+  dung -->|"Có"| tra["Trả lời"]
+  dung2 -->|"Có"| tra
+  mau --> tra
+```
+
+1. Câu người chơi được che trước khi lưu: OTP, số thẻ, căn cước, số điện thoại, mật khẩu, tên và địa chỉ thành `[ĐÃ CHE]`. Nhãn do luật gán trên câu gốc: `refuse`, `verify`, `suspicious`, `comply`, `leak`, `fell`, `neutral`.
+2. Luật thắng khi nhãn không còn trung tính. Analyst chỉ được gọi lúc nhãn là `neutral`, và không được hạ một cú ngã (`fell`, `leak`). Analyst chạy song song với Sim trong trường hợp đó. Nếu lượt sắp kết thúc thì không gọi model.
+3. Sim viết tối đa hai câu, đúng vai người đang gọi. Câu bị loại nếu mang giọng gia sư (cảnh báo, xin lỗi, nhận là AI) hoặc còn số dài, đường dẫn, ví, ID điều khiển, tên chủ tài khoản.
+4. Lần đầu lỗi thì gọi model dự phòng của vai `sim`. Vẫn không dùng được thì lấy câu mẫu đã lọc sẵn trong kịch bản.
+5. Điểm cuối bài do luật tính. Chín nhóm: công an, ngân hàng và ví, giao hàng, việc làm, đầu tư, QR, deepfake, cài app, khác. Dễ / Vừa / Khó là 10 / 12 / 14 lượt, và 0 / 1 / 2 lần được trấn an tại chỗ. Học lộ cờ đỏ. Thử thách chỉ đếm cờ. Phiên cũ hơn bảy ngày bị xóa lúc khởi động.
 
 ## Mô hình
 
-| Vai | Mặc định | Biến |
-| --- | --- | --- |
-| Persona | `cx/gpt-6-luna` | `MODEL_PERSONA` |
-| Analyst, planner, guard | `ag/gemini-3.8-flash-low` | `MODEL_ANALYST`, `MODEL_PLANNER`, `MODEL_GUARD` |
-| Trích kịch bản | `cx/gpt-5.6-luna` | `MODEL_EXTRACT` |
-| Giọng luyện tập | `ag/gemini-3.8-flash-low` | `MODEL_SIM`, dự phòng `cx/gpt-5.6-luna` |
-| Chat dự phòng | `gemini-2.5-flash` | Khi router trả 4xx/5xx, Cloudflare 403/530, hoặc timeout |
-| Embedding | `openrouter/openai/text-embedding-3-small` | `MODEL_EMBED`. Qua 9router `/v1/embeddings`, 768 chiều, `dimensions` được tôn trọng |
+Mọi vai chat đi qua router tương thích OpenAI (9router) tại `OPENAI_BASE_URL`. Model để trống thì dùng `OPENAI_MODEL`. Hết giờ, JSON hỏng hoặc HTTP lỗi thì đổi một lần sang model dự phòng của vai đó, không gọi lại cùng model, rồi mới sang Gemini nếu có khóa.
 
-Router nhận `response_format: json_schema`. Hết giờ hoặc 400 thì đổi một lần sang model nhỏ của vai đó (persona, analyst và guard sang `cx/gpt-5.6-luna`), rồi mới tới Gemini. Không gọi lại cùng model. Mỗi vai có trần thời gian: persona 12 giây, analyst và planner 10, guard 8, trích 30. `GET /api/health/llm` là ping làm nóng lúc khởi động. Mọi request có `User-Agent: honeypot/1.0`. Biến vai để trống thì dùng `OPENAI_MODEL`. Gemini chat gọi `v1beta`.
+| Vai | Model | Dự phòng | Trần thời gian |
+| --- | --- | --- | --- |
+| Persona | `cx/gpt-6-luna` | `cx/gpt-5.6-luna` | 12 giây, dự phòng 10 giây |
+| Analyst | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 18 giây, dự phòng 12 giây |
+| Planner | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 18 giây, dự phòng 12 giây |
+| Guard | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 9 giây, dự phòng 7 giây |
+| Trích kịch bản | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 30 giây, dự phòng 20 giây |
+| Giọng luyện tập (`sim`) | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 7 giây, dự phòng 5 giây |
+| Chat dự phòng Gemini | `gemini-2.5-flash` | `gemini-2.5-flash` | theo lần gọi |
+| Embedding | `openrouter/openai/text-embedding-3-small` | để trống: lỗi thì tìm theo từ khóa | 6 giây một câu |
 
-`LLM_PROVIDER=auto` (và `openai-compatible`) gọi router trước, Gemini khi tunnel lỗi. `gemini` đảo thứ tự. `mock` chỉ cho test. Embedding đi riêng: `EMBED_PROVIDER=auto` dùng 9router khi có khóa router, không thì Gemini. `gemini` ép Gemini. `none` chỉ tìm theo từ khóa. Vector của hai model không trộn: router lỗi thì tìm theo từ khóa, không đổi sang model khác. Cosine được co về 0–1 trước khi trộn điểm: `(cos - 0.28) / 0.5` với text-embedding-3. Đổi `MODEL_EMBED` thì app gắn lại embedding lúc khởi động. Gắn lại tay: `cd backend && python -m app.reembed` (thêm `--all` để xóa hết rồi gắn lại).
+Cả lượt honeypot có trần `TURN_DEADLINE` 25 giây. `GET /api/health/llm` là ping làm nóng lúc khởi động. Embedding mặc định 768 chiều qua `/v1/embeddings`. Chi tiết failover, cosine và gắn lại vector nằm ở [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md).
 
-## Biến môi trường
+## An toàn và quyền riêng tư
 
-| Biến | Ý nghĩa |
-| --- | --- |
-| `GEMINI_API_KEY` | Khóa Google AI Studio. Chat dự phòng, và embedding khi `EMBED_PROVIDER=gemini` hoặc khi `auto` mà không có khóa router |
-| `LLM_API_KEY` | Khóa router. `OPENAI_API_KEY` dùng thay nếu biến này trống. Không commit khóa |
-| `OPENAI_BASE_URL` | Mặc định `https://rm7g66d.abc-tunnel.us/v1` |
-| `OPENAI_MODEL` | Mặc định `cx/gpt-6-luna`. Dùng khi một biến vai để trống |
-| `MODEL_PERSONA` | Mặc định `cx/gpt-6-luna` |
-| `MODEL_ANALYST` | Mặc định `ag/gemini-3.8-flash-low` |
-| `MODEL_PLANNER` | Mặc định `ag/gemini-3.8-flash-low` |
-| `MODEL_GUARD` | Mặc định `ag/gemini-3.8-flash-low` |
-| `MODEL_EXTRACT` | Mặc định `cx/gpt-5.6-luna` |
-| `MODEL_SIM` | Mặc định `ag/gemini-3.8-flash-low`. Giọng người lừa đảo trong bài luyện, model nhỏ |
-| `MODEL_SIM_FALLBACK` | Mặc định `cx/gpt-5.6-luna`, cổng khác với model chính |
-| `TIMEOUT_SIM` | Mặc định 7 giây, lần dự phòng 5 giây. Hết giờ thì dùng câu kịch bản đã lọc |
-| `MODEL_*_FALLBACK` | Một model nhỏ thay vai khi lần gọi chính hết giờ. Persona, analyst, planner, guard mặc định `cx/gpt-5.6-luna` |
-| `TIMEOUT_PERSONA` | Mặc định 12 giây |
-| `TIMEOUT_ANALYST` / `TIMEOUT_PLANNER` | Mặc định 18 giây |
-| `TIMEOUT_*_FALLBACK` | Ngân sách riêng cho lần đổi model, không dùng nốt đồng hồ của lần chính. Analyst và planner mặc định 12 giây, guard 7 giây. Nếu lần chính im khoảng 5 giây thì lần đổi chạy song song |
-| `TIMEOUT_GUARD` | Mặc định 9 giây |
-| `TURN_DEADLINE` | Mặc định 25 giây cho cả lượt |
-| `TIMEOUT_EXTRACT` | Mặc định 30 giây |
-| `LLM_PROVIDER` | `auto` hoặc `openai-compatible`: router rồi Gemini. `gemini`: ngược lại. `mock`: test |
-| `GEMINI_MODEL` | Mặc định `gemini-2.5-flash`. Không dùng `gemini-2.5-flash-lite` (404, bị đổi về 2.5-flash) |
-| `GEMINI_MODEL_PREFERRED` | Tuỳ chọn, ví dụ `gemini-3.5-flash`. 503, timeout hoặc 404 thì rơi về `GEMINI_MODEL` |
-| `GEMINI_MODEL_FALLBACK` | Mặc định `gemini-2.5-flash` |
-| `EMBED_PROVIDER` | `auto` (mặc định): 9router nếu có khóa router, không thì Gemini. `9router`, `gemini`, hoặc `none` (chỉ từ khóa) |
-| `MODEL_EMBED` | Mặc định `openrouter/openai/text-embedding-3-small`. Gửi `dimensions=768` |
-| `MODEL_EMBED_FALLBACK` | Để trống. Chỉ đặt model cùng không gian vector. Router lỗi thì tìm theo từ khóa |
-| `TIMEOUT_EMBED` | Mặc định 6 giây cho một câu. Lô gắn lại được chờ lâu hơn |
-| `GEMINI_EMBED_MODEL` | Mặc định `gemini-embedding-001` khi embedding đi qua Gemini. 768 chiều, chuẩn hóa |
-| `DATABASE_URL` | `postgresql+psycopg://...`. `postgres://` của Render/Railway được đổi sang driver psycopg |
-| `ADMIN_TOKEN` | Nếu đặt, hàng chờ duyệt cần header `X-Admin-Token`. Để trống thì cửa demo mở và UI nói rõ |
+Agent không được nhận chuyển tiền, nhận đã cài phần mềm, hay đọc OTP thật. Luật đầu ra chặn các cam kết đó. Khi mục tiêu là đọc mã, câu gửi đi chỉ chứa OTP giả sinh từ id cuộc thoại.
 
-## Việc đã có
+Trong luyện tập, Sim chỉ được viết số và đường dẫn bằng placeholder: `[SỐ_GIẢ]`, `[STK_GIẢ]`, `[NGÂN_HÀNG]`, `[LINK_GIẢ]`, `[VÍ_GIẢ]`, `[ID_GIẢ]`, `[APP_GIẢ]`, `[TÊN_GIẢ]`. Lời người chơi được che bằng `[ĐÃ CHE]` trước khi lưu. Phiên luyện không ghi vào thư viện và không tạo chỉ dấu.
 
-- Hội thoại tiếp quản, persona chọn được, độ trễ gõ và chữ «đang nhập» trong lúc chờ model.
-- Panel: kịch bản khớp, bước hiện tại, cờ đỏ, nhánh mới, mục tiêu, luận giải bật tắt.
-- Thư viện dạng cây, lọc, tìm, thẻ cảnh báo tải PNG.
-- Kiểm tra tin: mức rủi ro có giải thích, bước kế, nút giao cho agent. Thông báo OTP, tiền điện, giao hàng và khuyến mãi từ kênh quen ở mức thấp.
-- Xu hướng theo loại, tháng, thương hiệu, kèm bảng phương thức đang nổi.
-- Thẻ cảnh báo tại `/canh-bao` (tab chiêu đang lưu hành và kịch bản chi tiết) và mạng lưới chỉ dấu tại `/phan-tich/mang-luoi`.
-- Luyện tập: mô phỏng hội thoại, trắc nghiệm, tổng kết điểm. Trang «Tôi vừa bị lừa» tại `/bi-lua`.
-- Playbook theo loại lừa: đã hỏi danh tính thì chuyển sang phí, tài khoản, đường dẫn.
-- Hàng chờ duyệt.
-- Demo một nhịp cho giám khảo.
-- 28 kịch bản gốc và các nhánh, viết từ kiến thức công khai. Không có đường dẫn lừa sống.
-- Script nhập Hugging Face `trannguyenthaituan/vietnamese_sms_dataset` (`message_id`, `date`, `message`, `label`) và Kaggle `ngovanhh/vi-fraud-bench-vi` (`vi_fraud_pool.jsonl`: `id`, `source`, `text`, `y`, `group`). Không tải và không commit dữ liệu lớn.
+Hàng chờ duyệt cần header `X-Admin-Token` khi `ADMIN_TOKEN` được đặt. Để trống thì cửa demo mở, và giao diện nói rõ cần khóa trước khi đưa lên mạng.
 
-```bash
-cd backend
-python scripts/import_public_datasets.py --source huggingface --path ./full_dataset.csv
-python scripts/import_public_datasets.py --source kaggle --path ./vi_fraud_pool.jsonl --load --limit 40
+48 kịch bản gốc (33 trong `scripts.py`, 15 trong `scripts_2026.py`) được nạp lúc khởi động. Câu chữ theo mẫu công khai. Số, tên miền, ví và tên file trong bộ 2026 là placeholder, không phải chỉ dấu đang sống.
+
+## Cấu trúc thư mục
+
+```text
+backend/app/agent/       vòng một lượt: orchestrator, policy, prompts
+backend/app/api/         HTTP, gồm routes.py và training.py
+backend/app/channels/    web, telegram, voice
+backend/app/services/    thư viện, kiểm tra, xu hướng, luyện tập, chỉ dấu
+backend/app/llm/         router, Gemini, mock
+backend/app/data/        kịch bản, persona, thẻ cảnh báo, câu trắc nghiệm an toàn
+backend/tests/           pytest, SQLite, provider mock
+backend/eval/            năm tình huống hội thoại
+frontend/src/            React, Vite
+docs/                    kiến trúc, biến môi trường, triển khai
+docker-compose.yml
+.env.example
 ```
 
-`--download` với Hugging Face cần `pip install huggingface_hub`. Kaggle tải bằng CLI và tài khoản của bạn.
-
-## Test và eval
+## Kiểm thử và đánh giá
 
 ```bash
 cd backend
@@ -169,57 +171,47 @@ pytest
 python -m eval.run
 ```
 
-`pytest` dùng SQLite và provider mock, gồm `tests/test_training.py` (che dữ liệu, điểm, điều kiện kết thúc, an toàn lời kẻ lừa, trắc nghiệm). Eval hội thoại chạy năm tình huống (công an, MoMo, việc nhẹ, shipper, phá vai) qua đúng API. Báo cáo nằm ở `eval/results/report.md`. Không có khóa thì báo cáo ghi rõ đang mock. Có khóa router thì giọng luyện tập đi model nhỏ `sim` / `analyst`, không gọi model nặng. Ghi chú lần chạy thật nằm ở `eval/training_live.md`.
+`pytest` gồm 158 hàm test trong `backend/tests`. Môi trường test dùng SQLite và `LLM_PROVIDER=mock`, có `tests/test_training.py` cho việc che dữ liệu, điểm, điều kiện kết thúc, lời kẻ lừa và trắc nghiệm.
 
-Lần chạy trong repo này, không có khóa:
+Báo cáo hội thoại đã commit ở `eval/results/report.md` (2026-11-25, nhà cung cấp mock, năm tình huống):
 
-- Khớp đúng kịch bản ở lượt cuối: 4/4
-- Độ phủ bước trung bình: 88%
-- Còn trong vai: 15/15
-- Lọt an toàn: 0
+| Chỉ số | Giá trị |
+| --- | --- |
+| Khớp đúng kịch bản ở lượt cuối | 4/4 |
+| Độ phủ bước trung bình | 88% |
+| Lượt còn trong vai | 15/15 |
+| Lọt an toàn ở câu đã gửi | 0 |
 
-## Đưa lên mạng
+Lần chạy đó không có khóa API. Agent vẫn đi đủ vòng trên lớp heuristic, và báo cáo ghi rõ điều đó. Một lần `python -m eval.run` mới ghi ra thư mục tạm, hoặc đường `EVAL_OUT` nếu đặt biến này.
 
-Giám khảo cần một URL sống tới 11/12/2026. Repo này không kèm tài khoản Render, Railway hay Fly. Cách chắc nhất là một VPS:
+`eval/training_live.md` ghi một lần kiểm luyện tập cũng không có khóa router hay Gemini, nên repo chưa có số đo độ trễ hay tỷ lệ đúng vai trên mô hình thật. Các ca mock của luyện tập nằm trong `tests/test_training.py`. File đó yêu cầu, khi có khóa, chạy lại ít nhất ba phiên cho mỗi kiểu kết (`safe`, `scammed`, `timeout`) trên ít nhất năm nhóm, và theo dõi trung vị độ trễ từng lượt (mục tiêu dưới 6 giây), chỉ với `MODEL_SIM` và `MODEL_ANALYST` đã cấu hình.
 
-```bash
-git clone <repo>
-cp .env.example .env   # điền GEMINI_API_KEY và ADMIN_TOKEN
-docker compose up -d --build
-```
+## Tài liệu chi tiết
 
-Mở cổng 4178, hoặc sửa compose để `web` nghe cổng 80. Dữ liệu nằm ở volume `pgdata`.
-
-**Render.** `render.yaml` khai hai service Docker và một Postgres. Sau khi có DB, chạy `CREATE EXTENSION IF NOT EXISTS vector;` nếu gói cho phép. `DATABASE_URL` dạng `postgres://` được chuẩn hóa trong code. Đặt `GEMINI_API_KEY`. Nếu Postgres của Render không có pgvector, đừng dùng blueprint này — dùng VPS.
-
-**Railway.** Hai service từ `backend/Dockerfile` và `frontend/Dockerfile`, cộng plugin Postgres. Biến giống `.env.example`. Service web không cần biết URL API vì nginx trong image proxy `/api` tới hostname `honeypot-api`. Trên Railway hãy đặt tên service API là `honeypot-api`, hoặc sửa `frontend/nginx.conf` cho đúng hostname nội bộ rồi build lại.
-
-**Fly.** `fly.toml` là app API (region `sin`, không tự tắt máy). Tạo Postgres có image pgvector, rồi:
-
-```bash
-fly secrets set GEMINI_API_KEY=... DATABASE_URL=postgresql+psycopg://... ADMIN_TOKEN=...
-fly deploy
-```
-
-App web là Fly app thứ hai, build `frontend/Dockerfile`. Hai app không chung mạng Docker, nên nginx `api:8000` không chạy trên Fly. Với Fly, trỏ `frontend/nginx.conf` tới URL công khai của API rồi build, hoặc phục vụ cả hai bằng compose trên một máy.
+- [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md) — điều kiện khép, nhánh, playbook, embedding, failover.
+- [docs/bien-moi-truong.md](docs/bien-moi-truong.md) — bảng biến môi trường.
+- [docs/trien-khai.md](docs/trien-khai.md) — chạy không Docker, demo giám khảo, VPS, Render, Railway, Fly, nhập dữ liệu công khai.
 
 ## Thư viện mã nguồn mở
 
-Backend: FastAPI, Uvicorn, SQLAlchemy, psycopg, pgvector, Pydantic, pydantic-settings, google-genai, openai, httpx, pytest.
+Backend: FastAPI, Uvicorn, SQLAlchemy, psycopg, pgvector, Pydantic, pydantic-settings, google-genai, openai, httpx, python-dotenv, pytest.
 
-Frontend: React, Vite, TypeScript, Tailwind CSS, Radix UI (Dialog, Slot), class-variance-authority, lucide-react, html-to-image, react-router.
+Frontend: React, Vite, TypeScript, Tailwind CSS, Radix UI (Dialog, Slot, Tabs, Tooltip), class-variance-authority, clsx, tailwind-merge, lucide-react, html-to-image, react-router. Lint bằng oxlint. Smoke giao diện dùng Playwright.
 
-Hạ tầng: Postgres 16 với pgvector, nginx.
+Hạ tầng: Postgres 16 với image `pgvector/pgvector`, nginx.
 
 ## Công cụ AI đã dùng
 
-Đây là mục contest yêu cầu khai báo.
+Mục này khai báo theo yêu cầu cuộc thi.
 
-- Chat chạy qua router tương thích OpenAI tại `OPENAI_BASE_URL`. Persona `cx/gpt-6-luna`, analyst/planner/guard `ag/gemini-3.8-flash-low`, trích kịch bản `cx/gpt-5.6-luna`. Gemini `gemini-2.5-flash` là dự phòng chat. Embedding mặc định `openrouter/openai/text-embedding-3-small` qua `/v1/embeddings`.
-- Mã nguồn của repo này được viết với Cursor, mô hình Grok 4.7, trong một cloud agent. Không có khóa Gemini hay OpenAI trong môi trường lúc build, nên eval đã commit chạy bằng mock. Đường mô hình thật đã nối đủ schema JSON, embedding và fallback; cần khóa để kiểm lại bằng tay.
+- Hội thoại, phân tích, lập kế hoạch, lớp an toàn, trích kịch bản và giọng luyện tập đi qua router tương thích OpenAI tại `OPENAI_BASE_URL`. Model từng vai nằm ở bảng phía trên. Embedding mặc định `openrouter/openai/text-embedding-3-small` qua `/v1/embeddings`.
+- Gemini `gemini-2.5-flash` là dự phòng chat khi router lỗi, và là đường embedding khi `EMBED_PROVIDER` chọn Gemini.
+- Mã nguồn được viết bằng Cursor, mô hình Grok 4.7, trên Cursor cloud agent. Bản eval đã commit chạy mock vì môi trường lúc đó không có khóa. Tài liệu này cũng được soạn bằng Cursor cloud agent, đối chiếu trực tiếp mã trong repo.
 
-## Pha 2, chưa làm
+## Lộ trình
 
-- `TelegramChannel.connect_userbot()` ném `NotImplementedError`. Adapter đã chuẩn hóa tin đã giải mã để agent không phải viết lại.
-- Thoại nhận bản ghi (`transcript`). Chưa nhận cuộc gọi, chưa TTS.
-- Hàng chờ duyệt không có tài khoản người dùng. `ADMIN_TOKEN` là khóa chung. Gắn auth trước khi public.
+Pha 2, chưa làm:
+
+- `TelegramChannel.connect_userbot()` ném `NotImplementedError`. Adapter đã chuẩn hóa tin đã giải mã để agent không phải viết lại. Pha 2 gắn Telethon, MTProto trên chính tài khoản người dùng.
+- Thoại nhận bản ghi (`transcript`). Chưa nhận cuộc gọi, chưa có TTS.
+- Hàng chờ duyệt dùng một `ADMIN_TOKEN` chung, chưa có tài khoản người dùng. Gắn auth trước khi public.
