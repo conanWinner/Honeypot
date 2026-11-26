@@ -23,7 +23,7 @@ PLAYBOOKS: dict[str, dict] = {
             _t("apk", "Tên app / file .apk và đường dẫn tải", "ask_link", "hỏi lại tên ứng dụng, xin gửi lại đường dẫn tải vì máy báo lỗi", ["apk", "urls"]),
             _t("zalo", "Zalo/số họ dùng để gửi file", "ask_purpose", "hỏi gửi qua Zalo nào, số nào để lưu cho khỏi nhầm", ["zalo", "phones"]),
             _t("permission", "Họ bắt bật quyền gì", "ask_next_instruction", "hỏi cài xong thì bấm gì, bật cái gì trong cài đặt", ["checklist:app"]),
-            _t("remote", "ID điều khiển từ xa", "ask_next_instruction", "hỏi họ cần mã hay ID gì trên màn hình", ["remote_ids", "apps"]),
+            _t("remote_id", "ID AnyDesk hoặc UltraViewer", "ask_remote_id", "hỏi họ cần đọc ID nào trên màn hình, chưa cài", ["remote_ids"]),
         ],
     },
     "vneid": {
@@ -52,6 +52,7 @@ PLAYBOOKS: dict[str, dict] = {
             _t("link", "Đường dẫn / app 'hỗ trợ'", "ask_link", "hỏi cập nhật ở trang nào, xin đường dẫn", ["urls", "apk"]),
             _t("ask", "Họ đòi gì: OTP, khuôn mặt, video", "ask_purpose", "hỏi phải làm những bước gì", ["checklist:payment"]),
             _t("fee", "Phí hoặc bước họ bắt làm trong app", "ask_purpose", "hỏi họ muốn mình bấm gì, có đòi phí hay mã không", ["checklist:payment", "apk"]),
+            _t("remote_id", "ID AnyDesk hoặc UltraViewer nếu họ bắt cài", "ask_remote_id", "hỏi ID trên màn hình là số nào, chưa đọc", ["remote_ids"]),
         ],
     },
     "investment": {

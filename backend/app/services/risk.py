@@ -53,6 +53,52 @@ def band_for(score: int, strong: int) -> tuple[str, str]:
     return "thap", "Thấp"
 
 
+def _phrase_negated(folded: str, needle: str) -> bool:
+    """True when every occurrence of the cue sits after không/chưa yêu cầu or không gọi."""
+    if not needle:
+        return False
+    start = 0
+    seen = False
+    while True:
+        index = folded.find(needle, start)
+        if index < 0:
+            break
+        seen = True
+        window = folded[max(0, index - 48) : index]
+        if not re.search(r"(khong|chua)\s.{0,32}(goi|yeu cau|bat|bao gio)|khong bao gio|khong yeu cau|khong goi", window):
+            return False
+        start = index + len(needle)
+    return seen
+
+
+def safe_advisory(text: str) -> bool:
+    """Bank warnings, successful top-ups, and in-person instructions. Not a demand."""
+    folded = fold(text or "")
+    found = harvest_indicators(text or "")
+    if found.get("lookalikes") or found.get("apk") or found.get("crypto_wallets"):
+        return False
+    if any(len(account) >= 8 for account in found.get("bank_accounts") or []):
+        return False
+    if "http" in folded or ".apk" in folded:
+        return False
+    if re.search(r"khong (goi|yeu cau|bao gio|bat)", folded) and not re.search(r"(stk|chuyen khoan|chuyen tien|chuyen vao|\.apk)", folded):
+        return True
+    if re.search(r"(da|vua)\s+nap thanh cong|nap thanh cong|giao dich thanh cong", folded):
+        return True
+    if re.search(r"(den tru so|ra quay|mang cccd|mang can cuoc|den cong an)", folded) and "chuyen" not in folded and "stk" not in folded:
+        return True
+    return False
+
+
+def payee_demand(text: str) -> bool:
+    """Utility or authority, a sum of money, a payee account, and a cut-off threat."""
+    folded = fold(text or "")
+    found = harvest_indicators(text or "")
+    utility = any(word in folded for word in ("dien luc", "evn", "tien dien", "cong an", "ngan hang"))
+    threat = any(word in folded for word in ("cat dien", "ngat dien", "qua han", "het han", "truoc ", "trong hom nay"))
+    return bool(utility and threat and found.get("bank_accounts") and _find(folded, _MONEY))
+
+
 def official_notice(text: str) -> bool:
     """Real bank, utility, delivery, and wallet notices. They mention OTP or money without asking the reader to comply with a stranger."""
     folded = fold(text or "")
@@ -99,7 +145,7 @@ def _snippet(text: str, needle: str) -> str:
 
 def score_text(text: str, indicators: dict | None = None, match: dict | None = None) -> dict:
     """Return {score, level, label, factors[]} for one message or a joined transcript."""
-    if official_notice(text):
+    if official_notice(text) or safe_advisory(text):
         return {"score": 0, "level": "thap", "label": "Thấp", "factors": []}
     folded = fold(text or "")
     found = indicators if indicators is not None else harvest_indicators(text or "")
@@ -111,8 +157,9 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
 
     if found.get("lookalikes"):
         add("lookalike", "Tên miền giả thương hiệu", 22, found["lookalikes"][0])
-    if found.get("apk") or found.get("remote_ids") or (w := _find(folded, _INSTALL)):
-        ev = (found.get("apk") or found.get("remote_ids") or [""])[0] or _snippet(text, w)
+    install_hit = _find(folded, _INSTALL)
+    if found.get("apk") or found.get("remote_ids") or (install_hit and not _phrase_negated(folded, install_hit)):
+        ev = (found.get("apk") or found.get("remote_ids") or [""])[0] or _snippet(text, install_hit)
         add("install", "Bắt cài ứng dụng / điều khiển máy", 25, ev)
     if found.get("techniques"):
         add("technique", "Thủ thuật chiếm quyền", 10, ", ".join(found["techniques"][:2]))
@@ -120,9 +167,9 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
         add("otp", "Đòi mã OTP / mã đăng nhập", 30, _snippet(text, w))
     if found.get("crypto_wallets"):
         add("crypto", "Ví tiền ảo do người lạ đưa", 18, found["crypto_wallets"][0])
-    if (w := _find(folded, _BIOMETRIC)):
+    if (w := _find(folded, _BIOMETRIC)) and not _phrase_negated(folded, w):
         add("biometric", "Đòi khuôn mặt / sinh trắc học", 15, _snippet(text, w))
-    if (w := _find(folded, _MONEY)):
+    if (w := _find(folded, _MONEY)) and "nap thanh cong" not in folded and "giao dich thanh cong" not in folded:
         add("money", "Đòi chuyển tiền / nạp / đóng phí", 15, _snippet(text, w))
     if found.get("bank_accounts"):
         add("account", "Đưa số tài khoản lạ", 10, found["bank_accounts"][0])
@@ -136,10 +183,14 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
         add("advance", "Hứa lãi, hoa hồng, thu hồi tiền", 12, _snippet(text, w))
     if found.get("telegram") or found.get("zalo") or _find(folded, _GROUP):
         add("group", "Kéo vào nhóm kín / kênh riêng", 6, (found.get("telegram") or found.get("zalo") or [""])[0])
-    if found.get("urls") and not found.get("lookalikes"):
-        add("link", "Có đường dẫn", 6, found["urls"][0])
-    elif "link" in folded or "duong dan" in folded:
-        add("link", "Nhắc bấm đường dẫn", 12, _snippet(text, "link" if "link" in folded else "duong dan"))
+    if not found.get("lookalikes"):
+        if found.get("urls"):
+            add("link", "Có đường dẫn", 6, found["urls"][0])
+        elif "link" in folded or "duong dan" in folded:
+            add("link", "Nhắc bấm đường dẫn", 12, _snippet(text, "link" if "link" in folded else "duong dan"))
+    if payee_demand(text):
+        add("payee", "Bắt chuyển vào tài khoản kèm hạn cắt", 18, (found.get("bank_accounts") or [""])[0])
+        add("cutoff", "Hạn chót hoặc đe cắt dịch vụ", 14, "")
     if match and float(match.get("confidence") or 0) >= 0.45:
         add("known", f"Giống kịch bản đã biết: {match.get('title', '')}", int(round(20 * min(1.0, float(match["confidence"])))), match.get("id", ""))
     score = min(100, sum(item["weight"] for item in factors))
@@ -153,7 +204,7 @@ def score_text(text: str, indicators: dict | None = None, match: dict | None = N
     return {"score": score, "level": level, "label": label, "factors": factors}
 
 
-STRONG = {"lookalike", "install", "otp", "crypto", "biometric"}
+STRONG = {"lookalike", "install", "otp", "crypto", "biometric", "payee", "cutoff"}
 
 
 def merge_factors(previous: list[dict] | None, current: list[dict]) -> dict:

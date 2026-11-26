@@ -543,6 +543,22 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     if nxt and repeated and nxt.get("goal") != goal:
         goal = nxt["goal"]
         note = f"{note} Playbook «{book['label']}»: «{repeated['label']}» đã hỏi, chuyển sang «{nxt['label']}»."
+    if (
+        len(state.goals_used) >= 2
+        and state.goals_used[-1] == state.goals_used[-2] == goal
+        and goal not in {"stall", "feign_confusion", "emotional_hook"}
+    ):
+        previous = goal
+        alt = next(
+            (
+                row
+                for row in book["targets"]
+                if not row["done"] and row.get("goal") not in {previous, "ask_identity"}
+            ),
+            None,
+        )
+        goal = alt["goal"] if alt else "stall"
+        note = f"{note} Đã hỏi cùng một việc hai lần, chuyển sang bước khác."
     aimed = next((row for row in book["targets"] if row["goal"] == goal and row["key"] not in state.asked_keys and not row["done"]), None)
     if aimed:
         state.asked_keys.append(aimed["key"])

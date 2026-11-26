@@ -250,6 +250,23 @@ def _inside_lettered_token(body: str, start: int, end: int) -> bool:
     return any(ch.isalpha() for ch in token)
 
 
+_PHONE_CTX = re.compile(
+    r"(số điện thoại|số đt|\bsđt\b|\bsdt\b|điện thoại|dien thoai|phone|gọi cho|goi cho)",
+    re.IGNORECASE,
+)
+
+
+def _mobile_number(digits: str) -> bool:
+    """Vietnamese mobile: 0[35789] plus 8 digits, or 84 in front of the same."""
+    number = digits[2:] if digits.startswith("84") and len(digits) == 11 else digits
+    return bool(re.fullmatch(r"0[35789]\d{8}", number))
+
+
+def _phone_context(body: str, start: int, end: int) -> bool:
+    window = body[max(0, start - 40) : min(len(body), end + 12)]
+    return bool(_PHONE_CTX.search(window))
+
+
 def _hotline(digits: str) -> bool:
     return bool(re.fullmatch(r"1[89]00\d{4,8}", digits))
 
@@ -269,7 +286,12 @@ def harvest_indicators(text: str) -> dict:
         digits = re.sub(r"\D", "", match.group(0))
         if not (9 <= len(digits) <= 12):
             continue
-        if _near_bank(body, match.start(), match.end()):
+        if _mobile_number(digits) and _phone_context(body, match.start(), match.end()) and not _strong_account(body, match.start(), match.end()):
+            _add(found["phones"], digits, "phones")
+            continue
+        if _near_bank(body, match.start(), match.end()) and not (
+            _mobile_number(digits) and _phone_context(body, match.start(), match.end())
+        ):
             _add(found["bank_accounts"], digits, "bank_accounts")
             continue
         _add(found["phones"], digits, "phones")
@@ -282,6 +304,9 @@ def harvest_indicators(text: str) -> dict:
             _add(found["phones"], digits, "phones")
             continue
         strong = _strong_account(body, match.start(), match.end())
+        if _mobile_number(digits) and _phone_context(body, match.start(), match.end()) and not strong:
+            _add(found["phones"], digits, "phones")
+            continue
         if strong and 6 <= len(digits) <= 19:
             _add(found["bank_accounts"], digits, "bank_accounts")
             continue

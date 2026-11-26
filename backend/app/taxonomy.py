@@ -48,6 +48,7 @@ GOALS: dict[str, str] = {
     "ask_account_number": "Hỏi số tài khoản của họ",
     "read_fake_otp": "Đọc OTP giả",
     "ask_next_instruction": "Hỏi bước tiếp theo",
+    "ask_remote_id": "Hỏi ID điều khiển từ xa",
     "emotional_hook": "Lộ vẻ lo, bắt nói rõ",
     "probe_hook": "Đào đúng chi tiết vừa bịa",
     "close_polite": "Khép khi kịch bản đã đủ",

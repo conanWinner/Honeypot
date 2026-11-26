@@ -172,9 +172,9 @@ def check_text(session, text: str, provider, persona=None) -> dict:
         level, label = "trung_binh", "Trung bình"
     else:
         level, label = "thap", "Thấp"
-    from app.services.risk import official_notice
+    from app.services.risk import official_notice, safe_advisory
 
-    if official_notice(text):
+    if official_notice(text) or safe_advisory(text):
         return {
             "risk_score": 0,
             "risk_factors": [],
@@ -276,6 +276,9 @@ def check_text(session, text: str, provider, persona=None) -> dict:
         explained = {**explained, "score": 0, "factors": [], "level": "thap", "label": "Thấp"}
     else:
         level, label = explained["level"], explained["label"]
+        if (is_scam or verdict == "scam") and (level == "thap" or explained["score"] < 25):
+            level, label = "trung_binh", "Trung bình"
+            explained = {**explained, "score": max(explained["score"], 25), "level": level, "label": label}
     try:
         links = lookup(session, found)
     except Exception:

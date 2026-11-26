@@ -87,7 +87,7 @@ def test_official_notices_stay_low(client):
 def test_playbook_tracks_family_targets():
     book = playbook_state("rat", [{"key": "who", "done": True}], {"apk": ["x.apk"]})
     keys = {row["key"]: row["done"] for row in book["targets"]}
-    assert keys["who"] and keys["apk"] and not keys["remote"]
+    assert keys["who"] and keys["apk"] and not keys["remote_id"]
     assert book["next"] and book["next"]["goal"] in {"ask_purpose", "ask_next_instruction", "ask_link"}
     assert playbook_state("momo", [], {})["targets"]
     recovery = playbook_state("recovery", [], {})
@@ -304,6 +304,98 @@ def test_check_keeps_the_score_when_the_model_times_out(client, monkeypatch):
     assert body["risk"] != "thap"
     assert body["risk_score"] >= 25
     assert body["degraded"] is True
+
+
+def test_scam_verdict_is_never_labeled_low(client):
+    samples = [
+        "Quét mã QR này để thanh toán, mã của quán bị lỗi nên chị chuyển vào mã mới em dán ở quầy nhé.",
+        "MoMo: kích hoạt ví bằng cách chuyển 200.000đ, em giữ giúp.",
+    ]
+    for text in samples:
+        body = client.post("/api/check", json={"text": text}).json()
+        if body["verdict"] == "scam" or body["is_scam"]:
+            assert body["risk"] != "thap", (text, body["risk"], body["risk_score"])
+            assert body["risk_score"] >= 25
+
+
+def test_advisory_wording_stays_benign(client):
+    samples = [
+        "BIDV không gọi điện yêu cầu cài ứng dụng hay cập nhật sinh trắc học. Hãy tự mở app BIDV.",
+        "Viettel: Quý khách đã nạp thành công 100.000đ vào thuê bao. Tra cứu trên ứng dụng My Viettel.",
+        "Công an phường thông báo: mang CCCD đến trụ sở phường trong giờ hành chính để đối chiếu hồ sơ.",
+    ]
+    for text in samples:
+        body = client.post("/api/check", json={"text": text}).json()
+        assert body["verdict"] != "scam", (text, body["verdict"], body["risk"], body["risk_score"])
+        assert body["is_scam"] is False
+        assert body["risk"] == "thap"
+
+
+def test_phone_next_to_a_bank_name_stays_a_phone():
+    found = harvest_indicators("Em là nhân viên Techcombank, số điện thoại của em 0912345678.")
+    assert found["bank_accounts"] == []
+    assert "0912345678" in found["phones"]
+
+
+def test_payee_notice_is_cao_without_the_model(client, monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise LLMError("timeout")
+
+    monkeypatch.setattr("app.api.routes.check_text", boom)
+    body = client.post(
+        "/api/check",
+        json={"text": "Điện lực thông báo: tiền điện kỳ này đã quá hạn, quý khách chuyển khoản 1.250.000đ vào STK 0123456789 để tránh bị cắt điện."},
+    ).json()
+    assert body["risk"] in {"cao", "rat_cao"}
+    assert body["risk_score"] >= 50
+    assert body["verdict"] == "scam"
+
+
+def test_lookalike_is_not_also_a_click_factor():
+    explained = score_text("Thanh toán ngay tại evn-cskh.top kẻo bị cắt điện.")
+    codes = [item["code"] for item in explained["factors"]]
+    assert "lookalike" in codes
+    assert "link" not in codes
+
+
+def test_same_ask_rotates_after_two_turns_and_remote_id_is_a_goal(client):
+    from app.data.playbooks import playbook_for
+
+    rat = playbook_for("rat")
+    bank = playbook_for("bank")
+    assert any(row["key"] == "remote_id" and row["goal"] == "ask_remote_id" for row in rat["targets"])
+    assert any(row["key"] == "remote_id" and row["goal"] == "ask_remote_id" for row in bank["targets"])
+
+    class RepeatsAccount(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "PlannerOutput":
+                return PlannerOutput(goal="ask_account_number", rationale="Hỏi số tài khoản.", tone="ngắn", must_not=[], facts_to_use=[])
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    client.app.state.provider = RepeatsAccount()
+    try:
+        created = client.post("/api/conversations", json={"persona_id": "thu-me-bim"}).json()
+        goals = []
+        for line in (
+            "Bé nhà chị đã qua vòng chọn ảnh, vào nhóm làm nhiệm vụ bình chọn.",
+            "Chị chuyển vào tài khoản em gửi để giữ suất.",
+            "Chị ơi em nhắc lại số tài khoản nhé.",
+        ):
+            body = client.post(f"/api/conversations/{created['id']}/messages", json={"text": line})
+            assert body.status_code == 200, body.text
+            goals.append(body.json()["panel"]["goal"]["goal"])
+        assert goals[-1] != "ask_account_number" or goals.count("ask_account_number") <= 2
+    finally:
+        client.app.state.provider = MockProvider()
+
+
+def test_vneid_web_form_ranks_above_the_apk_script(client):
+    items = client.get(
+        "/api/scripts",
+        params={"q": "VNeID bấm vào link mở form trên web, điền căn cước hai mặt"},
+    ).json()["items"]
+    assert items
+    assert items[0]["id"] == "vneid-cap-nhat"
 
 
 def test_trends_and_demos(client):
