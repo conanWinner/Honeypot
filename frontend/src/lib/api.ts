@@ -265,6 +265,7 @@ export type TrainingSession = {
     channel_label: string
     scammer_name: string
     brand: string
+    context?: { who: string; channel: string; role: string; goal: string }
   }
   difficulty: 'de' | 'vua' | 'kho'
   mode: 'hoc' | 'thu_thach'
@@ -291,6 +292,7 @@ export type TrainingDebrief = {
   tips: string[]
   warning_card_ids: string[]
   hints_used: number
+  turning_point?: { turn: number; label: string; quote: string; sentence: string }
   script: { id: string; title: string; occurrence_count: number; last_seen: string; sources: Script['sources'] }
 }
 
@@ -301,6 +303,15 @@ export type QuizQuestion = {
   answer: 'scam' | 'safe'
   explain: string
   script_id?: string | null
+  sender?: string
+  sender_detail?: string
+  time?: string
+  context?: string
+  lines?: string[]
+  highlights?: string[]
+  flags?: string[]
+  action?: string
+  warning_id?: string
 }
 
 export type CheckResult = {

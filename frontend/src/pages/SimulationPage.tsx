@@ -124,6 +124,27 @@ export function SimulationPage() {
       <div className="sticky top-16 z-20 rounded-2xl border border-gold/40 bg-[#f8e7c8] px-4 py-2 text-sm leading-6 text-[#6d4708]">
         Đây là mô phỏng. Mọi số điện thoại, tài khoản, đường link đều là giả. Không nhập mã OTP hay mật khẩu thật.
       </div>
+      <section className="dossier rounded-3xl p-4">
+        <p className="text-[11px] uppercase tracking-[0.14em] text-seal">Tình huống này</p>
+        <div className="mt-2 grid gap-3 text-sm sm:grid-cols-2">
+          <p>
+            <span className="text-ink-soft">Ai đang liên hệ: </span>
+            {session.scenario.context?.who || session.scenario.scammer_name}
+          </p>
+          <p>
+            <span className="text-ink-soft">Kênh: </span>
+            {session.scenario.context?.channel || session.scenario.channel_label}
+          </p>
+          <p>
+            <span className="text-ink-soft">Bạn đang đóng vai: </span>
+            {session.scenario.context?.role}
+          </p>
+          <p>
+            <span className="text-ink-soft">Mục tiêu: </span>
+            {session.scenario.context?.goal}
+          </p>
+        </div>
+      </section>
       <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
         <section className="dossier flex h-[calc(100dvh-12rem)] min-h-[22rem] flex-col overflow-hidden rounded-3xl md:h-auto md:min-h-[70vh]">
           <header className="border-b border-line px-4 py-3">

@@ -186,8 +186,41 @@ def test_quiz_mixes_answers_and_stays_safe(client):
     assert len(payload["questions"]) == 8
     answers = {item["answer"] for item in payload["questions"]}
     assert answers == {"scam", "safe"}
+    assert sum(1 for item in payload["questions"] if item["answer"] == "scam") == 5
     for item in payload["questions"]:
         assert scammer_text_safe(item["text"]), item["text"]
+        assert 2 <= len(item["lines"]) <= 5
+        assert 2 <= len(item["flags"]) <= 3
+        assert item["explain"] and item["action"] and item["context"] and item["sender"]
+
+
+def test_quiz_bank_is_static_and_clean(client):
+    from app.data.quiz_bank import QUIZ_BANK
+    from app.data.warnings import BY_ID
+
+    assert 10 <= len(QUIZ_BANK) <= 12
+    scam = [item for item in QUIZ_BANK if item["answer"] == "scam"]
+    safe = [item for item in QUIZ_BANK if item["answer"] == "safe"]
+    assert scam and safe
+    assert abs(len(scam) / len(QUIZ_BANK) - 0.6) <= 0.15
+    with client.app.state.Session() as session:
+        published = {row.id for row in session.query(Script).filter(Script.status == "published")}
+    for item in QUIZ_BANK:
+        assert 2 <= len(item["lines"]) <= 5
+        assert 2 <= len(item["flags"]) <= 3
+        assert len(item["explain"].split(".")) >= 2
+        assert item["action"] and item["context"] and item["sender"]
+        blob = " ".join(
+            [item["context"], item["sender"], item["sender_detail"], item["action"], item["explain"], *item["lines"], *item["flags"]]
+        )
+        assert scammer_text_safe(blob), item["id"]
+        joined = " ".join(item["lines"])
+        for phrase in item["highlights"]:
+            assert phrase in joined
+        if item["script_id"]:
+            assert item["script_id"] in published
+        if item["warning_id"]:
+            assert item["warning_id"] in BY_ID
 
 
 def test_raw_secrets_are_judged_then_masked(client):
