@@ -105,6 +105,11 @@ export function DebriefPage() {
         <p className="font-display text-7xl">{report.score}</p>
         <p className="mt-1 text-lg font-semibold">{report.label}</p>
         <p className="mt-2 text-sm leading-6 text-ink-soft">{sentence(report)}</p>
+        {report.turning_point && (
+          <p className="mx-auto mt-3 max-w-xl rounded-2xl bg-paper-deep px-4 py-3 text-sm leading-6">
+            {report.turning_point.sentence}
+          </p>
+        )}
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
           <div>
             <dt className="text-ink-soft">Cờ đỏ nhận ra</dt>

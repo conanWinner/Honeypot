@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 from app.agent.casefile import valid_crypto_wallet
 from app.agent.policy import _negated
 from app.agent.textutil import digit_runs
-from app.data.quiz_safe import SAFE_MESSAGES
+from app.data.quiz_bank import QUIZ_BANK
 from app.data.warnings import cards_for_category
 from app.models import Script, TrainingMessage, TrainingSession, utcnow
 from app.taxonomy import CATEGORIES, CHANNELS
@@ -546,6 +546,39 @@ def score_session(row: TrainingSession, script: Script) -> int:
     return score
 
 
+def scenario_context(script: Script) -> dict:
+    roles = {
+        "police": "Bạn đang ở nhà và nghe một cuộc gọi từ số lạ.",
+        "tax": "Bạn nhận tin về lương hưu hoặc bảo hiểm.",
+        "vneid": "Bạn nhận tin nói hồ sơ giấy tờ đang sai.",
+        "bank": "Bạn vừa thấy tin nói tài khoản có vấn đề.",
+        "momo": "Bạn nhận tin xưng ví điện tử.",
+        "shipper": "Bạn đang đợi một đơn hàng.",
+        "ecommerce": "Bạn vừa mua hàng trên sàn.",
+        "job": "Bạn đang tìm việc thêm.",
+        "investment": "Có người rủ bạn góp tiền.",
+        "romance": "Người mới quen đang nhắn rất thân.",
+        "rental": "Bạn đang tìm vé hoặc chỗ ở.",
+        "travel": "Bạn đang đặt một chuyến đi.",
+        "qr": "Có người đưa mã để bạn quét.",
+        "deepfake": "Cuộc gọi video trông giống người thân.",
+        "relative": "Tin nhắn trông như người nhà.",
+    }
+    goals = {
+        "police": "Không chuyển tiền. Gác máy và gọi người thân bằng số đã lưu.",
+        "bank": "Không đọc mã. Tự mở ứng dụng ngân hàng hoặc gọi số trên thẻ.",
+        "shipper": "Không bấm liên kết lạ. Đối chiếu đơn trong ứng dụng sàn.",
+        "job": "Không nộp tiền trước. Chỉ nhận việc có tên đơn vị rõ.",
+        "investment": "Không nạp vào tài khoản cá nhân. Rời nhóm nếu họ giục.",
+    }
+    return {
+        "who": scammer_alias(script),
+        "channel": CHANNELS.get(script.channel, script.channel),
+        "role": roles.get(script.category, "Bạn là người vừa nhận tin nhắn hoặc cuộc gọi này."),
+        "goal": goals.get(script.category, "Nhận ra chiêu trước khi chuyển tiền, đọc mã, hoặc làm theo lời người lạ."),
+    }
+
+
 def scammer_alias(script: Script) -> str:
     if script.category in {"police", "vneid", "tax"}:
         return "Thiếu tá Hùng – Công an quận"
@@ -861,6 +894,7 @@ def session_public(row: TrainingSession, script: Script) -> dict:
             "channel_label": CHANNELS.get(script.channel, script.channel),
             "scammer_name": scammer_alias(script),
             "brand": script.brand or "",
+            "context": scenario_context(script),
         },
         "difficulty": row.difficulty,
         "mode": row.mode,
@@ -1215,6 +1249,7 @@ def training_debrief(session, session_id: str) -> dict:
         "tips": tips[:3],
         "warning_card_ids": [card["id"] for card in cards_for_category(script.category)[:4]],
         "hints_used": row.hints_used,
+        "turning_point": _turning_point(row),
         "script": {
             "id": script.id,
             "title": script.title,
@@ -1225,60 +1260,61 @@ def training_debrief(session, session_id: str) -> dict:
     }
 
 
+def _turning_point(row: TrainingSession) -> dict:
+    events = _events(row)
+    picked = None
+    if row.status == "scammed":
+        picked = next((event for event in reversed(events) if event.get("label") in {"fell", "leak"}), None)
+    elif row.status == "safe":
+        picked = next((event for event in reversed(events) if event.get("label") in GOOD_LABELS), None)
+    elif events:
+        picked = events[-1]
+    users = [message for message in row.messages if message.role == "user"]
+    turn = int((picked or {}).get("turn") or 0)
+    quote = users[turn - 1].text if 1 <= turn <= len(users) else ""
+    if quote:
+        sentence = f"Điểm ngoặt ở lượt {turn}: «{quote}»"
+    elif row.end_reason == "hang_up":
+        sentence = "Bạn gác máy trước khi kịp nói gì."
+    else:
+        sentence = "Chưa có câu nào làm đổi hướng cuộc gọi."
+    return {"turn": turn, "label": (picked or {}).get("label") or "", "quote": quote, "sentence": sentence}
+
+
+def _quiz_public(item: dict) -> dict:
+    lines = list(item["lines"])
+    return {
+        "id": item["id"],
+        "answer": item["answer"],
+        "channel": item["channel"],
+        "sender": item["sender"],
+        "sender_detail": item["sender_detail"],
+        "time": item["time"],
+        "context": item["context"],
+        "lines": lines,
+        "text": "\n".join(lines),
+        "highlights": list(item["highlights"]),
+        "flags": list(item["flags"]),
+        "explain": item["explain"],
+        "action": item["action"],
+        "warning_id": item.get("warning_id") or "",
+        "script_id": item.get("script_id") or None,
+    }
+
+
 def build_quiz(session, n: int = 8) -> dict:
-    count = max(1, min(int(n or 8), 20))
+    del session
+    count = max(1, min(int(n or 8), len(QUIZ_BANK)))
     scam_n = max(1, round(count * 0.6)) if count > 1 else 1
     safe_n = count - scam_n
     if count > 1 and safe_n < 1:
         safe_n = 1
         scam_n = count - 1
     rng = random.Random()
-    scripts = [script for script in _published(session) if scammer_steps(script)]
-    rng.shuffle(scripts)
-    questions: list[dict] = []
-    for script in scripts:
-        if sum(1 for item in questions if item["answer"] == "scam") >= scam_n:
-            break
-        cleaned = ""
-        for step in scammer_steps(script):
-            for phrase in step.get("phrases") or []:
-                candidate = sanitize_scammer_text(str(phrase))
-                if candidate and scammer_text_safe(candidate):
-                    cleaned = candidate
-                    break
-            if cleaned:
-                break
-        if not cleaned:
-            continue
-        explain = (script.red_flags or [script.advice or "Đây là lời của kịch bản lừa đảo đã ghi nhận."])[0]
-        questions.append(
-            {
-                "id": f"scam-{script.id}",
-                "text": cleaned[:350],
-                "channel": script.channel,
-                "answer": "scam",
-                "explain": explain,
-                "script_id": script.id,
-            }
-        )
-    pool = list(SAFE_MESSAGES)
-    rng.shuffle(pool)
-    safe_added = 0
-    for index, item in enumerate(pool):
-        if safe_added >= safe_n:
-            break
-        if not scammer_text_safe(item["text"]):
-            continue
-        questions.append(
-            {
-                "id": f"safe-{index}",
-                "text": item["text"],
-                "channel": item["channel"],
-                "answer": "safe",
-                "explain": item["explain"],
-                "script_id": None,
-            }
-        )
-        safe_added += 1
-    rng.shuffle(questions)
-    return {"questions": questions[:count]}
+    scam = [item for item in QUIZ_BANK if item["answer"] == "scam"]
+    safe = [item for item in QUIZ_BANK if item["answer"] == "safe"]
+    rng.shuffle(scam)
+    rng.shuffle(safe)
+    chosen = scam[:scam_n] + safe[:safe_n]
+    rng.shuffle(chosen)
+    return {"questions": [_quiz_public(item) for item in chosen[:count]]}
