@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { FreshScams } from '../components/FreshScams'
 import { Banner } from '../components/ui'
 import { api, type WarningCard } from '../lib/api'
 import { LibraryPage } from './LibraryPage'
@@ -67,6 +68,7 @@ export function WarningsPage() {
         <LibraryPage embedded />
       ) : (
         <>
+          <FreshScams />
           <div className="flex gap-2">
             <button onClick={() => setFilter('all')} className={`rounded-full px-3 py-1 text-sm ${filter === 'all' ? 'bg-ink text-paper' : 'border border-line bg-card'}`}>
               Tất cả ({data.cards.length})

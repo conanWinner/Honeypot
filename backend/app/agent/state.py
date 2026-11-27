@@ -43,6 +43,7 @@ class AgentState(BaseModel):
     aggressiveness: str = "normal"
     provider: str = ""
     demo_lines: list[str] = Field(default_factory=list)
+    demo_id: str = ""
     known_numbers: list[str] = Field(default_factory=list)
     address_term: str = ""
     timeline: list[dict] = Field(default_factory=list)

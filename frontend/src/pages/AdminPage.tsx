@@ -13,6 +13,7 @@ export function AdminPage() {
   const [items, setItems] = useState<Script[] | null>(null)
   const [error, setError] = useState('')
   const [token, setToken] = useState(() => sessionStorage.getItem('gianan-admin') ?? '')
+  const [notice, setNotice] = useState<{ id: string; title: string; merged?: boolean } | null>(null)
   const [needsToken, setNeedsToken] = useState(false)
 
   function headers(): HeadersInit | undefined {
@@ -45,7 +46,14 @@ export function AdminPage() {
 
   async function act(id: string, action: 'approve' | 'reject', mode = '') {
     const query = mode ? `?mode=${mode}` : ''
-    await api(`/api/moderation/${id}/${action}${query}`, { method: 'POST', headers: headers() })
+    const result = await api<Script>(`/api/moderation/${id}/${action}${query}`, { method: 'POST', headers: headers() })
+    if (action === 'approve' && result.id === id && result.status === 'published') {
+      setNotice({ id: result.id, title: result.title })
+    } else if (action === 'approve') {
+      setNotice({ id: result.id, title: result.title, merged: true })
+    } else {
+      setNotice(null)
+    }
     await load()
   }
 
@@ -57,6 +65,33 @@ export function AdminPage() {
         Kịch bản trích từ hội thoại không hiện ở thư viện công khai cho đến khi có người duyệt. Nếu chưa gắn ADMIN_TOKEN,
         cửa này mở cho bản demo và cần khóa lại trước khi đưa lên mạng.
       </p>
+      {notice && (
+        <div className="mt-4">
+          <Banner tone="ok">
+            {notice.merged ? (
+              <>
+                Đã gộp vào{' '}
+                <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${notice.id}`}>
+                  {notice.title}
+                </Link>
+                . Số lần ghi nhận và chỉ dấu của kịch bản đó đã được cập nhật.
+              </>
+            ) : (
+              <>
+                Đã công bố{' '}
+                <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${notice.id}`}>
+                  {notice.title}
+                </Link>
+                . Người dùng thấy ngay ở mục <b>Chiêu mới ghi nhận</b> trên{' '}
+                <Link className="font-semibold underline" to="/">
+                  Trang chủ
+                </Link>
+                .
+              </>
+            )}
+          </Banner>
+        </div>
+      )}
       {needsToken && (
         <form
           className="mt-4 flex flex-wrap gap-2"

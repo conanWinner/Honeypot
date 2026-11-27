@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -14,9 +15,10 @@ from app.agent.orchestrator import handle_turn
 from app.agent.state import AgentState
 from app.channels import get_adapter
 from app.llm.base import LLMError
-from app.models import Conversation, Message, Persona, Script
+from app.models import Conversation, Message, Persona, Script, TrainingSession
 from app.services.checker import check_text
-from app.services.demo import DEMO, DEMOS
+from app.services.demo import DEMO, DEMOS, DEMOS_LIST, demo_public
+from app.services.dossier import build_dossier, collect_destinations, destinations_csv
 from app.services.library import (
     embed_script,
     finish_conversation,
@@ -122,6 +124,7 @@ def _conversation_public(conversation: Conversation) -> dict:
         "persona": _persona_public(conversation.persona),
         "messages": [_message_public(message) for message in conversation.messages],
         "demo_lines": state.demo_lines,
+        "demo": demo_public(DEMOS[state.demo_id]) if state.demo_id in DEMOS else None,
         "turn_index": state.turn_index,
         "wrap_recommended": state.wrap_recommended,
         "wrap_reason": state.wrap_reason,
@@ -497,12 +500,11 @@ def start_demo(request: Request, session=Depends(get_db), id: str = ""):
     conversation = _load_conversation(session, created["id"])
     state = AgentState.model_validate(conversation.state)
     state.demo_lines = list(demo["lines"])
+    state.demo_id = demo["id"]
     conversation.state = state.model_dump()
     conversation.is_demo = True
     session.flush()
-    payload = _conversation_public(_load_conversation(session, conversation.id))
-    payload["demo"] = {"id": demo["id"], "title": demo["title"], "blurb": demo["blurb"], "expected_script": demo["expected_script"]}
-    return payload
+    return _conversation_public(_load_conversation(session, conversation.id))
 
 
 @router.get("/demo")
@@ -513,5 +515,87 @@ def demo_meta():
         "blurb": DEMO["blurb"],
         "lines": DEMO["lines"],
         "persona_id": DEMO["persona_id"],
-        "all": [{"id": item["id"], "title": item["title"], "blurb": item["blurb"], "persona_id": item["persona_id"], "lines": item["lines"]} for item in DEMOS.values()],
+        "all": [demo_public(item) for item in DEMOS_LIST],
     }
+
+
+@router.post("/demo/reset")
+def demo_reset(session=Depends(get_db), _: None = Depends(require_admin)):
+    """Remove what demo runs added, so a rehearsal starts from the seed library.
+
+    Deletes demo conversations and the scripts extracted from them (pending,
+    published or merged rows). A merge into a seed script is not undone: that
+    script keeps the extra occurrence count and indicators.
+    """
+    demo_ids = set(session.scalars(select(Conversation.id).where(Conversation.is_demo.is_(True))).all())
+    removed_scripts = 0
+    for script in session.scalars(select(Script)).all():
+        refs = {item.get("ref") for item in script.sources or [] if item.get("type") == "conversation"}
+        if refs and refs <= demo_ids:
+            for child in session.scalars(select(Script).where(Script.parent_id == script.id)).all():
+                child.parent_id = None
+            used = session.scalar(select(func.count()).select_from(TrainingSession).where(TrainingSession.script_id == script.id))
+            if used:
+                # A practice run points at it: hide it instead of breaking the foreign key.
+                script.status = "rejected"
+            else:
+                session.delete(script)
+            removed_scripts += 1
+    session.flush()
+    removed_conversations = 0
+    for conv in session.scalars(select(Conversation).where(Conversation.is_demo.is_(True))).all():
+        session.delete(conv)
+        removed_conversations += 1
+    session.flush()
+    return {"conversations": removed_conversations, "scripts": removed_scripts}
+
+
+@router.get("/conversations/{conversation_id}/dossier")
+def conversation_dossier(conversation_id: str, session=Depends(get_db)):
+    return build_dossier(session, _load_conversation(session, conversation_id))
+
+
+@router.get("/intel/destinations")
+def intel_destinations(format: str = "json", session=Depends(get_db)):
+    rows = collect_destinations(session)
+    if format == "csv":
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        return Response(
+            destinations_csv(rows),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="noi-nhan-tien-{stamp}.csv"'},
+        )
+    return {"items": rows, "total": len(rows), "confirmed": sum(1 for row in rows if row["confirmed"])}
+
+
+@router.get("/library/fresh")
+def library_fresh(days: int = 60, limit: int = 6, session=Depends(get_db)):
+    """Scams the honeypot recorded and a reviewer published. What users see as new."""
+    now = datetime.now(timezone.utc)
+    rows = session.scalars(
+        select(Script).where(Script.status == "published", Script.relation.in_(("new_root", "variant"))).order_by(Script.updated_at.desc())
+    ).all()
+    items = []
+    for row in rows:
+        if not any(item.get("type") == "conversation" for item in row.sources or []):
+            continue
+        stamp = row.updated_at if row.updated_at.tzinfo else row.updated_at.replace(tzinfo=timezone.utc)
+        if (now - stamp).days > days:
+            continue
+        parent = session.get(Script, row.parent_id) if row.parent_id else None
+        items.append(
+            {
+                "id": row.id,
+                "title": row.title,
+                "summary": row.summary,
+                "category_label": CATEGORIES.get(row.category, row.category),
+                "relation": row.relation,
+                "parent_title": parent.title if parent else "",
+                "red_flags": (row.red_flags or [])[:3],
+                "advice": row.advice,
+                "published_at": stamp.isoformat(),
+            }
+        )
+        if len(items) >= limit:
+            break
+    return {"items": items}

@@ -42,7 +42,7 @@ export function Shell() {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-line/80 bg-[#f7f1e6]/90 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b print:hidden border-line/80 bg-[#f7f1e6]/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <NavLink to="/" className="flex items-center gap-3">
             <img src="/favicon.svg" alt="" width={36} height={36} />
@@ -90,10 +90,10 @@ export function Shell() {
           </p>
         </div>
       )}
-      <main className="mx-auto max-w-6xl px-4 py-6 pb-32 md:pb-10">
+      <main className="mx-auto max-w-6xl px-4 py-6 pb-32 md:pb-10 print:p-0">
         <Outlet context={state} />
       </main>
-      <div className="fixed inset-x-0 bottom-14 z-30 flex items-center justify-between gap-3 border-t border-line/70 bg-[#f7f1e6] px-3 py-1 text-[11px] text-ink-soft md:hidden">
+      <div className="fixed inset-x-0 bottom-14 z-30 flex print:hidden items-center justify-between gap-3 border-t border-line/70 bg-[#f7f1e6] px-3 py-1 text-[11px] text-ink-soft md:hidden">
         <Link to="/phan-tich" className="underline">
           Phòng phân tích
         </Link>
@@ -102,7 +102,7 @@ export function Shell() {
         </Link>
         {health?.llm.mock && <span className="truncate">Chế độ mô phỏng — chưa gắn khóa model</span>}
       </div>
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-line bg-[#f7f1e6] md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 grid print:hidden grid-cols-4 border-t border-line bg-[#f7f1e6] md:hidden">
         {mobile.map((link) => {
           const Icon = link.icon
           return (
@@ -120,7 +120,7 @@ export function Shell() {
           )
         })}
       </nav>
-      <footer className="mx-auto hidden max-w-6xl items-center justify-between px-4 pb-8 text-xs text-ink-soft md:flex">
+      <footer className="mx-auto hidden max-w-6xl print:hidden items-center justify-between px-4 pb-8 text-xs text-ink-soft md:flex">
         <span className="inline-flex items-center gap-2">
           <Shield size={14} /> Honeypot — nhận diện lừa đảo, luyện phản xạ, và giữ kịch bản cho người sau.
         </span>

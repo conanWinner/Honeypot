@@ -42,5 +42,7 @@ def _clean(app):
         session.query(TurnLog).delete()
         session.query(Message).delete()
         session.query(Conversation).delete()
-        session.query(Script).filter(Script.status != "published").delete()
+        # Extracted scripts (hs-…) are removed even once published, so one test's
+        # approval cannot change what the next test matches against.
+        session.query(Script).filter((Script.status != "published") | Script.id.like("hs-%")).delete(synchronize_session=False)
         session.commit()

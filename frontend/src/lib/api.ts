@@ -224,7 +224,7 @@ export type Conversation = {
   fake_otp: string
   extracted_script_id: string | null
   created_at: string
-  demo?: { id: string; title: string; blurb: string; expected_script: string }
+  demo?: DemoMeta | null
 }
 
 export type TrainingScenario = {
@@ -386,4 +386,99 @@ export function panelFromMessage(message: Message | undefined): Panel | null {
     degraded: Boolean(reasoning.degraded),
     rejected_draft: reasoning.outbound_safety?.rejected_draft ?? null,
   }
+}
+
+export type DemoMeta = {
+  id: string
+  kind: 'known' | 'new'
+  title: string
+  blurb: string
+  expect: string
+  persona_id: string
+  expected_script: string
+  lines: string[]
+  beats: [number, string][]
+}
+
+export type DossierDestination = {
+  kind: 'bank' | 'ewallet' | 'crypto'
+  kind_label: string
+  value: string
+  bank: string
+  holder: string
+  confirmed: boolean
+  confirmed_how: string
+  first_turn: number
+  action: string
+  seen_elsewhere: { type: string; label: string; ref: string }[]
+}
+
+export type Dossier = {
+  case_id: string
+  conversation_id: string
+  generated_at: string
+  channel: string
+  is_demo: boolean
+  status: string
+  started_at: string
+  ended_at: string
+  turns: number
+  decoy: { persona: string; note: string }
+  classification: {
+    unmatched: boolean
+    live_match: { script_id: string; title: string; confidence: number } | null
+    extracted: {
+      script_id: string
+      title: string
+      category: string
+      relation: string
+      status: string
+      summary: string
+      merge_target: { id: string; title: string } | null
+      parent: { id: string; title: string } | null
+    } | null
+  }
+  claims: { posed_as: string; brands: string[]; pressure: string[]; techniques: string[]; red_flags: string[] }
+  destinations: DossierDestination[]
+  contacts: {
+    phones: string[]
+    urls: { value: string; note: string }[]
+    apk: string[]
+    zalo: string[]
+    telegram: string[]
+    remote_ids: string[]
+    apps: string[]
+  }
+  cross_links: IocLink[]
+  timeline: { at: string; who: string; role: string; text: string; stage: string; new_iocs: string[] }[]
+  integrity: { algorithm: string; transcript_digest: string; note: string }
+  report_channels: { label: string; detail: string }[]
+  caveat: string
+}
+
+export type ReceivingAccount = {
+  kind: string
+  kind_label: string
+  value: string
+  bank: string
+  holders: string[]
+  confirmed: boolean
+  conversations: string[]
+  stories: string[]
+  count: number
+  first_seen: string
+  last_seen: string
+  action: string
+}
+
+export type FreshScam = {
+  id: string
+  title: string
+  summary: string
+  category_label: string
+  relation: string
+  parent_title: string
+  red_flags: string[]
+  advice: string
+  published_at: string
 }

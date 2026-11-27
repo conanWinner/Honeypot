@@ -14,6 +14,7 @@ from app.agent.state import AgentState
 from app.data.personas import PERSONAS
 from app.data.scripts import SCRIPTS
 from app.models import Persona, Script, utcnow
+from app.services.draft import draft_new_scam
 from app.services.matching import classify_transcript, script_blob, vector_literal
 from app.taxonomy import CATEGORIES, CHANNELS
 
@@ -282,6 +283,9 @@ def finish_conversation(session, conversation, provider) -> dict:
         # The queue and chat already say "merge into X"; the note carries the evidence.
         novelty = f"Khớp chắc: điểm cả bản thoại {verdict['score']:.2f}, {verdict['consistency']:.0%} lượt chỉ về cùng họ."
     parent = by_id.get(parent_id)
+    draft = draft_new_scam(state, scammer_messages) if relation == "new_root" else None
+    if draft:
+        title = draft["title"]
     destinations = _destinations_note(state)
     context = {
         "scammer_messages": scammer_messages,
@@ -294,9 +298,9 @@ def finish_conversation(session, conversation, provider) -> dict:
         "suggested_category": parent.category if parent else "other",
         "suggested_brand": parent.brand if parent else "",
         "channel": conversation.channel,
-        "summary": parent.summary if parent else "Cuộc hội thoại vừa được trích.",
-        "red_flags": (parent.red_flags if parent else [])[:4],
-        "advice": parent.advice if parent else "Không chuyển tiền, không đọc OTP, không cài phần mềm theo yêu cầu của người lạ.",
+        "summary": parent.summary if parent else (draft["summary"] if draft else "Cuộc hội thoại vừa được trích."),
+        "red_flags": (parent.red_flags if parent else (draft["red_flags"] if draft else []))[:4],
+        "advice": parent.advice if parent else (draft["advice"] if draft else "Không chuyển tiền, không đọc OTP, không cài phần mềm theo yêu cầu của người lạ."),
         "novelty_reason": novelty,
         "payment_destinations": state.account_checks,
         "candidates": [
