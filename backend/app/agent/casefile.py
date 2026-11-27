@@ -138,6 +138,13 @@ _WHO = re.compile(
     re.IGNORECASE,
 )
 
+# "Tôi gọi từ phòng CSGT", "em bên trung tâm tiêm chủng", "con là trợ lý của giáo sư".
+_SELF_INTRO = re.compile(
+    r"\b(?:tôi|em|con|cháu|bên em|bên con|bên mình|chúng tôi)\s+"
+    r"(?:là|gọi từ|gọi bên|bên|thuộc)\s+(?P<who>[^,.!?;]{3,60})",
+    re.IGNORECASE,
+)
+
 GAP_GOAL = {
     "who": "ask_identity",
     "channel": "ask_purpose",
@@ -415,8 +422,11 @@ def harvest_indicators(text: str) -> dict:
     for needle, label in _PRESSURE:
         if needle in lowered:
             _add(found["pressure"], label, "pressure")
+    intro = _SELF_INTRO.search(body)
     who = _WHO.search(body)
-    if who:
+    if intro:
+        found["who"] = re.split(r"\s+(?:ở|tại|có|đang|thông báo|báo)\s+", intro.group("who").strip(), maxsplit=1)[0][:80]
+    elif who:
         found["who"] = who.group(0)[:80]
     return found
 

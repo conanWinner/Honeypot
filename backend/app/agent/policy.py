@@ -287,6 +287,24 @@ _BOT_PROBE = re.compile(
 _AI_PROBE = re.compile(r"\b(?:là|phải)\s+(?:là\s+)?(?:AI|A\.I)\b|\bAI\s+(?:à|hả|phải không)")
 
 
+# Words a scammer uses when they start to doubt the victim. The analyst's
+# scammer_suspicion only counts when the message itself shows one of these: models
+# often score "how scammy is this" there instead, which would stall every turn.
+_DOUBT = re.compile(
+    r"(?i:(?:là|phải)\s+(?:máy|bot|robot|người máy)\b|\b(?:bot|robot|chatbot)\b|người\s+thật"
+    r"|trả\s+lời\s+(?:lạ|như\s+máy|tự\s+động)|tự\s+động\s+trả\s+lời"
+    r"|sao\s+(?:hỏi|nói)\s+(?:nhiều|lắm|kỹ)|hỏi\s+(?:nhiều|lắm)\s+(?:thế|vậy|quá)"
+    r"|(?:không|ko|chẳng)\s+(?:tin|làm)\s+thì\s+thôi|thôi\s+(?:không|ko)\s+nói\s+nữa"
+    r"|(?:gài|thử|test)\s+(?:tôi|tao|em|anh|chị)|có\s+vẻ\s+(?:lạ|không\s+bình\s+thường))"
+    # "AI" only in capitals: "ai" is the everyday "who".
+    r"|\bAI\b"
+)
+
+
+def doubt_cue(text: str) -> bool:
+    return bool(_DOUBT.search(text or ""))
+
+
 def assess_inbound(text: str) -> dict:
     folded = (text or "").lower()
     jail_cues = [cue for cue in _JAILBREAK if cue in folded]

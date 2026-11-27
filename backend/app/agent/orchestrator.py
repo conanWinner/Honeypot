@@ -37,6 +37,7 @@ from app.agent.casefile import (
 from app.agent.policy import (
     VIOLATION_LABELS,
     assess_inbound,
+    doubt_cue,
     fallback_reply,
     contains_guard_subject,
     guard_skippable,
@@ -523,7 +524,13 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         branch_kind=branch.kind,
     )
     wrap, wrap_reason = recommend_wrap(state.match_history + [snap])
-    suspicion = max(_clamp(inbound["suspicion_level"]), _clamp(analyst.scammer_suspicion))
+    raw_doubt = float(analyst.scammer_suspicion or 0) if isinstance(analyst.scammer_suspicion, (int, float)) else 0.0
+    analyst_doubt = _clamp(raw_doubt) if raw_doubt <= 1 else 0.0
+    if not doubt_cue(text):
+        # Trust the model only when the message shows doubt. Otherwise a model that
+        # reads the field as "how scammy" keeps every turn on stall and confusion.
+        analyst_doubt = min(analyst_doubt, 0.4)
+    suspicion = max(_clamp(inbound["suspicion_level"]), analyst_doubt)
 
     goal = plan.goal
     note = plan.rationale
@@ -618,6 +625,20 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         )
         goal = alt["goal"] if alt else "stall"
         note = f"{note} Đã hỏi cùng một việc hai lần, chuyển sang bước khác."
+    if (
+        not real_suspicion
+        and goal in {"stall", "feign_confusion"}
+        and len(state.goals_used) >= 2
+        and set(state.goals_used[-2:]) <= {"stall", "feign_confusion"}
+    ):
+        # Two turns of "I don't get it" already. A third reads as a script; react
+        # to what they said instead, or ask the next thing on the list.
+        alt = next(
+            (row for row in askable if not row["done"] and row["key"] not in state.asked_keys and row.get("goal") != "ask_identity"),
+            None,
+        )
+        goal = alt["goal"] if alt else ("emotional_hook" if "emotional_hook" not in state.goals_used[-3:] else "ask_next_instruction")
+        note = f"{note} Đã hai lượt chưa hiểu hoặc kéo dài, đổi cách."
     if goal == "ask_remote_id" and not _remote_was_mentioned(text):
         alt = next(
             (
@@ -693,6 +714,18 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "style": {key: value for key, value in style_of(persona.id).items() if key in {"case", "max_chars", "reactions", "particles", "habits"}},
     }
     recent_replies = [message.content for message in conversation.messages if message.role == "victim"][-4:]
+    persona_ctx["recent_dialogue"] = [
+        {"who": "họ" if message.role == "scammer" else "mình", "text": message.content[:220]}
+        for message in conversation.messages[-5:]
+    ] + [{"who": "họ", "text": text[:220]}]
+    streak = 0
+    for reply in reversed(recent_replies):
+        if reply.rstrip(" .…").endswith("?"):
+            streak += 1
+        else:
+            break
+    # Two questions in a row already; a real person reacts or rambles sometimes.
+    persona_ctx["no_question"] = streak >= 2 and goal not in {"confirm_account", "ask_alternative", "read_fake_otp", "close_polite"}
     persona_ctx["recent_openings"] = [item.strip().split("\n", 1)[0][:48] for item in recent_replies[-3:]]
     pace = state.aggressiveness or "normal"
     t0 = time.perf_counter()

@@ -9,6 +9,7 @@ Nhiệm vụ:
 - Nhánh mới (kind=new) chỉ khi đối phương khai thác hoàn cảnh riêng của nạn nhân mà kịch bản đang khớp và các biến thể của nó không có.
 - kind=known_variant khi hoàn cảnh đó đã là một nhánh trong thư viện.
 - Không khuyên kết thúc cuộc thoại. Máy chủ tự quyết định việc khép.
+- scammer_suspicion (0 đến 1): mức ĐỐI PHƯƠNG đang nghi ngờ nạn nhân là máy, là người giả, hoặc đang bị gài. KHÔNG phải khả năng đây là lừa đảo (việc đó ghi ở is_scam). Đối phương chỉ đang lừa bình thường thì để 0. Chỉ cho cao khi lời vừa nói có dấu hiệu nghi: hỏi có phải máy hay người thật, chê trả lời lạ, hỏi sao hỏi nhiều, dọa thôi không nói nữa.
 Viết nhận xét bằng tiếng Việt, ngắn, cụ thể."""
 
 PLANNER_SYSTEM = """Bạn là người lập kế hoạch cho một agent đóng vai nạn nhân đang bị lừa.
@@ -30,6 +31,9 @@ PERSONA_SYSTEM = """Bạn là người trong hồ sơ persona, đang nhắn tin 
 Cách nhắn (quan trọng nhất, vì người ta nhận ra máy qua giọng văn):
 - Nhắn như Zalo, không như viết thư. Tin ngắn là bình thường, có khi chỉ vài chữ. Không vượt style.max_chars ký tự.
 - Theo style của persona: style.case là lower thì viết thường, ít dấu câu. style.habits là thói quen riêng. Dùng tiểu từ trong style.particles khi tự nhiên, đừng nhồi.
+- Đọc recent_dialogue (vài tin gần nhất, "họ" là đối phương, "mình" là bạn) để nối mạch. Cấm hỏi lại điều họ đã trả lời ở đó (họ đã nói là phòng CSGT thì đừng hỏi "bên nào"). Khi tự nhiên, nhắc lại một chi tiết họ vừa nói (số tiền, tên, cái hạn) như người đang nghe thật.
+- Cảm xúc đi trước câu hỏi. Khi họ dọa (bắt, khóa, tước, cưỡng chế, phạt, mất tiền, ảnh hưởng con cái), người thật hoảng hoặc lo, không bình thản hỏi tiếp: "chết rồi", "thế có sao không", "trời ơi tui có làm gì đâu". Khi họ nói chuyện tiền, người thật xót tiền hoặc nghi ngại về số tiền.
+- Nếu no_question là true: tin này KHÔNG có dấu hỏi. Chỉ phản ứng, than, kể đang làm gì, hoặc nói sẽ làm gì đó vô hại (đi tìm kính, gọi con) để họ tự nói tiếp.
 - Không phải tin nào cũng là câu hỏi. Thường phản ứng trước (một từ trong style.reactions, hoặc một câu than), có khi kể một mẩu chuyện đời mình từ bio (con ở xa, đang nấu cơm, đang chạy xe), rồi mới hỏi. Có khi chỉ hỏi lại một chữ, có khi hiểu nhầm làm họ phải giải thích lại.
 - Không biết thì nói không biết, như người không rành. Không giải thích rành mạch như chuyên gia.
 - Một tin chỉ một ý chính. Không liệt kê, không gạch đầu dòng, không emoji dày đặc.
