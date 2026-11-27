@@ -170,27 +170,41 @@ pytest
 python -m eval.run
 ```
 
-`pytest` gồm 213 hàm test (492 ca khi tính cả ca tham số hóa) trong `backend/tests`. Môi trường test dùng SQLite và `LLM_PROVIDER=mock`, có `tests/test_training.py` cho việc che dữ liệu, điểm, điều kiện kết thúc, lời kẻ lừa và trắc nghiệm.
+`pytest` gồm 217 hàm test (496 ca khi tính cả ca tham số hóa) trong `backend/tests`. Môi trường test dùng SQLite và `LLM_PROVIDER=mock`, có `tests/test_training.py` cho việc che dữ liệu, điểm, điều kiện kết thúc, lời kẻ lừa và trắc nghiệm.
 
-Báo cáo hội thoại đã commit ở `eval/results/report.md` (2026-11-27, nhà cung cấp mock, mười bốn tình huống). Ba tình huống là chiêu không có trong 48 kịch bản gốc (phạt nguội CSGT, trợ lý bác sĩ bán thuốc, nhờ bình chọn để chiếm Facebook). Một tình huống ranh giới (hãng bay hoàn vé, cùng cơ chế với Shopee hoàn tiền) không chấm.
+Mười bốn tình huống. Ba tình huống là chiêu không có trong 48 kịch bản gốc (phạt nguội CSGT, trợ lý bác sĩ bán thuốc, nhờ bình chọn để chiếm Facebook). Một tình huống ranh giới (hãng bay hoàn vé, cùng cơ chế với Shopee hoàn tiền) không chấm. Hai báo cáo đã commit:
 
-| Chỉ số | Giá trị |
-| --- | --- |
-| Khớp đúng kịch bản ở lượt cuối | 8/8 |
-| Độ phủ bước trung bình | 85% |
-| Lượt còn trong vai | 52/52 |
-| Lọt an toàn ở câu đã gửi | 0 |
-| Phân loại đúng lúc trích xuất | 11/11 |
-| Lượt chạy chế độ chưa khớp, chiêu mới | 12/12 |
-| Lượt chạy chế độ chưa khớp nhầm, chiêu đã biết | 0/29 |
-| Chỉ dấu moi được (tài khoản, đường dẫn) | 7/7 |
-| Nơi nhận tiền được xác nhận | 2/8 |
-| Độ mới trung bình của câu trả lời | 97% |
-| Câu có dấu hiệu văn máy | 1/52 |
+- `eval/results/live/report.md`: mô hình thật qua router (27/11/2026), embedding thật. Phía kẻ lừa nói đúng câu soạn sẵn (`EVAL_SIM=scripted`), nên chỉ agent thay đổi giữa các lần chạy. Báo cáo kèm toàn bộ bản thoại trong `report.json`.
+- `eval/results/report.md`: provider mock, không cần khóa.
 
-Nơi nhận tiền 2/8 là vì trên mock phần lớn tình huống đưa số ở câu cuối, không còn lượt để xác nhận. Cùng bộ tình huống chạy trên mã trước khi thêm chế độ chưa khớp cho 10/11 phân loại đúng và 0/12 lượt chưa khớp. Chiêu bình chọn bị xếp trùng và gộp thẳng vào một kịch bản đã xuất bản. Các ngưỡng nằm ở `backend/app/services/matching.py`, mới chỉnh trên đường mock (chỉ từ khóa), nên phải đo lại khi có embedding thật. Kế hoạch và lý do ở [docs/ke-hoach-kich-ban-moi.md](docs/ke-hoach-kich-ban-moi.md).
+| Chỉ số | Mô hình thật | Mock |
+| --- | --- | --- |
+| Khớp đúng kịch bản ở lượt cuối | 8/8 | 8/8 |
+| Độ phủ bước trung bình | 85% | 85% |
+| Lượt còn trong vai | 52/52 | 52/52 |
+| Lọt an toàn ở câu đã gửi | 0 | 0 |
+| Phân loại đúng lúc trích xuất | 11/11 | 11/11 |
+| Lượt chạy chế độ chưa khớp, chiêu mới | 12/12 | 12/12 |
+| Lượt chạy chế độ chưa khớp nhầm, chiêu đã biết | 3/29 | 0/29 |
+| Chỉ dấu moi được (tài khoản, đường dẫn) | 7/7 | 7/7 |
+| Nơi nhận tiền được xác nhận | 2/8 | 2/8 |
+| Câu có dấu hiệu văn máy | 1/52 | 1/52 |
+| Độ dài trung bình một câu trả lời | 73 ký tự | 40 ký tự |
+| Thời gian một lượt (trung vị / p90) | 11,7 / 14,7 giây | không đo |
 
-Lần chạy đó không có khóa API. Agent vẫn đi đủ vòng trên lớp heuristic, và báo cáo ghi rõ điều đó. Một lần `python -m eval.run` mới ghi ra thư mục tạm, hoặc đường `EVAL_OUT` nếu đặt biến này.
+Nơi nhận tiền 2/8 là vì phần lớn tình huống đưa số ở câu cuối, không còn lượt để xác nhận. Tình huống "Moi thêm nơi nhận tiền" được viết để kẻ lừa đáp lại việc đọc lại, và trên mô hình thật cả hai số đều được xác nhận, kèm tên chủ tài khoản.
+
+Chạy với mô hình thật và để mô hình viết lại câu kẻ lừa (`EVAL_SIM=model`, mặc định) thì 31/52 câu là lời từ chối đóng vai ("đây là dấu hiệu lừa đảo, hãy gọi số chính thức"). Eval giờ nhận ra câu kiểu đó, thay bằng câu soạn sẵn, và đếm trong báo cáo. Eval cũng đợi thư viện có đủ embedding rồi mới chạy.
+
+Ngưỡng phân loại lúc trích xuất (`backend/app/services/matching.py`) được chỉnh bằng embedding thật: chiêu đã biết đạt 0,92–0,97 trên cả bản thoại, chiêu mới 0,62–0,69, nên ngưỡng đặt ở 0,80. Kế hoạch và lý do ở [docs/ke-hoach-kich-ban-moi.md](docs/ke-hoach-kich-ban-moi.md), chiến thuật agent và độ trễ ở [docs/cai-tien-agent.md](docs/cai-tien-agent.md).
+
+```bash
+cd backend
+python -m eval.run                      # mock nếu không có khóa
+EVAL_SIM=scripted python -m eval.run    # có khóa: agent thật, câu kẻ lừa cố định
+```
+
+Một lần chạy mới ghi ra thư mục tạm, hoặc đường `EVAL_OUT` nếu đặt biến này.
 
 `eval/training_live.md` ghi một lần kiểm luyện tập cũng không có khóa router hay Gemini, nên repo chưa có số đo độ trễ hay tỷ lệ đúng vai trên mô hình thật. Các ca mock của luyện tập nằm trong `tests/test_training.py`. File đó yêu cầu, khi có khóa, chạy lại ít nhất ba phiên cho mỗi kiểu kết (`safe`, `scammed`, `timeout`) trên ít nhất năm nhóm, và theo dõi trung vị độ trễ từng lượt (mục tiêu dưới 6 giây), chỉ với `MODEL_SIM` và `MODEL_ANALYST` đã cấu hình.
 

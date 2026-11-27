@@ -785,9 +785,13 @@ def fallback_reply(persona_slug: str, recent: list[str] | None = None) -> str:
     return options[len(recent_norm) % len(options)]
 
 
-def readback_line(persona_slug: str, account: str) -> str:
+def readback_line(persona_slug: str, account: str, kind: str = "bank_accounts") -> str:
     """A plain in-voice read-back, for when the drafted one had to be replaced."""
-    line = "{Me} ghi lại là số ACCOUNT, đúng chưa {you}? Ai đứng tên số này, ngân hàng nào? {Me} chưa chuyển đâu."
+    if kind == "bank_accounts":
+        line = "{Me} ghi lại là số ACCOUNT, đúng chưa {you}? Ai đứng tên số này, ngân hàng nào? {Me} chưa chuyển đâu."
+    else:
+        # A wallet has an owner, not a bank.
+        line = "{Me} ghi lại là ví ACCOUNT, đúng chưa {you}? Ví này đứng tên ai? {Me} chưa chuyển đâu."
     return _voiced(line, persona_slug).replace("ACCOUNT", account)
 
 

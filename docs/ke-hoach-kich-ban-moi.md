@@ -57,7 +57,7 @@ Trong `finish_conversation`:
 
 | Điều kiện | Quan hệ |
 |---|---|
-| Điểm cả bản thoại < `EXTRACT_STRONG_SCORE` (0.70) **hoặc** độ ổn định < `EXTRACT_MIN_CONSISTENCY` (0.5) | `new_root`, ghi chú "gần nhất: X" |
+| Điểm cả bản thoại < `EXTRACT_STRONG_SCORE` (0.80) **hoặc** độ ổn định < `EXTRACT_MIN_CONSISTENCY` (0.5) | `new_root`, ghi chú "gần nhất: X" |
 | Khớp chắc và có sự kiện nhánh mới | `variant` của họ đó |
 | Khớp chắc, không có nhánh mới | `duplicate`, **đề xuất gộp** |
 

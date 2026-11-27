@@ -40,7 +40,7 @@ Chiêu đã biết thường có một lượt khớp rất cao ngay đầu. Chi
 
 Máy chủ gán quan hệ, không để mô hình tự chọn. `classify_transcript` tìm thư viện một lần bằng toàn bộ lời kẻ lừa, rồi tính độ ổn định: tỷ lệ các lượt có tín hiệu trỏ vào cùng họ đó.
 
-- Điểm cả bản thoại dưới `EXTRACT_STRONG_SCORE` (0.70) hoặc độ ổn định dưới `EXTRACT_MIN_CONSISTENCY` (0.5): `new_root`. Ghi chú nêu kịch bản gần nhất kèm điểm.
+- Điểm cả bản thoại dưới `EXTRACT_STRONG_SCORE` (0.80) hoặc độ ổn định dưới `EXTRACT_MIN_CONSISTENCY` (0.5): `new_root`. Ghi chú nêu kịch bản gần nhất kèm điểm.
 - Khớp chắc và có nhánh mới: `variant`, `parent_id` là họ đó.
 - Khớp chắc, không có nhánh mới: `duplicate`. Bản chờ có `merge_target` là kịch bản đích, `parent_id` để trống. Thư viện chưa đổi.
 

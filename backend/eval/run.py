@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import statistics
+import time
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +25,7 @@ from app.agent.policy import inspect_outbound, reply_novelty
 from app.agent.textutil import digit_runs
 from app.agent.prompts import SCAMMER_SYSTEM
 from app.agent.schemas import ScammerLine
+from app.llm.base import LLMError
 from app.config import get_settings
 from eval.scenarios import SCENARIOS
 
@@ -39,23 +43,55 @@ def _prepare_env() -> None:
     get_settings.cache_clear()
 
 
+SIM_TIMEOUT = float(os.environ.get("EVAL_SIM_TIMEOUT") or 20)
+# "model": a model paraphrases each scripted scammer line. "scripted": the
+# scammer says the lines as written, so only the agent varies between runs.
+SIM_MODE = (os.environ.get("EVAL_SIM") or "model").strip().lower()
+SIM_FALLBACKS: list[str] = []
+SIM_REFUSALS: list[str] = []
+# Safety-tuned models often refuse to play the scammer and write a warning
+# instead ("đây là dấu hiệu lừa đảo, hãy gọi số chính thức"). That line tests
+# nothing, so the scripted line is used and the refusal is counted.
+_REFUSAL = re.compile(
+    r"(không thể (?:giả danh|soạn|hỗ trợ|hướng dẫn|tư vấn|gửi|xác nhận|yêu cầu|cung cấp)|dấu hiệu lừa đảo|"
+    r"\b(?:số|kênh|ứng dụng|cổng thông tin|website|trang)[^.]{0,20}chính thức|cảnh báo giả mạo|"
+    r"đừng (?:bấm|chuyển|cung cấp|cài|gửi|giữ bí mật|nhập)|không (?:nên|được) (?:chuyển|cài|mở|bấm|nộp)|"
+    r"ngắt máy|lưu bằng chứng|hotline in trên thẻ)",
+    re.IGNORECASE,
+)
+
+
 def _simulator_line(provider, scenario: dict, turn: int, history: list[dict]) -> str:
     scripted = scenario["lines"][turn]
+    if SIM_MODE == "scripted":
+        return scripted
     context = {
         "scripted_line": scripted,
         "step_index": turn,
         "history": history[-6:],
         "title": scenario["title"],
     }
-    spoken = provider.complete(
-        ScammerLine,
-        SCAMMER_SYSTEM,
-        pack("Viết đúng một tin nhắn kế tiếp, bám câu gợi ý trong ngữ cảnh.", context),
-        0.7,
-        role="sim",
-        max_tokens=180,
-    )
+    # The scammer side belongs to the test harness, not the agent: its own budget
+    # (the sim role's 7 s is sized for short training lines), and a failure falls
+    # back to the scripted line instead of ending the whole run.
+    try:
+        spoken = provider.complete(
+            ScammerLine,
+            SCAMMER_SYSTEM,
+            pack("Viết đúng một tin nhắn kế tiếp, bám câu gợi ý trong ngữ cảnh.", context),
+            0.7,
+            role="sim",
+            max_tokens=180,
+            timeout=SIM_TIMEOUT,
+            fallback_timeout=SIM_TIMEOUT,
+        )
+    except LLMError:
+        SIM_FALLBACKS.append(scenario["id"])
+        return scripted
     text = (spoken.message or "").strip()
+    if text and _REFUSAL.search(text):
+        SIM_REFUSALS.append(scenario["id"])
+        return scripted
     return text or scripted
 
 
@@ -78,10 +114,14 @@ def _play(client: TestClient, provider, scenario: dict) -> dict:
     tells: list[list[str]] = []
     replies: list[str] = []
     lengths: list[int] = []
+    turn_ms: list[int] = []
+    guard_skips = 0
     goals: list[str] = []
     for turn, _line in enumerate(scenario["lines"]):
         message = _simulator_line(provider, scenario, turn, history)
+        started = time.perf_counter()
         response = client.post(f"/api/conversations/{conversation['id']}/messages", json={"text": message})
+        turn_ms.append(int((time.perf_counter() - started) * 1000))
         response.raise_for_status()
         body = response.json()
         reply = body["victim_message"]["content"]
@@ -91,6 +131,7 @@ def _play(client: TestClient, provider, scenario: dict) -> dict:
         replies.append(reply)
         lengths.append(len(reply))
         goals.append(body["panel"]["goal"]["goal"])
+        guard_skips += 1 if body["panel"].get("guard_skipped") else 0
         history.append({"role": "scammer", "content": message})
         history.append({"role": "victim", "content": reply})
         panels.append(body["panel"])
@@ -169,6 +210,9 @@ def _play(client: TestClient, provider, scenario: dict) -> dict:
         "novelty_mean": round(sum(novelty) / len(novelty), 3) if novelty else None,
         "goals": goals,
         "replies": replies,
+        "scammer_lines": [item["content"] for item in history if item["role"] == "scammer"],
+        "turn_ms": turn_ms,
+        "guard_skips": guard_skips,
         "tells": tells,
         "tell_turns": sum(1 for item in tells if item),
         "mean_chars": round(sum(lengths) / len(lengths), 1) if lengths else 0,
@@ -215,6 +259,10 @@ def _report(rows: list[dict], provider) -> str:
                 tell_kinds[kind] = tell_kinds.get(kind, 0) + 1
     tell_mix = ", ".join(f"{kind} {count}" for kind, count in sorted(tell_kinds.items(), key=lambda pair: -pair[1])) or "không có"
     mean_chars = sum(row["mean_chars"] * row["turns"] for row in rows) / turn_total if turn_total else 0
+    all_ms = sorted(ms for row in rows for ms in row["turn_ms"])
+    p50 = statistics.median(all_ms) / 1000 if all_ms else 0
+    p90 = all_ms[min(len(all_ms) - 1, int(len(all_ms) * 0.9))] / 1000 if all_ms else 0
+    skipped = sum(row["guard_skips"] for row in rows)
     mode = "mô hình thật" if not provider.is_mock else "mock (không có GEMINI_API_KEY hay OPENAI_API_KEY)"
     from app.llm.factory import role_models
 
@@ -227,6 +275,7 @@ def _report(rows: list[dict], provider) -> str:
         f"- Nhà cung cấp: {provider.name} / {provider.model}",
         f"- Model theo vai: {mix}",
         f"- Chế độ: {mode}",
+        f"- Phía kẻ lừa: {'câu soạn sẵn, không qua mô hình' if SIM_MODE == 'scripted' else 'mô hình viết lại từng câu soạn sẵn'}",
         f"- Số tình huống: {len(rows)}",
         "",
         "## Tổng hợp",
@@ -246,6 +295,9 @@ def _report(rows: list[dict], provider) -> str:
         f"| Độ mới trung bình của câu trả lời (trigram chưa dùng) | {mean_novelty:.0%} |",
         f"| Câu có dấu hiệu văn máy | {tell_turns}/{turn_total} |",
         f"| Độ dài trung bình một câu trả lời | {mean_chars:.0f} ký tự |",
+        f"| Thời gian một lượt (trung vị / p90) | {p50:.1f} / {p90:.1f} giây |",
+        f"| Lượt bỏ qua guard model | {skipped}/{turn_total} |",
+        f"| Câu kẻ lừa dùng bản soạn sẵn vì bộ mô phỏng lỗi / từ chối đóng vai | {len(SIM_FALLBACKS)} / {len(SIM_REFUSALS)} trên {turn_total} |",
         "",
         f"Dấu hiệu văn máy theo loại: {tell_mix}. Đo bằng `app/agent/humanize.py`: dạng anh/chị, cụm trang trọng, từ bàn giấy, quá dài so với persona, câu nào cũng nhắc chưa chuyển, viết hoa và chấm câu ở persona gõ thường, trả lời câu hỏi bằng một loạt câu hỏi.",
         "",
@@ -301,6 +353,20 @@ def _report(rows: list[dict], provider) -> str:
     return "\n".join(lines)
 
 
+def _wait_for_embeddings(client: TestClient, provider, limit_s: float = 240) -> None:
+    """Library vectors are attached in a background thread at startup. Starting
+    before they land scores the first scenarios on keywords only."""
+    if provider.is_mock:
+        return
+    end = time.monotonic() + limit_s
+    while time.monotonic() < end:
+        info = client.get("/api/health").json().get("embeddings") or {}
+        if info.get("mock") or (info.get("published") and info.get("ready") == info.get("published")):
+            return
+        time.sleep(2)
+    print("Cảnh báo: embedding thư viện chưa sẵn sàng, các tình huống đầu khớp theo từ khóa.")
+
+
 def main() -> None:
     _prepare_env()
     from app.main import create_app
@@ -308,6 +374,7 @@ def main() -> None:
     application = create_app()
     with TestClient(application) as client:
         provider = application.state.provider
+        _wait_for_embeddings(client, provider)
         rows = [_play(client, provider, scenario) for scenario in SCENARIOS]
     OUT.mkdir(parents=True, exist_ok=True)
     report = _report(rows, provider)

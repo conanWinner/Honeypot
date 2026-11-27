@@ -8,6 +8,7 @@ from the match history so the model cannot end the script on the opening.
 from __future__ import annotations
 
 import json
+import re
 import logging
 import threading
 import time
@@ -558,14 +559,20 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     elif top_script is not None:
         state.playbook_category = top_script.category
     book = playbook_state(state.playbook_category, state.checklist, state.indicators)
-    nxt = next_unasked(book, state.asked_keys)
+    # Only ask about what the scammer has brought up. A victim who asks "which
+    # account?" when nobody mentioned money, or "which ID?" when nobody mentioned
+    # an app, is inventing the scam, and that reads as staged.
+    said = " ".join([message.content for message in conversation.messages if message.role == "scammer"] + [text])
+    topics = _topics(said)
+    askable = [row for row in book["targets"] if _TARGET_TOPIC.get(row["key"], "") in topics | {""}]
+    nxt = next_unasked({**book, "targets": askable}, state.asked_keys)
     who_done = any(item.get("key") == "who" and item.get("done") for item in state.checklist)
     identity_spent = who_done or "who" in state.asked_keys or state.goals_used.count("ask_identity") >= 1
     if identity_spent and (nxt is None or nxt.get("goal") == "ask_identity"):
         nxt = next(
             (
                 row
-                for row in book["targets"]
+                for row in askable
                 if not row["done"] and row["key"] not in state.asked_keys and row.get("goal") != "ask_identity"
             ),
             None,
@@ -604,7 +611,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         alt = next(
             (
                 row
-                for row in book["targets"]
+                for row in askable
                 if not row["done"] and row.get("goal") not in {previous, "ask_identity"}
             ),
             None,
@@ -615,13 +622,20 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         alt = next(
             (
                 row
-                for row in book["targets"]
+                for row in askable
                 if not row["done"] and row.get("goal") not in {"ask_remote_id", "ask_identity"}
             ),
             None,
         )
         goal = alt["goal"] if alt else "ask_link"
         note = f"{note} Chưa nghe tên phần mềm điều khiển, chưa hỏi ID."
+    if _GOAL_TOPIC.get(goal) and _GOAL_TOPIC[goal] not in topics:
+        alt = next(
+            (row for row in askable if not row["done"] and row["key"] not in state.asked_keys and row.get("goal") not in {goal, "ask_identity"}),
+            None,
+        )
+        note = f"{note} Họ chưa nhắc tới {'tiền' if _GOAL_TOPIC[goal] == 'money' else 'phần mềm'}, chưa hỏi chuyện đó."
+        goal = alt["goal"] if alt else "ask_purpose"
     # Staged compliance: a payment destination is only worth reporting once the
     # scammer has stood behind it, so read it back first. Once every destination
     # is confirmed, raise a harmless obstacle and ask how else to pay, which tends
@@ -642,7 +656,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     same_bank = bool(own_bank) and any(
         own_bank and own_bank == fold(check.get("bank") or "").replace(" ", "") for check in state.account_checks
     )
-    aimed = next((row for row in book["targets"] if row["goal"] == goal and row["key"] not in state.asked_keys and not row["done"]), None)
+    aimed = next((row for row in askable if row["goal"] == goal and row["key"] not in state.asked_keys and not row["done"]), None)
     if aimed:
         state.asked_keys.append(aimed["key"])
     plan = plan.model_copy(update={"goal": goal, "rationale": note})
@@ -820,7 +834,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         action = "fallback"
     # A replaced draft must not lose the read-back: it is the point of this turn.
     if goal == "confirm_account" and readback is not None and not _read_back_in(final, readback):
-        spoken_back = readback_line(persona.id, _spoken_account(readback))
+        spoken_back = readback_line(persona.id, _spoken_account(readback), readback.get("kind", "bank_accounts"))
         if not inspect_outbound(spoken_back, allowed, persona.id):
             final = spoken_back
             action = "rewrite" if action == "allow" else action
@@ -1154,6 +1168,36 @@ def _message_dict(message: Message) -> dict:
         "reasoning": message.reasoning,
         "created_at": message.created_at.isoformat(),
     }
+
+
+# Words that are money only in a phrase: "đóng phí" but not "đóng cổng", "trả
+# tiền" but not "trả lời", "hoàn tiền" but not "hoàn thành", "đồng" only after a number.
+_MONEY_CUE = re.compile(
+    r"(?<!\w)(tiền|chuyển khoản|chuyển tiền|chuyển vào|chuyển qua|chuyển sang|phí|nạp|cọc|stk|tài khoản|"
+    r"ví|usdt|hoa hồng|vốn|lãi|giám định|ck|vnd|thanh toán|"
+    r"(?:đóng|nộp|trả)\s+(?:phí|tiền|phạt|thuế|học phí|cọc|bảo hiểm|góp|trước)|"
+    r"hoàn\s+(?:tiền|vé|phí|vốn|trả)|"
+    r"\d[\d.,]*\s*(?:đ|đồng|k|tr|triệu|nghìn|ngàn|usd)\b|triệu|nghìn|ngàn)(?!\w)",
+    re.IGNORECASE,
+)
+_APP_CUE = re.compile(r"(?<!\w)(ứng dụng|app|apk|cài|tải|phần mềm|file|zalo|telegram)(?!\w)", re.IGNORECASE)
+# Playbook targets that only make sense once the scammer raised the topic.
+_TARGET_TOPIC = {
+    "account": "money", "wallet": "money", "amount": "money", "fee": "money", "min": "money",
+    "remote": "remote", "remote_id": "remote", "permission": "app", "app": "app", "apk": "app",
+}
+_GOAL_TOPIC = {"ask_account_number": "money", "ask_transfer_destination": "money", "ask_remote_id": "remote"}
+
+
+def _topics(text: str) -> set[str]:
+    found = set()
+    if _MONEY_CUE.search(text or ""):
+        found.add("money")
+    if _APP_CUE.search(text or ""):
+        found.add("app")
+    if _remote_was_mentioned(text):
+        found.add("remote")
+    return found
 
 
 def _remote_was_mentioned(text: str) -> bool:

@@ -327,3 +327,41 @@ def test_new_hook_does_not_block_the_read_back(client):
     assert turns[-1]["panel"]["branch"]["kind"] == "new"
     assert turns[-1]["panel"]["goal"]["goal"] == "confirm_account"
     assert "1903000111222" in turns[-1]["victim_message"]["content"]
+
+
+def test_no_money_question_when_the_scam_is_not_about_money(client):
+    """Seen on the live model: the vote-for-me scam never mentions money, yet the
+    victim asked which account to transfer to. Only ask about what was raised."""
+    lines = [
+        "Ê bạn ơi, em gái mình đang thi ảnh tài năng nhí, bạn bình chọn giúp mình một phiếu với.",
+        "Bạn vào binhchon-tainang.online, bấm vào ảnh số 12 rồi đăng nhập Facebook để bình chọn.",
+        "Nó báo nhập mã 6 số gửi về điện thoại là để xác nhận phiếu thật, bạn gửi mình mã đó nhé.",
+        "Nhanh giúp mình với, 9 giờ tối nay đóng cổng bình chọn rồi.",
+    ]
+    _, turns = _talk(client, lines, persona="minh-sv")
+    goals = [turn["panel"]["goal"]["goal"] for turn in turns]
+    assert not {"ask_account_number", "ask_transfer_destination", "ask_remote_id"} & set(goals), goals
+    for turn in turns:
+        reply = turn["victim_message"]["content"].lower()
+        assert "stk" not in reply and "tài khoản" not in reply and "số tk" not in reply, reply
+
+
+def test_no_remote_id_question_before_any_app_is_mentioned(client):
+    lines = [
+        "Tôi là thiếu tá cơ quan cảnh sát điều tra. Số của anh đang liên quan vụ án.",
+        "Căn cước của anh bị kẻ gian dùng mở tài khoản trong đường dây rửa tiền.",
+        "Anh không được kể cho bất kỳ ai kể cả con cái.",
+    ]
+    _, turns = _talk(client, lines, persona="ba-nam")
+    goals = [turn["panel"]["goal"]["goal"] for turn in turns]
+    assert "ask_remote_id" not in goals
+    for turn in turns:
+        assert " id" not in turn["victim_message"]["content"].lower()
+
+
+def test_wallet_read_back_asks_for_the_owner_not_a_bank():
+    from app.agent.policy import readback_line
+
+    line = readback_line("tuan-vp", "T9AbCdEfGhJkMnPqRsTuVwXyZ23456789a", "crypto_wallets")
+    assert "ví" in line and "ngân hàng" not in line
+    assert "ngân hàng" in readback_line("tuan-vp", "9704229912345")

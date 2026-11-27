@@ -117,6 +117,17 @@ Chưa đạt mục tiêu dưới 6 giây. Chuỗi tối thiểu hiện là embed
 
 Lần đo này còn lộ thêm một lỗi hành vi: khi Analyst bật cờ nhánh mới (ở Minh, hoàn cảnh "học phí"), bước đọc lại số tài khoản bị chặn suốt cuộc thoại. Giờ đọc lại số được ưu tiên hơn việc đào tiếp chi tiết hoàn cảnh. Hỏi cách khác vẫn chờ hết nhánh mới.
 
+### 9. Chạy eval trên mô hình thật
+
+Lần chạy đầu bị sập, và lần sau cho số không đo được agent. Có bốn phát hiện:
+
+- **Bộ mô phỏng kẻ lừa có trần 7 giây** (vai `sim`, đặt cho câu ngắn khi luyện tập), nên lần nào cũng hết giờ, rồi rơi xuống Gemini đã hết quota. Giờ eval có trần riêng (`EVAL_SIM_TIMEOUT`, 20 giây), và lỗi thì dùng câu soạn sẵn. **Khóa Gemini dự phòng đang hết quota miễn phí**, nên khi router chậm, agent cũng không có lớp dự phòng cuối.
+- **Model đóng vai kẻ lừa từ chối diễn** ở 31/52 câu, viết lời cảnh báo thay vì lời lừa. Eval nhận ra câu kiểu đó, thay bằng câu soạn sẵn và đếm. Thêm chế độ `EVAL_SIM=scripted` để đo agent với câu kẻ lừa cố định.
+- **Eval bắt đầu trước khi thư viện có embedding** (việc gắn embedding chạy ngầm lúc khởi động). Giờ eval đợi đủ rồi mới chạy.
+- **Agent hỏi về điều kẻ lừa chưa nhắc.** Chiêu "bình chọn" không có tiền, Minh lại hỏi "chuyển vào tài khoản nào". Chiêu công an chưa có phần mềm, cô Năm lại hỏi "đọc số ID nào". Nạn nhân tự nghĩ ra chuyện chuyển tiền là dấu hiệu bất thường. Giờ các mục playbook về tiền (tài khoản, ví, phí, số tiền) và về phần mềm (ứng dụng, quyền, ID điều khiển) chỉ được hỏi khi phía kẻ lừa đã nhắc tới. Từ hai nghĩa được xét theo cụm: "đóng phí" là tiền, "đóng cổng" thì không; "trả tiền" là tiền, "trả lời" thì không.
+
+Ngưỡng phân loại được chỉnh lại bằng embedding thật (0,70 → 0,80). Kết quả cuối ở `eval/results/live/report.md`: phân loại đúng 11/11, chỉ dấu 7/7, lọt an toàn 0, giữ vai 52/52, câu văn máy 1/52, mỗi lượt trung vị 11,7 giây.
+
 ## Đo
 
 `python -m eval.run` (mock, 14 tình huống). Báo cáo ở `eval/results/report.md`.

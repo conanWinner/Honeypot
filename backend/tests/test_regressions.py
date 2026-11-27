@@ -292,11 +292,22 @@ def test_suspicion_from_the_previous_turn_does_not_force_a_stall(client):
 
 
 def test_quiet_turns_ask_for_a_missing_account(client):
+    # Once a fee is on the table, quiet turns push for where the money goes.
     created = client.post("/api/conversations", json={"persona_id": "tuan-vp", "channel": "web"}).json()
     last = None
-    for line in ("xin chào", "xin chào lại", "xin chào nữa"):
+    for line in ("Anh cần đóng một khoản phí nhé.", "xin chào lại", "xin chào nữa"):
         last = client.post(f"/api/conversations/{created['id']}/messages", json={"text": line}).json()
     assert last["panel"]["goal"]["goal"] == "ask_account_number"
+
+
+def test_quiet_turns_without_money_do_not_invent_an_account(client):
+    created = client.post("/api/conversations", json={"persona_id": "tuan-vp", "channel": "web"}).json()
+    goals = []
+    for line in ("xin chào", "xin chào lại", "xin chào nữa"):
+        body = client.post(f"/api/conversations/{created['id']}/messages", json={"text": line}).json()
+        goals.append(body["panel"]["goal"]["goal"])
+        assert "tài khoản" not in body["victim_message"]["content"].lower()
+    assert "ask_account_number" not in goals
 
 
 def test_rewrite_uses_the_same_aggressiveness(client, monkeypatch):

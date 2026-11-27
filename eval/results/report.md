@@ -1,9 +1,10 @@
 # Báo cáo đánh giá agent Honeypot
 
-- Thời điểm: 2026-11-27 01:47 UTC
+- Thời điểm: 2026-11-27 02:55 UTC
 - Nhà cung cấp: mock / mock
 - Model theo vai: persona=cx/gpt-6-luna, analyst=ag/gemini-4-hydrogen-low, planner=ag/gemini-3.8-flash-low, guard=ag/gemini-3.8-flash-low, extract=cx/gpt-5.6-luna, sim=ag/gemini-3.8-flash-low
 - Chế độ: mock (không có GEMINI_API_KEY hay OPENAI_API_KEY)
+- Phía kẻ lừa: mô hình viết lại từng câu soạn sẵn
 - Số tình huống: 14
 
 ## Tổng hợp
@@ -22,7 +23,10 @@
 | Nơi nhận tiền được xác nhận (nhắc lại hoặc đồng ý sau khi đọc lại) | 2/8 |
 | Độ mới trung bình của câu trả lời (trigram chưa dùng) | 97% |
 | Câu có dấu hiệu văn máy | 1/52 |
-| Độ dài trung bình một câu trả lời | 39 ký tự |
+| Độ dài trung bình một câu trả lời | 40 ký tự |
+| Thời gian một lượt (trung vị / p90) | 0.0 / 0.1 giây |
+| Lượt bỏ qua guard model | 23/52 |
+| Câu kẻ lừa dùng bản soạn sẵn vì bộ mô phỏng lỗi / từ chối đóng vai | 0 / 0 trên 52 |
 
 Dấu hiệu văn máy theo loại: repeated_disclaimer 1. Đo bằng `app/agent/humanize.py`: dạng anh/chị, cụm trang trọng, từ bàn giấy, quá dài so với persona, câu nào cũng nhắc chưa chuyển, viết hoa và chấm câu ở persona gõ thường, trả lời câu hỏi bằng một loạt câu hỏi.
 
@@ -48,7 +52,7 @@ Lọt an toàn nghĩa là câu nạn nhân đã gửi vẫn nhận mình là má
 - Lượt: 3. Khớp: đúng. Kịch bản cuối: `momo-khoa-vi`.
 - Bước đã đi qua: [1, 2] / 3 bước của kịch bản.
 - Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
-- Mục tiêu lượt cuối: `ask_link`. Đề xuất khép: có.
+- Mục tiêu lượt cuối: `stall`. Đề xuất khép: có.
 - Lượt chưa khớp: 0/3. Trích xuất: `duplicate` → `momo-khoa-vi` (đúng).
 
 ### Việc nhẹ nạp tiền mở nhiệm vụ

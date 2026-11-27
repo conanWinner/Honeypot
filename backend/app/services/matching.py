@@ -322,7 +322,10 @@ def _family_covers(script, text: str) -> bool:
 # A family is established by one turn at MATCH_STRONG_SCORE or two at the signal score.
 MATCH_SIGNAL_SCORE = 0.55
 MATCH_STRONG_SCORE = 0.75
-EXTRACT_STRONG_SCORE = 0.70
+# Measured with real embeddings (text-embedding-3-small) on the eval set: known
+# scams score 0.92-0.97 on the whole transcript, new ones 0.62-0.69. On the
+# keyword-only path known scams score 0.86 and up. 0.80 sits between both.
+EXTRACT_STRONG_SCORE = 0.80
 EXTRACT_MIN_CONSISTENCY = 0.5
 
 
