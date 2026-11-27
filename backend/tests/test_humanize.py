@@ -182,3 +182,10 @@ def test_persona_answers_a_bot_probe_instead_of_ignoring_it(client):
     assert body["panel"]["goal"]["goal"] in {"feign_confusion", "stall", "emotional_hook"}
     reply = body["victim_message"]["content"].lower()
     assert "link" not in reply and "tài khoản" not in reply
+
+
+def test_humanize_never_stacks_dots():
+    for seed in map(str, range(30)):
+        out = humanize("Có số hiệu không, cô hỏi cho chắc nhé...", "ba-nam", seed=seed)
+        assert "...." not in out
+        assert humanize("Thế à..... cháu nói đi", "ong-sau", seed=seed).count(".") <= 3

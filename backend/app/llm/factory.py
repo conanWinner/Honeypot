@@ -224,6 +224,8 @@ def build_provider(settings: Settings):
         role_fallback_timeouts(settings),
     )
     provider.turn_deadline = float(settings.turn_deadline)
+    provider.guard_skip_plain = bool(settings.guard_skip_plain)
+    provider.analyst_grace = float(settings.analyst_grace)
     provider.embed_cos_floor = floor if settings.embed_cos_floor < 0 else float(settings.embed_cos_floor)
     provider.embed_cos_span = span if settings.embed_cos_span <= 0 else float(settings.embed_cos_span)
     return provider

@@ -125,7 +125,7 @@ Mọi vai chat đi qua router tương thích OpenAI (9router) tại `OPENAI_BASE
 | Vai | Model | Dự phòng | Trần thời gian |
 | --- | --- | --- | --- |
 | Persona | `cx/gpt-6-luna` | `cx/gpt-5.6-luna` | 12 giây, dự phòng 10 giây |
-| Analyst | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 18 giây, dự phòng 12 giây |
+| Analyst | `ag/gemini-4-hydrogen-low` | `ag/gemini-3.8-flash-low` | 18 giây, dự phòng 12 giây |
 | Planner | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 18 giây, dự phòng 12 giây |
 | Guard | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 9 giây, dự phòng 7 giây |
 | Trích kịch bản | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 30 giây, dự phòng 20 giây |
@@ -170,7 +170,7 @@ pytest
 python -m eval.run
 ```
 
-`pytest` gồm 199 hàm test (454 ca khi tính cả ca tham số hóa) trong `backend/tests`. Môi trường test dùng SQLite và `LLM_PROVIDER=mock`, có `tests/test_training.py` cho việc che dữ liệu, điểm, điều kiện kết thúc, lời kẻ lừa và trắc nghiệm.
+`pytest` gồm 213 hàm test (492 ca khi tính cả ca tham số hóa) trong `backend/tests`. Môi trường test dùng SQLite và `LLM_PROVIDER=mock`, có `tests/test_training.py` cho việc che dữ liệu, điểm, điều kiện kết thúc, lời kẻ lừa và trắc nghiệm.
 
 Báo cáo hội thoại đã commit ở `eval/results/report.md` (2026-11-27, nhà cung cấp mock, mười bốn tình huống). Ba tình huống là chiêu không có trong 48 kịch bản gốc (phạt nguội CSGT, trợ lý bác sĩ bán thuốc, nhờ bình chọn để chiếm Facebook). Một tình huống ranh giới (hãng bay hoàn vé, cùng cơ chế với Shopee hoàn tiền) không chấm.
 

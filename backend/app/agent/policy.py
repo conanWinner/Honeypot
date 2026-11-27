@@ -657,6 +657,46 @@ def needs_guard(text: str) -> bool:
     return bool(re.search(r"https?://|www\.|(?<![\w@])[a-z0-9-]+\.[a-z]{2,24}", text or "", re.IGNORECASE))
 
 
+# Words that put a draft in the guard model's territory: acting, paying, codes,
+# papers, apps, or the bot question. Matched on the text with diacritics, so
+# "cái" (a determiner) is not "cài" (install).
+_GUARD_ACTION = re.compile(
+    r"(?<!\w)(cài|tải|bấm|nhấn|ấn|mở|quét|nhập|điền|đọc|gửi|làm theo|làm đúng|xong|sẵn sàng|chờ lệnh|bảo gì|"
+    r"thanh toán|đóng|nộp|trả|chuyển|ck|nạp|rút|xác nhận|xác thực|đăng nhập|mật khẩu|mã|căn cước|cccd|"
+    r"địa chỉ|số điện thoại|sđt|ảnh|chụp|video|ứng dụng|app|phần mềm|link|đường dẫn|ví|thẻ|"
+    r"máy|bot|người thật|trí tuệ|tiền|phí|khoản|đưa|triệu|nghìn|ngàn|đồng|vnd|otp|stk|tk|tài khoản|ngân hàng|bank|momo|zalopay|viettel ?pay|vnpay|usdt|id|"
+    r"anydesk|ultraviewer|teamviewer)(?!\w)",
+    re.IGNORECASE,
+)
+_GUARD_LINK = re.compile(r"https?://|www\.|(?<![\w@])[a-z0-9-]+\.[a-z]{2,24}\b", re.IGNORECASE)
+SKIP_GUARD_MAX_CHARS = 120
+
+
+# Turns where the guard always runs, whatever the wording.
+GUARD_ALWAYS_GOALS = {"read_fake_otp", "ask_alternative", "ask_remote_id"}
+
+
+def guard_skippable(text: str, rule_violations: list[str], allowed_numbers: set[str] | None = None, goal: str = "") -> bool:
+    """True only for a short, plain line the rules found clean and that touches nothing risky.
+
+    The guard model costs 3 to 5 seconds a turn. A line like "Ôi, cháu tên gì, ở
+    phường nào?" cannot claim a payment, an install or a code, so the model has
+    nothing to judge. Anything about money, codes, apps, links, papers, acting on
+    instructions, or being a machine still goes to the guard.
+    """
+    body = (text or "").strip()
+    if goal in GUARD_ALWAYS_GOALS:
+        return False
+    if not body or rule_violations or len(body) > SKIP_GUARD_MAX_CHARS:
+        return False
+    # Not needs_guard(): it folds diacritics, so "chuyện" (matter) reads as "chuyển" (transfer).
+    if _GUARD_ACTION.search(body) or _GUARD_LINK.search(body) or _AI_TOKEN.search(body):
+        return False
+    from app.agent.textutil import digit_runs
+
+    return all(number in (allowed_numbers or set()) for number in digit_runs(body))
+
+
 def rewrite_opening(text: str, recent: list[str] | None) -> str:
     """Change a repeated opening and keep the rest, especially a question that asks for an account, link, or app."""
     raw = (text or "").strip()

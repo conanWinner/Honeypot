@@ -134,8 +134,10 @@ def humanize(text: str, persona_id: str, recent: list[str] | None = None, seed: 
         body = re.sub(r"([.!?]\s+)([A-ZÀ-Ỹ])", lambda m: m.group(1) + m.group(2).lower(), body)
     if style.get("drop_final_period") and body.endswith(".") and not body.endswith(".."):
         body = body[:-1]
-    if style.get("ellipsis") and roll < 0.35 and body.endswith("."):
+    if style.get("ellipsis") and roll < 0.35 and body.endswith(".") and not body.endswith(".."):
         body = body[:-1] + "..."
+    # Models already write "..." for this kind of persona; never stack more dots.
+    body = re.sub(r"\.{4,}", "...", body)
     # Diacritics depend on the keyboard someone has set up, so decide once per
     # conversation, not per message: flipping between the two looks scripted.
     conversation = (seed or "").split(":", 1)[0]

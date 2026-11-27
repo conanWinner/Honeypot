@@ -1,8 +1,8 @@
 # Báo cáo đánh giá agent Honeypot
 
-- Thời điểm: 2026-11-27 01:14 UTC
+- Thời điểm: 2026-11-27 01:47 UTC
 - Nhà cung cấp: mock / mock
-- Model theo vai: persona=cx/gpt-6-luna, analyst=ag/gemini-3.8-flash-low, planner=ag/gemini-3.8-flash-low, guard=ag/gemini-3.8-flash-low, extract=cx/gpt-5.6-luna, sim=ag/gemini-3.8-flash-low
+- Model theo vai: persona=cx/gpt-6-luna, analyst=ag/gemini-4-hydrogen-low, planner=ag/gemini-3.8-flash-low, guard=ag/gemini-3.8-flash-low, extract=cx/gpt-5.6-luna, sim=ag/gemini-3.8-flash-low
 - Chế độ: mock (không có GEMINI_API_KEY hay OPENAI_API_KEY)
 - Số tình huống: 14
 

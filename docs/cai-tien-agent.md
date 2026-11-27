@@ -93,6 +93,30 @@ Nguồn thêm: hai nghiên cứu Turing test của Jones & Bergen ([arXiv 2405.0
 
 Lưu ý: câu mock mới được viết để qua chính bộ đo này, nên số 1/52 nói về câu mock chứ chưa nói về mô hình thật. Với mô hình thật, prompt mới, critique và `humanize` cùng chạy. Cần chạy `python -m eval.run` có khóa để có số thật. Bộ đo cũng chỉ bắt được những dấu hiệu viết thành luật; nó không thay được người đọc thử.
 
+### 8. Độ trễ
+
+Đo trên stack Docker với router thật, cùng cuộc thoại 5 lượt (giây):
+
+| Bước | Trước | Sau |
+| --- | --- | --- |
+| Embedding câu đến | 1,1 | 1,1 |
+| Analyst (`gemini-3.8-flash-low` → `gemini-4-hydrogen-low`) | 7,7–10 | 3,0–4,7 |
+| Planner (song song với Analyst) | 3,3–4,4 | 3,0–4,4 |
+| Persona | 2,3–6,1 | 2,1–4,2 |
+| Guard | 3,3–8,5 | 0 (câu thường) hoặc 2,5–6 |
+| **Cả lượt, trung vị** | **~16,5** | **~12** |
+
+Đã làm:
+
+- **Đổi model Analyst.** Mình phát lại đúng prompt Analyst của một lượt thật trên các model của router, mỗi model 3–4 lần. Phần lớn model trả lỗi 401/403/404 (router không có khóa nhà cung cấp đó). Trong các model chạy được, `ag/gemini-4-hydrogen-low` cho Analyst nhanh gấp đôi với kết quả tương đương: khớp đúng kịch bản, đúng bước, trích đúng số tài khoản. Planner thì không nhanh hơn nên giữ model cũ. Model dự phòng của Analyst đổi từ `cx/gpt-5.6-luna` (21 giây, quá trần) sang `gemini-3.8-flash-low`.
+- **Bỏ qua Guard model với câu thường** (`GUARD_SKIP_PLAIN`). Chỉ bỏ qua khi câu ngắn, luật thấy sạch, không có rewrite, không bị dò bot, và không chạm tiền, phí, tài khoản, ví, mã, OTP, ID, ứng dụng, đường dẫn, giấy tờ, hành động (bấm, cài, nhập, xong, làm theo) hay chuyện máy. Lượt đọc OTP, hỏi cách khác và hỏi ID điều khiển luôn qua Guard. Commit daab4fc từng bỏ một cơ chế miễn kiểm dựa trên hình dạng câu hỏi; cơ chế này dựa trên nội dung, và có test lấy toàn bộ ví dụ chặn trong prompt Guard. Trên cuộc thoại thật chỉ khoảng 1/10 lượt được bỏ qua, vì persona hay hỏi chuyện tiền. Đó là cố ý.
+- **Analyst không giữ lượt lại** (`ANALYST_GRACE`, mặc định 1 giây). Khi Planner đã xong, Analyst chỉ được chạy thêm 1 giây. Quá thời gian đó, lượt đi tiếp bằng phân tích dựa trên kết quả tìm thư viện, giống khi Analyst lỗi. Nếu Analyst xong trước khi lưu lượt thì ghi chú của nó vẫn được ghép vào hồ sơ. Analyst trên router có lúc vọt lên 7–10 giây, và đây là những lượt được lợi.
+- Đo riêng thời gian Analyst và Planner. Trước đây hai vai ghi chung một số, nên không biết vai nào chậm.
+
+Chưa đạt mục tiêu dưới 6 giây. Chuỗi tối thiểu hiện là embedding (1,1 giây) → Analyst/Planner (khoảng 4 giây) → Persona (khoảng 2,7 giây) → Guard (khoảng 3 giây), và các bước này phụ thuộc nhau. Muốn nhanh hơn nữa cần model nhanh hơn trên router: những model nhỏ đã thử (`gpt-4.1-nano`, `gpt-4o-mini`, `claude-haiku`) đều trả lỗi khóa. Bỏ hẳn Guard model thì nhanh thêm khoảng 3 giây, nhưng mất lớp an toàn thứ hai, nên mình không làm.
+
+Lần đo này còn lộ thêm một lỗi hành vi: khi Analyst bật cờ nhánh mới (ở Minh, hoàn cảnh "học phí"), bước đọc lại số tài khoản bị chặn suốt cuộc thoại. Giờ đọc lại số được ưu tiên hơn việc đào tiếp chi tiết hoàn cảnh. Hỏi cách khác vẫn chờ hết nhánh mới.
+
 ## Đo
 
 `python -m eval.run` (mock, 14 tình huống). Báo cáo ở `eval/results/report.md`.

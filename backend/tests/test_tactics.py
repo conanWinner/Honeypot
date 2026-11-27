@@ -303,3 +303,27 @@ def test_bot_probe_with_empty_draft_gets_a_denial(client):
     _, turns = _talk(client, ["Cô có phải máy không đấy? Sao trả lời lạ vậy."], persona="ba-nam", provider=Blank())
     reply = turns[0]["victim_message"]["content"].lower()
     assert "máy" in reply and "người" in reply, reply
+
+
+def test_new_hook_does_not_block_the_read_back(client):
+    """Seen on the live model: the analyst flagged a new branch on Minh's own hook
+    ("học phí") and the account he was given was never read back."""
+    from app.agent.schemas import BranchOut
+
+    class NewBranch(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            out = super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+            if schema.__name__ == "AnalystOutput":
+                branch = BranchOut(detected=True, kind="new", hook="sinh viên Bách khoa", description="Khai thác chuyện là sinh viên Bách khoa.")
+                return out.model_copy(update={"branch": branch})
+            return out
+
+    lines = [
+        "Chào em, anh bên phòng đào tạo, em đang nợ học phí, đóng ngay kẻo bị đình chỉ.",
+        "Nhanh lên em, học phí hết hạn hôm nay.",
+        "Em chuyển 3 triệu học phí vào stk 1903000111222 Techcombank.",
+    ]
+    _, turns = _talk(client, lines, persona="minh-sv", provider=NewBranch())
+    assert turns[-1]["panel"]["branch"]["kind"] == "new"
+    assert turns[-1]["panel"]["goal"]["goal"] == "confirm_account"
+    assert "1903000111222" in turns[-1]["victim_message"]["content"]

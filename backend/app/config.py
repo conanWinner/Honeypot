@@ -19,14 +19,14 @@ class Settings(BaseSettings):
     openai_model: str = "cx/gpt-6-luna"
     # Per-role router models. Empty falls back to OPENAI_MODEL. Small models only.
     model_persona: str = "cx/gpt-6-luna"
-    model_analyst: str = "ag/gemini-3.8-flash-low"
+    model_analyst: str = "ag/gemini-4-hydrogen-low"
     model_planner: str = "ag/gemini-3.8-flash-low"
     model_guard: str = "ag/gemini-3.8-flash-low"
     model_extract: str = "cx/gpt-5.6-luna"
     model_sim: str = "ag/gemini-3.8-flash-low"
     # One failover on the router, then Gemini. Same id as the primary is skipped.
     model_persona_fallback: str = "cx/gpt-5.6-luna"
-    model_analyst_fallback: str = "cx/gpt-5.6-luna"
+    model_analyst_fallback: str = "ag/gemini-3.8-flash-low"
     model_planner_fallback: str = "cx/gpt-5.6-luna"
     model_guard_fallback: str = "cx/gpt-5.6-luna"
     model_extract_fallback: str = "cx/gpt-6-luna"
@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     timeout_sim_fallback: float = 5
     # Whole turn, including analyst, planner, persona, repair, and guard.
     turn_deadline: float = 25
+    # Skip the guard model on a short line the rules found clean that touches no
+    # money, code, app, link, paper or bot question. Saves 3 to 5 s on such turns.
+    guard_skip_plain: bool = True
+    # Seconds the analyst may run past the planner before the turn goes on without
+    # it, steering on the library match. 0 waits the analyst's full budget.
+    analyst_grace: float = 1.0
     # Reliable default. gemini-2.5-flash-lite returns 404 and is rejected in the provider.
     gemini_model: str = "gemini-2.5-flash"
     # Optional. Tried first; 503, timeout, or 404 falls through to gemini_model.

@@ -38,6 +38,7 @@ from app.agent.policy import (
     assess_inbound,
     fallback_reply,
     contains_guard_subject,
+    guard_skippable,
     holding_line,
     inspect_outbound,
     soft_hints,
@@ -346,10 +347,21 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         )
 
     t0 = time.perf_counter()
+    role_ms: dict[str, int] = {}
+
+    def _timed(role_name, *args):
+        # Each role's own wall time, so a slow turn says which model was slow.
+        started_at = time.perf_counter()
+        try:
+            return _ask(*args)
+        finally:
+            role_ms[role_name] = int((time.perf_counter() - started_at) * 1000)
+
     pool = ThreadPoolExecutor(max_workers=2)
     try:
         analyst_future = pool.submit(
-            _ask,
+            _timed,
+            "analyst",
             AnalystOutput,
             ANALYST_SYSTEM,
             pack("Phân tích lượt mới nhất của đối phương.", analyst_ctx),
@@ -358,7 +370,8 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             420,
         )
         planner_future = pool.submit(
-            _ask,
+            _timed,
+            "planner",
             PlannerOutput,
             PLANNER_SYSTEM,
             pack("Chọn mục tiêu cho câu trả lời kế tiếp.", planner_ctx),
@@ -367,22 +380,38 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             260,
         )
         degraded = False
-        try:
-            analyst = analyst_future.result(timeout=max(_wait_for("analyst"), 0.05))
-        except (LLMError, TimeoutError, FuturesTimeout) as exc:
-            log.warning("analyst không trả lời, giữ mạch cũ: %s", type(exc).__name__)
-            analyst = _degraded_analyst(state, candidates)
-            degraded = True
+        analyst_late = None
         try:
             plan = planner_future.result(timeout=max(_wait_for("planner"), 0.05))
         except (LLMError, TimeoutError, FuturesTimeout) as exc:
             log.warning("planner không trả lời, dùng mục tiêu đang mở: %s", type(exc).__name__)
             plan = _degraded_plan(state)
             degraded = True
+        # Once the planner has its goal, the analyst gets a short grace, not its whole
+        # budget. A slow analyst (it spikes to 7 s on the router) would otherwise hold
+        # the persona. Past the grace the turn steers on the library match, and the
+        # analyst's notes are merged before saving if they arrive in time.
+        grace = float(getattr(provider, "analyst_grace", 1.0) or 0)
+        analyst_wait = _wait_for("analyst") if grace <= 0 else min(_wait_for("analyst"), grace)
+        try:
+            analyst = analyst_future.result(timeout=max(analyst_wait, 0.05))
+        except (TimeoutError, FuturesTimeout) as exc:
+            if grace > 0 and not analyst_future.done() and _wait_for("analyst") > analyst_wait:
+                log.info("analyst chậm, lượt đi tiếp theo khớp thư viện")
+                analyst_late = analyst_future
+            else:
+                log.warning("analyst không trả lời, giữ mạch cũ: %s", type(exc).__name__)
+                degraded = True
+            analyst = _degraded_analyst(state, candidates)
+        except LLMError as exc:
+            log.warning("analyst không trả lời, giữ mạch cũ: %s", type(exc).__name__)
+            analyst = _degraded_analyst(state, candidates)
+            degraded = True
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
-    analyst_ms = int((time.perf_counter() - t0) * 1000)
-    planner_ms = analyst_ms
+    waited_ms = int((time.perf_counter() - t0) * 1000)
+    analyst_ms = role_ms.get("analyst", waited_ms)
+    planner_ms = role_ms.get("planner", waited_ms)
 
     retrieval_by_id = {item["script_id"]: item for item in candidates}
     step_source = "model"
@@ -599,11 +628,14 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     # to surface a second account or wallet.
     readback = pending_readback(state)
     confirmed = [check for check in state.account_checks if check["confirmed"]]
-    if not real_suspicion and goal != "read_fake_otp" and branch.kind != "new":
+    # A payment destination outranks digging into a new hook: reading it back takes
+    # one turn, and the hook is still there next turn. Asking for another way to
+    # pay waits until the hook has been explored.
+    if not real_suspicion and goal != "read_fake_otp":
         if readback is not None:
             goal = "confirm_account"
             note = f"{note} Họ vừa đưa {readback['value']}: đọc lại cho họ xác nhận, hỏi tên chủ tài khoản."
-        elif confirmed and not state.alt_asked and len(state.account_checks) == len(confirmed):
+        elif branch.kind != "new" and confirmed and not state.alt_asked and len(state.account_checks) == len(confirmed):
             goal = "ask_alternative"
             note = f"{note} Đã xác nhận nơi nhận tiền. Viện một trở ngại vô hại để họ đưa cách nhận khác."
     own_bank = fold((persona.fake_profile or {}).get("bank_name") or "").replace(" ", "")
@@ -684,7 +716,17 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     # speculative check. A question never cancels the guard.
     guard_future = None
     rewrite_future = None
-    guard_pool = ThreadPoolExecutor(max_workers=2) if not persona_failed else None
+    # A plain line needs no model to tell it claims nothing. Rewrites, suspicion,
+    # rule hits and anything about money, codes, apps or links still go through.
+    guard_skipped = (
+        not persona_failed
+        and not notes
+        and bool(getattr(provider, "guard_skip_plain", True))
+        and not inbound["jailbreak"]
+        and not inbound["scammer_suspicious"]
+        and guard_skippable(draft, violations, allowed, goal)
+    )
+    guard_pool = ThreadPoolExecutor(max_workers=2) if not persona_failed and not guard_skipped else None
     guard_failed = False
     verdict = None
     try:
@@ -722,6 +764,10 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
                 verdict = guard_future.result(timeout=max(0.05, _wait_for("guard")))
         elif guard_future is not None:
             verdict = guard_future.result(timeout=max(0.05, _wait_for("guard")))
+        elif guard_skipped:
+            verdict = SafetyOutput(
+                approved=True, action="allow", notes="Câu ngắn, luật sạch, không chạm tiền, mã, app hay link: không gọi guard model."
+            )
         elif not guard_failed:
             verdict = SafetyOutput(approved=True, action="allow", notes="Persona chưa trả lời. Giữ câu trong vai.")
     except (LLMError, TimeoutError, FuturesTimeout, Exception) as exc:  # noqa: BLE001
@@ -821,6 +867,18 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     if spoken.memory_note:
         state.memory.append(spoken.memory_note)
         state.memory = state.memory[-12:]
+    analyst_status = "on_time"
+    if analyst_late is not None:
+        analyst_status = "late"
+        if analyst_late.done():
+            try:
+                arrived = analyst_late.result(timeout=0)
+            except Exception:  # noqa: BLE001
+                arrived = None
+            if arrived is not None:
+                # Too late to steer this turn, still worth keeping in the case file.
+                analyst = analyst.model_copy(update={"red_flags": arrived.red_flags, "extracted_fact": arrived.extracted_fact})
+                analyst_status = "late_merged"
     if analyst.extracted_fact:
         state.extracted_facts.append(analyst.extracted_fact)
         state.extracted_facts = state.extracted_facts[-20:]
@@ -888,6 +946,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "warnings": warning_refs,
         "aggressiveness": state.aggressiveness or "normal",
         "degraded": degraded,
+        "guard_skipped": guard_skipped,
         "latencies_ms": {
             "analyst": analyst_ms,
             "planner": planner_ms,
@@ -975,6 +1034,8 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "aggressiveness": state.aggressiveness or "normal",
         "degraded": degraded,
         "unmatched": state.unmatched,
+        "guard_skipped": guard_skipped,
+        "analyst_status": analyst_status,
         "match_strength": strength,
         "accounts": account_summary(state),
     }

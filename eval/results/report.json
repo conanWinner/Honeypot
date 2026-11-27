@@ -49,7 +49,7 @@
         "Số tài khoản là số nào, cháu đọc chậm cô chép ra giấy...",
         "Ừ, thế xong bước ấy thì làm gì nữa cháu?",
         "Rồi sao nữa? Cô làm thế nào tiếp?",
-        "Thế tài khoản đứng tên ai hả cháu? Cô phải ghi vào sổ...",
+        "Thế tài khoản đứng tên ai hả cháu? Cô phải ghi vào sổ.",
         "Cô ghi là số 0123456789012, đúng chưa cháu? Ai đứng tên số này?"
       ],
       "tells": [
@@ -60,7 +60,7 @@
         []
       ],
       "tell_turns": 0,
-      "mean_chars": 49.6,
+      "mean_chars": 49.2,
       "expected_goals": [],
       "goals_ok": null,
       "unmatched_turns": 0,
@@ -326,10 +326,10 @@
         "ask_next_instruction"
       ],
       "replies": [
-        "Cai link ay chau gui lai xem, chu khong thay...",
-        "Link nao chau, chu co thay gi dau...",
-        "Cai phan mem ay hien so gi chau bao chu xem, chu chua dong vao.",
-        "The xong cai ay thi sao?"
+        "Cái link ấy cháu gửi lại xem, chú không thấy.",
+        "Link nào cháu, chú có thấy gì đâu.",
+        "Cái phần mềm ấy hiện số gì cháu bảo chú xem, chú chưa động vào...",
+        "Thế xong cái ấy thì sao?"
       ],
       "tells": [
         [],
@@ -338,7 +338,7 @@
         []
       ],
       "tell_turns": 0,
-      "mean_chars": 42.5,
+      "mean_chars": 42.0,
       "expected_goals": [],
       "goals_ok": null,
       "unmatched_turns": 0,
@@ -658,7 +658,7 @@
       "replies": [
         "Ai đấy? Cô không lưu số này.",
         "Thế tài khoản đứng tên ai hả cháu? Cô phải ghi vào sổ.",
-        "Cái đường link ấy cháu gửi lại xem, cô không thấy đâu cả.",
+        "Cái đường link ấy cháu gửi lại xem, cô không thấy đâu cả...",
         "Số 0451000123987 phải không cháu? Cô chép ra giấy rồi, tên ai đứng đấy?"
       ],
       "tells": [
@@ -668,7 +668,7 @@
         []
       ],
       "tell_turns": 0,
-      "mean_chars": 52.5,
+      "mean_chars": 53.0,
       "expected_goals": [],
       "goals_ok": null,
       "unmatched_turns": 4,

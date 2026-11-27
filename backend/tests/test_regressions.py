@@ -565,7 +565,7 @@ def test_role_timeouts_and_fallbacks():
     assert provider.role_fallback_timeouts["persona"] == 10
     assert provider.role_fallback_timeouts["guard"] == 7
     assert provider.role_fallbacks["persona"] == "cx/gpt-5.6-luna"
-    assert provider.role_fallbacks["analyst"] == "cx/gpt-5.6-luna"
+    assert provider.role_fallbacks["analyst"] == "ag/gemini-3.8-flash-low"
     assert provider.role_fallbacks["guard"] == "cx/gpt-5.6-luna"
 
 
@@ -620,7 +620,8 @@ def test_agree_then_ask_is_blocked_and_plain_asks_pass():
     assert not is_extraction_ask(app_ask)
 
 
-def test_guard_runs_on_a_plain_question(client):
+def _guard_calls(client, reply: str, skip_plain: bool = True) -> list[str]:
+    from app.agent.schemas import PersonaOutput
     from app.llm.mock import MockProvider
 
     seen = []
@@ -628,19 +629,31 @@ def test_guard_runs_on_a_plain_question(client):
     class Spy(MockProvider):
         def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
             seen.append(kwargs.get("role") or "")
+            if schema.__name__ == "PersonaOutput":
+                return PersonaOutput(reply=reply, memory_note="")
             return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
 
-    client.app.state.provider = Spy()
+    provider = Spy()
+    provider.guard_skip_plain = skip_plain
+    client.app.state.provider = provider
     try:
         created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
-        response = client.post(
-            f"/api/conversations/{created['id']}/messages",
-            json={"text": "Alo, cô nghe máy không?"},
-        )
+        response = client.post(f"/api/conversations/{created['id']}/messages", json={"text": "Alo, cô nghe máy không?"})
         assert response.status_code == 200, response.text
-        assert "guard" in seen
+        return seen
     finally:
         client.app.state.provider = MockProvider()
+
+
+def test_guard_runs_on_a_question_that_touches_money(client):
+    # daab4fc dropped a skip based on question shape. A question about where money
+    # goes is still guarded; only content decides, never the question mark.
+    assert "guard" in _guard_calls(client, "Tiền ấy chuyển cho ai, rồi sau đó cô làm gì?")
+
+
+def test_guard_skips_a_plain_line_unless_turned_off(client):
+    assert "guard" not in _guard_calls(client, "Ai đấy? Cô không lưu số này.")
+    assert "guard" in _guard_calls(client, "Ai đấy? Cô không lưu số này.", skip_plain=False)
 
 
 def test_app_names_keep_vietnamese_letters():
