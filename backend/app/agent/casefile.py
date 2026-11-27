@@ -771,11 +771,25 @@ def track_accounts(state: AgentState, message: str) -> list[dict]:
             (check for check in reversed(state.account_checks) if check["read_back"] and check["read_back_turn"] == turn - 1),
             None,
         )
+    followup = False
+    if target is None and holder:
+        # "Đúng số đó, chủ tài khoản Nguyễn Văn Tâm" right after the number was given,
+        # with no read-back in between: the name belongs to that account.
+        target = next(
+            (check for check in reversed(state.account_checks) if check["kind"] == "bank_accounts" and check["first_turn"] == turn - 1),
+            None,
+        )
+        followup = target is not None
     if target is not None:
         if holder and not target["holder"]:
             target["holder"] = holder
-        if bank and not target["bank"]:
+        # A bank name only describes a bank account. "Không dùng được Techcombank thì
+        # chuyển qua ví MoMo" must not label the MoMo wallet as Techcombank.
+        if bank and not target["bank"] and target["kind"] == "bank_accounts":
             target["bank"] = bank.strip()
+        if followup and not target["confirmed"] and not denied:
+            target["confirmed"] = True
+            target["how"] = "nêu tên chủ tài khoản ở lượt sau"
     for check in state.account_checks:
         if check["confirmed"] or not check["read_back"] or check["read_back_turn"] != turn - 1:
             continue

@@ -35,6 +35,15 @@ _KIND_LABEL = {
 }
 
 _BUCKET_KIND = {"bank_accounts": "bank", "ewallets": "ewallet", "crypto_wallets": "crypto"}
+_WALLET_BRAND = {"momo": "MoMo", "zalopay": "ZaloPay", "viettelpay": "ViettelPay", "vnpay": "VNPay", "shopeepay": "ShopeePay"}
+
+
+def _present(kind: str, raw: str, bank: str) -> tuple[str, str]:
+    """(number to show, bank or wallet brand). Wallets are stored as "momo:0977…"."""
+    if kind == "ewallet":
+        brand, number = _wallet_parts(raw)
+        return number, _WALLET_BRAND.get(brand.lower(), brand) or bank
+    return raw, bank
 
 
 def _iso(value) -> str:
@@ -55,7 +64,7 @@ def _wallet_parts(value: str) -> tuple[str, str]:
 def _action_for(kind: str, bank: str, value: str) -> str:
     if kind == "ewallet":
         brand, _ = _wallet_parts(value)
-        brand = brand or bank or "ví điện tử"
+        brand = _WALLET_BRAND.get(brand.lower(), brand) or bank or "ví điện tử"
         return f"Gửi {brand} đề nghị rà soát và tạm khóa ví nhận tiền."
     if kind == "crypto":
         return "Gửi sàn hoặc đơn vị phát hành stablecoin đề nghị đánh dấu địa chỉ ví."
@@ -103,7 +112,9 @@ def _destinations(state: AgentState) -> list[dict]:
                 }
             )
     for row in rows:
-        row["action"] = _action_for(row["kind"], row["bank"], row["value"])
+        row["raw"] = row["value"]
+        row["value"], row["bank"] = _present(row["kind"], row["raw"], row["bank"])
+        row["action"] = _action_for(row["kind"], row["bank"], row["raw"])
     rows.sort(key=lambda row: (not row["confirmed"], row["first_turn"]))
     return rows
 
@@ -214,7 +225,7 @@ def build_dossier(session, conversation: Conversation) -> dict:
         linked[normalize_indicator(hit["kind"], str(hit["value"]))] = hit
     for row in destinations:
         bucket = {"bank": "bank_accounts", "ewallet": "ewallets", "crypto": "crypto_wallets"}[row["kind"]]
-        hit = linked.get(normalize_indicator(bucket, str(row["value"])))
+        hit = linked.get(normalize_indicator(bucket, str(row["raw"])))
         if hit is None and row["kind"] == "bank":
             hit = linked.get(re.sub(r"\D", "", str(row["value"])))
         row["seen_elsewhere"] = hit["seen_in"] if hit else []
@@ -297,7 +308,7 @@ def collect_destinations(session) -> list[dict]:
             if label and label not in item["stories"]:
                 item["stories"].append(label)
             item["last_seen"] = _iso(conv.created_at)
-            item["action"] = _action_for(item["kind"], item["bank"], item["value"])
+            item["action"] = _action_for(item["kind"], item["bank"], row["raw"])
     out = list(merged.values())
     for item in out:
         item["count"] = len(item["conversations"])

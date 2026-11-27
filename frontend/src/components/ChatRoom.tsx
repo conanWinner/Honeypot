@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, panelFromMessage, type Conversation, type DemoMeta, type Message, type Panel, type Script } from '../lib/api'
+import { api, ApiError, panelFromMessage, type Conversation, type DemoMeta, type Message, type Panel, type Script } from '../lib/api'
 import { sleep } from '../lib/utils'
 import { CasePanel } from './CasePanel'
 import { Button, Banner } from './ui'
@@ -135,9 +135,25 @@ export function ChatRoom({ id }: { id: string }) {
 
   async function approve() {
     if (!extracted) return
-    const script = await api<Script>(`/api/moderation/${extracted.script.id}/approve`, { method: 'POST' })
-    // Approving a proposed duplicate returns the script it was merged into.
-    setExtracted({ ...extracted, script, action: extracted.script.merge_target ? 'merged' : extracted.action })
+    setError('')
+    const token = sessionStorage.getItem('gianan-admin') ?? ''
+    try {
+      const script = await api<Script>(`/api/moderation/${extracted.script.id}/approve`, {
+        method: 'POST',
+        headers: token ? { 'X-Admin-Token': token } : undefined,
+      })
+      // Approving a proposed duplicate returns the script it was merged into.
+      setExtracted({ ...extracted, script, action: extracted.script.merge_target ? 'merged' : extracted.action })
+    } catch (reason) {
+      const status = reason instanceof ApiError ? reason.status : 0
+      setError(
+        status === 401 || status === 403
+          ? 'Cần mã quản trị. Nhập ADMIN_TOKEN ở tab Kiểm duyệt một lần, rồi bấm duyệt lại.'
+          : reason instanceof Error
+            ? reason.message
+            : 'Không duyệt được.',
+      )
+    }
   }
 
   if (!conversation && !error) return <p className="text-ink-soft">Đang mở hồ sơ…</p>

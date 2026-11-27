@@ -365,3 +365,18 @@ def test_wallet_read_back_asks_for_the_owner_not_a_bank():
     line = readback_line("tuan-vp", "T9AbCdEfGhJkMnPqRsTuVwXyZ23456789a", "crypto_wallets")
     assert "ví" in line and "ngân hàng" not in line
     assert "ngân hàng" in readback_line("tuan-vp", "9704229912345")
+
+
+def test_holder_named_next_turn_confirms_and_bank_name_skips_wallet():
+    state = _state()
+    state.turn_index = 4
+    track_accounts(state, "Không vào được link thì chuyển 1.250.000 đồng vào số tài khoản 190366778899 Techcombank.")
+    state.turn_index = 5
+    track_accounts(state, "Đúng số đó chú, chủ tài khoản Nguyễn Văn Tâm, cán bộ thu phạt.")
+    bank = state.account_checks[0]
+    assert bank["holder"].startswith("Nguyễn Văn Tâm")
+    assert bank["confirmed"] and bank["how"] == "nêu tên chủ tài khoản ở lượt sau"
+    state.turn_index = 6
+    track_accounts(state, "Không dùng được Techcombank thì chú chuyển qua ví MoMo số 0977001122 cũng được.")
+    wallet = next(c for c in state.account_checks if c["kind"] == "ewallets")
+    assert wallet["bank"] == ""
