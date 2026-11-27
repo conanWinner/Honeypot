@@ -504,3 +504,33 @@ class FallbackProvider:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         raise LLMError("Embedding không đi theo chuỗi chat.")
+
+
+class LastResortProvider:
+    """One more router model on a different upstream, tried after a role's primary
+    and fallback both failed. Replaces the direct Gemini key, whose free quota runs
+    out: the router's gemini/ route bills the router key, not Google's free tier."""
+
+    is_mock = False
+
+    def __init__(self, router: OpenAIProvider, model: str, timeout: float = 8.0):
+        self.router = router
+        self.model = model
+        self.timeout = timeout
+        self.name = "router-last-resort"
+        self.embed_model = ""
+
+    def complete(self, schema, system, user, temperature=0.4, thinking=False, model=None, role="",
+                 max_tokens=None, timeout=None, fallback_model=None, fallback_timeout=None, deadline=None):
+        del model, fallback_model, fallback_timeout, timeout
+        return self.router.complete(
+            schema, system, user, temperature, thinking=thinking, model=self.model, role=role,
+            max_tokens=max_tokens, timeout=self.timeout, fallback_model=None, deadline=deadline,
+        )
+
+    def complete_text(self, system, user, temperature=0.4, model=None, role="", max_tokens=120,
+                      timeout=None, fallback_model=None, fallback_timeout=None, prefer_fallback=False):
+        del model, fallback_model, fallback_timeout, prefer_fallback, timeout
+        return self.router.complete_text(
+            system, user, temperature, model=self.model, role=role, max_tokens=max_tokens, timeout=self.timeout,
+        )

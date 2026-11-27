@@ -24,13 +24,17 @@ class Settings(BaseSettings):
     model_guard: str = "ag/gemini-3.8-flash-low"
     model_extract: str = "cx/gpt-5.6-luna"
     model_sim: str = "ag/gemini-3.8-flash-low"
-    # One failover on the router, then Gemini. Same id as the primary is skipped.
+    # One failover on the router, then MODEL_LAST_RESORT, then the direct Gemini key if set. Same id as the primary is skipped.
     model_persona_fallback: str = "cx/gpt-5.6-luna"
     model_analyst_fallback: str = "ag/gemini-3.8-flash-low"
     model_planner_fallback: str = "cx/gpt-5.6-luna"
     model_guard_fallback: str = "cx/gpt-5.6-luna"
     model_extract_fallback: str = "cx/gpt-6-luna"
     model_sim_fallback: str = "cx/gpt-5.6-luna"
+    # Tried after a role's primary and fallback both fail. Pick another upstream than
+    # ag/ and cx/ so one rate limit cannot take out all three. Empty = no extra layer.
+    model_last_resort: str = "gemini/gemini-3.5-flash-lite"
+    timeout_last_resort: float = 8
     # Seconds. A hung router call used to sit for 40s, then retry the same model.
     timeout_persona: float = 12
     timeout_analyst: float = 18

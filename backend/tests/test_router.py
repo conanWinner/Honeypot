@@ -198,7 +198,38 @@ def test_default_chat_order_is_router_then_gemini_embeddings_via_router():
     assert provider._chat.chain[0].name == "openai-compatible"
     assert provider._chat.chain[0].model == "cx/gpt-6-luna"
     assert provider._chat.chain[0].base_url == "https://router.example/v1"
-    assert provider._chat.chain[1].name == "gemini"
+    assert provider._chat.chain[1].name == "router-last-resort"
+    assert provider._chat.chain[1].model == "gemini/gemini-3.5-flash-lite"
+    assert provider._chat.chain[2].name == "gemini"
+
+
+def test_last_resort_runs_after_role_models_and_ignores_them():
+    from app.agent.schemas import SafetyOutput
+    from app.llm.openai_provider import FallbackProvider, LastResortProvider
+
+    calls = []
+
+    class Router:
+        name = "openai-compatible"
+        model = "cx/gpt-6-luna"
+
+        def complete(self, schema, system, user, temperature=0.4, **kw):
+            calls.append((kw["model"], kw.get("fallback_model")))
+            if kw["model"] != "gemini/gemini-3.5-flash-lite":
+                raise RuntimeError("router 503")
+            return schema(action="allow")
+
+    router = Router()
+    chat = FallbackProvider([router, LastResortProvider(router, "gemini/gemini-3.5-flash-lite")])
+    out = chat.complete(SafetyOutput, "s", "u", model="ag/gemini-3.8-flash-low", fallback_model="cx/gpt-5.6-luna")
+    assert out.action == "allow"
+    assert calls == [("ag/gemini-3.8-flash-low", "cx/gpt-5.6-luna"), ("gemini/gemini-3.5-flash-lite", None)]
+
+
+def test_no_last_resort_when_unset_and_no_gemini_key():
+    settings = Settings(llm_api_key="router-key", gemini_api_key="", model_last_resort="", llm_provider="auto")
+    provider = build_provider(settings)
+    assert provider._chat.name == "openai-compatible"
 
 
 def test_gemini_mode_reverses_the_chat_order():
