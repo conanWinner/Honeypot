@@ -27,7 +27,7 @@ Một terminal: `uvicorn app.main:app --app-dir backend --port 8091`, với `DAT
 
 ## Demo giám khảo
 
-Mở `/phan-tich/demo` và bấm **Bắt đầu demo**. Người xem đóng vai người gọi. Agent là bà Nguyễn Thị Năm. Bấm «Tự đi nốt các câu gợi ý», rồi trích xuất. Chuyện con ở Đức là nhánh thư viện đã có. Việc bà sống một mình là nhánh mới, nên hồ sơ vào hàng chờ. Duyệt ở `/phan-tich/kiem-duyet` thì bản đó được xuất bản. Trang còn một demo thứ hai: ông Sáu bị ép cài app Dịch vụ công giả.
+Mở `/phan-tich/demo`. Trang có chín kịch bản: năm chiêu chưa có trong thư viện và bốn chiêu đã có. Phần «Vòng chiêu mới, năm bước» dẫn đi từ chat, trích xuất, duyệt, cho tới lúc người dùng thấy cảnh báo. Nút «Đặt lại dữ liệu demo» xóa hội thoại demo và kịch bản trích từ chúng. Lời dẫn từng phút nằm ở [kich-ban-demo.md](kich-ban-demo.md).
 
 Bật **Luận giải của agent** trong phòng hội thoại để xem JSON của phân tích, kế hoạch và lớp an toàn từng lượt. Banner khóa model và embedding chỉ hiện trong Phòng phân tích.
 

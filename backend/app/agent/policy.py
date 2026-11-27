@@ -736,6 +736,28 @@ def rewrite_opening(text: str, recent: list[str] | None) -> str:
     return rewritten
 
 
+_INTERJECTIONS = {"ôi", "ơ", "ờ", "ừ", "ui", "ủa", "chết", "trời", "thế", "ồ", "à", "ây"}
+
+
+def _first_word(text: str) -> str:
+    match = re.match(r"\s*([^\W\d_]+)", text or "")
+    return match.group(1).lower() if match else ""
+
+
+def drop_repeated_interjection(text: str, recent: list[str] | None) -> str:
+    """'Ôi…', 'Ôi…', 'Ôi…': the same exclamation opening reply after reply is a tell.
+    Drop it when one of the last two replies opened with it. 'Dạ' stays: it is register."""
+    word = _first_word(text)
+    if word not in _INTERJECTIONS:
+        return text
+    if not any(_first_word(old) == word for old in (recent or [])[-2:]):
+        return text
+    rest = re.sub(r"^\s*[^\W\d_]+[\s,.!…]*", "", text, count=1)
+    if len(rest) < 4:
+        return text
+    return rest[0].upper() + rest[1:]
+
+
 def _trigrams(text: str) -> set[tuple[str, ...]]:
     words = fold(re.sub(r"[^\w\s]", " ", text or "")).split()
     return {tuple(words[index : index + 3]) for index in range(len(words) - 2)}

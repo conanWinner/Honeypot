@@ -38,6 +38,7 @@ from app.agent.policy import (
     VIOLATION_LABELS,
     assess_inbound,
     doubt_cue,
+    drop_repeated_interjection,
     fallback_reply,
     contains_guard_subject,
     guard_skippable,
@@ -862,6 +863,9 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             final = rewritten
             if action == "allow":
                 action = "rewrite"
+    trimmed = drop_repeated_interjection(final, recent_replies)
+    if trimmed != final and not inspect_outbound(trimmed, allowed, persona.id):
+        final = trimmed
     if not final:
         final = fallback_reply(persona.id, recent_replies)
         action = "fallback"

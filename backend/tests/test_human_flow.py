@@ -80,3 +80,13 @@ def test_doubt_needs_a_cue_in_the_message():
     assert not doubt_cue("Chuyện này chú không được kể với ai.")
     assert not doubt_cue("Xe máy biển số của chú có biên bản phạt nguội.")
     assert doubt_cue("Bác là AI à?")
+
+
+def test_same_exclamation_is_not_repeated():
+    from app.agent.policy import drop_repeated_interjection as drop
+
+    recent = ["Dạ thật ạ?", "Ôi bé Bông nhà em dưới 6 tuổi ạ."]
+    assert drop("Ôi em chưa kịp đăng ký ạ, hạn tới ngày nào?", recent) == "Em chưa kịp đăng ký ạ, hạn tới ngày nào?"
+    assert drop("Dạ em ghi lại nha", ["Dạ thật ạ?"]) == "Dạ em ghi lại nha"
+    assert drop("Ôi thế à", ["Ơ"]) == "Ôi thế à"
+    assert drop("Ơ, chú không rành.", ["Ơ hay, xe chú để ở nhà."]) == "Chú không rành."

@@ -37,8 +37,10 @@ Mặc định lấy từ `backend/app/config.py`. `.env.example` liệt kê các
 | `TURN_DEADLINE` | 25 | Trần cả lượt honeypot, gồm sửa JSON và đổi model |
 | `GUARD_SKIP_PLAIN` | `true` | Bỏ qua guard model với câu ngắn mà luật thấy sạch và không chạm tiền, mã, app, link, giấy tờ hay chuyện máy. `false` để luôn gọi guard |
 | `ANALYST_GRACE` | 1.0 | Giây analyst được chạy quá planner. Quá mức này lượt đi tiếp theo khớp thư viện, ghi chú của analyst được ghép vào hồ sơ nếu kịp. `0` để đợi đủ |
-| `LLM_PROVIDER` | `auto` | `auto` hoặc `openai-compatible`: router rồi Gemini. `gemini`: ngược lại. `mock`: test và demo không khóa |
-| `GEMINI_API_KEY` | trống | Khóa Google AI Studio. Chat dự phòng, và embedding khi không đi router |
+| `LLM_PROVIDER` | `auto` | `auto` hoặc `openai-compatible`: router, rồi lớp cuối, rồi Gemini nếu có khóa. `gemini`: ngược lại. `mock`: test và demo không khóa |
+| `MODEL_LAST_RESORT` | `gemini/gemini-3.5-flash-lite` | Model router thử sau khi model chính và dự phòng của một vai đều lỗi. Nên chọn upstream khác `ag/` và `cx/`. Để trống là tắt lớp này |
+| `TIMEOUT_LAST_RESORT` | `8` | Giây cho lớp cuối |
+| `GEMINI_API_KEY` | trống | Không bắt buộc. Khóa Google AI Studio gọi thẳng, chỉ thử sau `MODEL_LAST_RESORT`, và cho embedding khi không đi router |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Chat Gemini. `gemini-2.5-flash-lite` bị từ chối vì 404 |
 | `GEMINI_MODEL_PREFERRED` | trống | Thử trước, ví dụ `gemini-3.5-flash`. 503, timeout hoặc 404 thì về `GEMINI_MODEL` |
 | `GEMINI_MODEL_FALLBACK` | `gemini-2.5-flash` | Model Gemini cuối cùng |

@@ -10,7 +10,10 @@ Honeypot là nền tảng tiếng Việt cho MoMo Tech Contest 2026, bảng Anti
 - **Xu hướng** (`/xu-huong`): số vụ theo loại, tháng và thương hiệu, kèm phương thức đang nổi.
 - **Báo cáo** (`/bao-cao`): dán tin để đối chiếu kho, rồi có thể giao cuộc thoại cho agent.
 - **Bị lừa** (`/bi-lua`): bốn việc cần làm ngay sau khi chuyển tiền hoặc làm theo người lạ, gồm cảnh giác chiêu hứa lấy lại tiền.
-- **Phòng phân tích** (`/phan-tich`): hội thoại, mạng lưới chỉ dấu, hàng chờ kiểm duyệt, demo giám khảo và trạng thái hệ thống.
+- **Phòng phân tích** (`/phan-tich`): hội thoại, mạng lưới chỉ dấu, nơi nhận tiền, hàng chờ kiểm duyệt, demo giám khảo và trạng thái hệ thống.
+- **Hồ sơ tố giác** (`/phan-tich/ho-so/:id`): từ một cuộc thoại, liệt kê nơi nhận tiền (ghi rõ cái nào kẻ lừa đã xác nhận), đường dẫn, kênh liên lạc, phân loại, dòng thời gian và mã băm SHA-256 của bản thoại. In ra PDF hoặc tải JSON.
+- **Nơi nhận tiền** (`/phan-tich/noi-nhan-tien`): mọi tài khoản và ví qua các cuộc thoại, gộp theo số. Tài khoản dùng cho nhiều chiêu được xếp lên đầu. Tải được CSV để gửi ngân hàng hoặc ví điện tử.
+- **Chiêu mới ghi nhận** (Trang chủ, Cảnh báo): chiêu do honeypot bắt được và người duyệt đã công bố hiện ngay cho người dùng.
 
 Thanh trên có Trang chủ, Luyện tập, Cảnh báo, Xu hướng, nút Báo cáo lừa đảo, và liên kết Phòng phân tích. Điện thoại có bốn mục dưới cùng: Trang chủ, Luyện tập, Cảnh báo, Báo cáo. Khi chưa gắn khóa, chân trang ghi «Chế độ mô phỏng — chưa gắn khóa model».
 
@@ -120,7 +123,7 @@ flowchart TD
 
 ## Mô hình
 
-Mọi vai chat đi qua router tương thích OpenAI (9router) tại `OPENAI_BASE_URL`. Model để trống thì dùng `OPENAI_MODEL`. Hết giờ, JSON hỏng hoặc HTTP lỗi thì đổi một lần sang model dự phòng của vai đó, không gọi lại cùng model, rồi mới sang Gemini nếu có khóa.
+Mọi vai chat đi qua router tương thích OpenAI (9router) tại `OPENAI_BASE_URL`. Model để trống thì dùng `OPENAI_MODEL`. Khi hết giờ, JSON hỏng hoặc HTTP lỗi, vai đó đổi một lần sang model dự phòng của nó (không gọi lại cùng model). Nếu vẫn lỗi thì thử `MODEL_LAST_RESORT` trên một upstream khác của router. Khóa Gemini gọi thẳng chỉ được thử sau cùng, nếu có đặt.
 
 | Vai | Model | Dự phòng | Trần thời gian |
 | --- | --- | --- | --- |
@@ -130,7 +133,7 @@ Mọi vai chat đi qua router tương thích OpenAI (9router) tại `OPENAI_BASE
 | Guard | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 9 giây, dự phòng 7 giây |
 | Trích kịch bản | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 30 giây, dự phòng 20 giây |
 | Giọng luyện tập (`sim`) | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 7 giây, dự phòng 5 giây |
-| Chat dự phòng Gemini | `gemini-2.5-flash` | `gemini-2.5-flash` | theo lần gọi |
+| Lớp cuối (`MODEL_LAST_RESORT`) | `gemini/gemini-3.5-flash-lite` qua router | khóa Gemini gọi thẳng nếu có | 8 giây |
 | Embedding | `openrouter/openai/text-embedding-3-small` | để trống: lỗi thì tìm theo từ khóa | 6 giây một câu |
 
 Cả lượt honeypot có trần `TURN_DEADLINE` 25 giây. `GET /api/health/llm` là ping làm nóng lúc khởi động. Embedding mặc định 768 chiều qua `/v1/embeddings`. Chi tiết failover, cosine và gắn lại vector nằm ở [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md).
@@ -213,6 +216,7 @@ Một lần chạy mới ghi ra thư mục tạm, hoặc đường `EVAL_OUT` n�
 - [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md) — điều kiện khép, nhánh, playbook, embedding, failover.
 - [docs/bien-moi-truong.md](docs/bien-moi-truong.md) — bảng biến môi trường.
 - [docs/trien-khai.md](docs/trien-khai.md) — chạy không Docker, demo giám khảo, VPS, Render, Railway, Fly, nhập dữ liệu công khai.
+- [docs/kich-ban-demo.md](docs/kich-ban-demo.md) — kịch bản trình bày 8 phút, chín kịch bản demo, xử lý sự cố.
 
 ## Thư viện mã nguồn mở
 
