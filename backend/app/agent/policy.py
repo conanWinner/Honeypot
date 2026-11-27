@@ -751,10 +751,22 @@ def readback_line(persona_slug: str, account: str) -> str:
     return _voiced(line, persona_slug).replace("ACCOUNT", account)
 
 
-def alternative_line(persona_slug: str) -> str:
-    """A harmless obstacle plus a request for another way to pay. Claims nothing was tried."""
-    line = "{Me} không dùng ngân hàng đó, cũng không rành chuyển khoản. {You} còn số nào khác hay người nhận khác không?"
+def alternative_line(persona_slug: str, same_bank: bool = False) -> str:
+    """A harmless obstacle plus a request for another way to pay. Claims nothing was tried.
+
+    When the scammer's bank is the persona's own, "I don't use that bank" would
+    contradict the profile, so the obstacle is not knowing how to transfer.
+    """
+    if same_bank:
+        line = "{Me} không rành chuyển khoản trên điện thoại, phải nhờ người nhà làm hộ. {You} có cách nào khác không, ví hay số khác?"
+    else:
+        line = "{Me} không dùng ngân hàng đó, cũng không rành chuyển khoản. {You} còn số nào khác hay người nhận khác không?"
     return _voiced(line, persona_slug)
+
+
+def denial_line(persona_slug: str) -> str:
+    """Answer "are you a bot?" the way a confused person would, instead of ignoring it."""
+    return _voiced("Máy gì cơ, {me} là người chứ máy gì. {You} nói gì {me} chẳng hiểu.", persona_slug)
 
 
 def typing_ms(text: str, persona_slug: str) -> int:

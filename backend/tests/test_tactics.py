@@ -245,7 +245,7 @@ def test_every_persona_reads_back_the_account(client):
 
 
 def test_stock_lines_speak_in_each_personas_own_pronouns():
-    from app.agent.policy import alternative_line, fallback_reply, holding_line, readback_line, voice_issues
+    from app.agent.policy import alternative_line, denial_line, fallback_reply, holding_line, readback_line, voice_issues
     from app.data.personas import PERSONAS, PRONOUNS
 
     for persona in PERSONAS:
@@ -256,6 +256,8 @@ def test_stock_lines_speak_in_each_personas_own_pronouns():
             holding_line(slug),
             readback_line(slug, "9704229912345"),
             alternative_line(slug),
+            alternative_line(slug, same_bank=True),
+            denial_line(slug),
         ]
         for line in lines:
             assert voice_issues(line, slug) == [], (slug, line)
@@ -272,3 +274,32 @@ def test_every_persona_asks_for_an_alternative(client):
         reply = turns[1]["victim_message"]["content"]
         assert "khác" in reply, (persona["id"], reply)
         assert voice_issues(reply, persona["id"]) == [], (persona["id"], reply)
+
+
+def test_alternative_never_contradicts_the_persona_bank(client):
+    """Cô Năm banks with Vietcombank: she cannot say she doesn't use it."""
+    lines = [
+        "Cô chuyển vào tài khoản giám định số 0451000123987 Vietcombank.",
+        "Đúng rồi cô, chủ tài khoản Lê Thị Hoa.",
+    ]
+    _, turns = _talk(client, lines, persona="ba-nam")
+    assert turns[1]["panel"]["goal"]["goal"] == "ask_alternative"
+    reply = turns[1]["victim_message"]["content"].lower()
+    assert "không dùng" not in reply and "khác" in reply
+    # A different bank may use the plain obstacle.
+    _, turns = _talk(client, ["Cô chuyển vào stk 9704229912345 MB Bank.", "Đúng rồi cô."], persona="ba-nam")
+    assert "khác" in turns[1]["victim_message"]["content"]
+
+
+def test_bot_probe_with_empty_draft_gets_a_denial(client):
+    from app.agent.schemas import PersonaOutput
+
+    class Blank(MockProvider):
+        def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
+            if schema.__name__ == "PersonaOutput":
+                return PersonaOutput(reply="", memory_note="")
+            return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
+
+    _, turns = _talk(client, ["Cô có phải máy không đấy? Sao trả lời lạ vậy."], persona="ba-nam", provider=Blank())
+    reply = turns[0]["victim_message"]["content"].lower()
+    assert "máy" in reply and "người" in reply, reply

@@ -264,6 +264,10 @@ class MockProvider:
         recent = [item.lower() for item in context.get("recent_openings") or []]
         order = [lines[(turn + step) % len(lines)] for step in range(len(lines))]
         text = next((line for line in order if not any(line.lower().startswith(old[:12]) for old in recent if old)), order[0])
+        if goal == "ask_alternative" and context.get("same_bank"):
+            from app.agent.policy import alternative_line
+
+            return PersonaOutput(reply=alternative_line(slug, True), memory_note="Hỏi cách nhận khác.")
         account = context.get("account_to_confirm") or "số đó"
         text = text.replace("{otp}", otp).replace("{hook}", hook).replace("{bank}", bank).replace("{account}", account)
         note = f"Đã nói theo mục tiêu {goal}."

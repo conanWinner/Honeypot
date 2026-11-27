@@ -49,6 +49,7 @@ from app.agent.policy import (
     recommend_wrap,
     repeats_opening,
     alternative_line,
+    denial_line,
     readback_line,
     rewrite_opening,
     with_fake_otp,
@@ -58,7 +59,7 @@ from app.agent.prompts import ANALYST_SYSTEM, PERSONA_SYSTEM, PLANNER_SYSTEM, SA
 from app.data.playbooks import next_unasked, playbook_state
 from app.agent.schemas import AnalystOutput, BranchOut, MatchOut, PersonaOutput, PlannerOutput, SafetyOutput
 from app.agent.state import AgentState, MatchSnap
-from app.agent.textutil import digit_runs
+from app.agent.textutil import digit_runs, fold
 from app.data.personas import PRONOUNS
 from app.models import Message, TurnLog
 from app.llm.base import LLMError
@@ -605,6 +606,10 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         elif confirmed and not state.alt_asked and len(state.account_checks) == len(confirmed):
             goal = "ask_alternative"
             note = f"{note} Đã xác nhận nơi nhận tiền. Viện một trở ngại vô hại để họ đưa cách nhận khác."
+    own_bank = fold((persona.fake_profile or {}).get("bank_name") or "").replace(" ", "")
+    same_bank = bool(own_bank) and any(
+        own_bank and own_bank == fold(check.get("bank") or "").replace(" ", "") for check in state.account_checks
+    )
     aimed = next((row for row in book["targets"] if row["goal"] == goal and row["key"] not in state.asked_keys and not row["done"]), None)
     if aimed:
         state.asked_keys.append(aimed["key"])
@@ -637,6 +642,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "recent_openings": [],
         "ask_hint": (aimed or {}).get("hint", "") if aimed and goal == (aimed or {}).get("goal") else "",
         "account_to_confirm": _spoken_account(readback) if goal == "confirm_account" and readback else "",
+        "same_bank": same_bank,
         "clock": _clock(conversation.messages),
         "style": {key: value for key, value in style_of(persona.id).items() if key in {"case", "max_chars", "reactions", "particles", "habits"}},
     }
@@ -773,9 +779,14 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             final = spoken_back
             action = "rewrite" if action == "allow" else action
     if goal == "ask_alternative" and action == "fallback":
-        asked_other = alternative_line(persona.id)
+        asked_other = alternative_line(persona.id, same_bank)
         if not inspect_outbound(asked_other, allowed, persona.id):
             final = asked_other
+    # A bot probe answered with a generic "say that again" reads as evasive.
+    if action == "fallback" and inbound["scammer_suspicious"]:
+        denied = denial_line(persona.id)
+        if not inspect_outbound(denied, allowed, persona.id):
+            final = denied
     rejected = None
     if final.strip() != draft.strip():
         codes = list(dict.fromkeys([*violations, *(verdict.violations or [])]))
