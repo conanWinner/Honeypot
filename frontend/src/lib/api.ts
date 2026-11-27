@@ -82,6 +82,9 @@ export type Script = {
   occurrence_count: number
   status: string
   novelty_note: string
+  relation?: '' | 'new_root' | 'variant' | 'duplicate'
+  merge_target?: string | null
+  merge_target_title?: string
   has_embedding: boolean
   indicators?: {
     phones?: string[]
@@ -139,6 +142,9 @@ export type Panel = {
   indicators?: Indicators
   aggressiveness?: string
   degraded?: boolean
+  unmatched?: boolean
+  match_strength?: { weak: boolean; family: string; score: number; consistency: number }
+  accounts?: { kind: string; value: string; confirmed: boolean; how: string; holder: string; bank: string }[]
   risk?: RiskInfo
   timeline?: TimelineEntry[]
   playbook?: Playbook

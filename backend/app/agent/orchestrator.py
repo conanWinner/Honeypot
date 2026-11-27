@@ -14,10 +14,11 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.agent.casefile import (
     STAGE_LABELS,
+    account_summary,
     checklist_signature,
     choose_stage,
     clamp_new_branch,
@@ -27,7 +28,9 @@ from app.agent.casefile import (
     forced_ask,
     next_gap,
     note_progress,
+    pending_readback,
     stabilize_family,
+    track_accounts,
     update_casefile,
 )
 from app.agent.policy import (
@@ -45,10 +48,12 @@ from app.agent.policy import (
     repair_pronouns,
     recommend_wrap,
     repeats_opening,
+    alternative_line,
+    readback_line,
     rewrite_opening,
-    typing_ms,
     with_fake_otp,
 )
+from app.agent.humanize import humanize, style_of, typing_delay_ms
 from app.agent.prompts import ANALYST_SYSTEM, PERSONA_SYSTEM, PLANNER_SYSTEM, SAFETY_SYSTEM
 from app.data.playbooks import next_unasked, playbook_state
 from app.agent.schemas import AnalystOutput, BranchOut, MatchOut, PersonaOutput, PlannerOutput, SafetyOutput
@@ -57,7 +62,15 @@ from app.agent.textutil import digit_runs
 from app.data.personas import PRONOUNS
 from app.models import Message, TurnLog
 from app.llm.base import LLMError
-from app.services.matching import branch_hint, candidate_payload, script_blob, search_scripts, settle_new_branch
+from app.services.matching import (
+    branch_hint,
+    candidate_payload,
+    match_strength,
+    raw_best,
+    script_blob,
+    search_scripts,
+    settle_new_branch,
+)
 from app.taxonomy import GOALS
 
 log = logging.getLogger("gianan.agent")
@@ -173,7 +186,7 @@ def _degraded_analyst(state: AgentState, candidates: list[dict]) -> AnalystOutpu
 
 def _degraded_plan(state: AgentState) -> PlannerOutput:
     goal = state.goals_used[-1] if state.goals_used else "ask_next_instruction"
-    if goal in {"close_polite", "stall", "feign_confusion", "read_fake_otp"}:
+    if goal in {"close_polite", "stall", "feign_confusion", "read_fake_otp", "confirm_account", "ask_alternative"}:
         goal = "ask_next_instruction"
     return PlannerOutput(goal=goal, rationale="Lập kế hoạch chưa trả lời. Giữ câu hỏi đang mở.")
 
@@ -208,6 +221,11 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         last = state.match_history[-1]
         prefer = {item for item in (last.script_id, last.family_id) if item}
     published = search_scripts(session, text, provider, k=6, prefer_ids=prefer)
+    state.retrieval_log = [*state.retrieval_log, raw_best(published)][-24:]
+    strength = match_strength(state.retrieval_log)
+    # A new scam has no script to follow. Run on the general playbook and let
+    # extraction classify the whole transcript at the end.
+    state.unmatched = bool(strength["weak"])
     from app.models import Script
     from sqlalchemy import select
 
@@ -225,6 +243,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     before_checklist = checklist_signature(state)
     before_iocs = {kind: list(values or []) for kind, values in (state.indicators or {}).items()}
     update_casefile(state, text)
+    track_accounts(state, text)
     note_progress(state, before_checklist)
     candidates = candidate_payload(published)
     by_id = {script.id: script for script in all_scripts}
@@ -276,11 +295,12 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "otp_prompts": state.otp_prompts,
         "memory": state.memory[-6:],
         "persona_slug": persona.id,
-        "top_match": provisional_top.model_dump() if provisional_top else None,
+        "top_match": provisional_top.model_dump() if provisional_top and not state.unmatched else None,
+        "unmatched": state.unmatched,
         "aggressiveness": state.aggressiveness or "normal",
         "next_gap": next_gap(state),
         "checklist": state.checklist,
-        "playbook": _playbook_brief(state, provisional_script),
+        "playbook": _playbook_brief(state, None if state.unmatched else provisional_script),
     }
     # Analyst and planner both only need the retrieval packet, so they run together.
     # Each role call, including repair and failover, stops at one wall-clock cap.
@@ -503,7 +523,9 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         goal = asked
         note = f"{note} Hai lượt không có thêm gì, hỏi mục còn thiếu."
     state.stage = choose_stage(state, branch.kind, wrap, suspicion)
-    if top_script is not None:
+    if state.unmatched:
+        state.playbook_category = ""
+    elif top_script is not None:
         state.playbook_category = top_script.category
     book = playbook_state(state.playbook_category, state.checklist, state.indicators)
     nxt = next_unasked(book, state.asked_keys)
@@ -570,6 +592,19 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         )
         goal = alt["goal"] if alt else "ask_link"
         note = f"{note} Chưa nghe tên phần mềm điều khiển, chưa hỏi ID."
+    # Staged compliance: a payment destination is only worth reporting once the
+    # scammer has stood behind it, so read it back first. Once every destination
+    # is confirmed, raise a harmless obstacle and ask how else to pay, which tends
+    # to surface a second account or wallet.
+    readback = pending_readback(state)
+    confirmed = [check for check in state.account_checks if check["confirmed"]]
+    if not real_suspicion and goal != "read_fake_otp" and branch.kind != "new":
+        if readback is not None:
+            goal = "confirm_account"
+            note = f"{note} Họ vừa đưa {readback['value']}: đọc lại cho họ xác nhận, hỏi tên chủ tài khoản."
+        elif confirmed and not state.alt_asked and len(state.account_checks) == len(confirmed):
+            goal = "ask_alternative"
+            note = f"{note} Đã xác nhận nơi nhận tiền. Viện một trở ngại vô hại để họ đưa cách nhận khác."
     aimed = next((row for row in book["targets"] if row["goal"] == goal and row["key"] not in state.asked_keys and not row["done"]), None)
     if aimed:
         state.asked_keys.append(aimed["key"])
@@ -601,6 +636,9 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "jailbreak": inbound["jailbreak"],
         "recent_openings": [],
         "ask_hint": (aimed or {}).get("hint", "") if aimed and goal == (aimed or {}).get("goal") else "",
+        "account_to_confirm": _spoken_account(readback) if goal == "confirm_account" and readback else "",
+        "clock": _clock(conversation.messages),
+        "style": {key: value for key, value in style_of(persona.id).items() if key in {"case", "max_chars", "reactions", "particles", "habits"}},
     }
     recent_replies = [message.content for message in conversation.messages if message.role == "victim"][-4:]
     persona_ctx["recent_openings"] = [item.strip().split("\n", 1)[0][:48] for item in recent_replies[-3:]]
@@ -620,7 +658,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     persona_ms = int((time.perf_counter() - t0) * 1000)
     draft = (spoken.reply or "").strip()
     allowed = _allowed_numbers(persona, state)
-    notes = critique_reply(draft, persona.id, goal, allowed, pace, recent_replies)
+    notes = critique_reply(draft, persona.id, goal, allowed, pace, recent_replies, text)
     if notes:
         persona_ctx["critique"] = notes
     violations = inspect_outbound(draft, allowed, persona.id)
@@ -666,7 +704,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             except (LLMError, TimeoutError, FuturesTimeout):
                 spoken_again = None
             redraft = (spoken_again.reply or "").strip() if spoken_again is not None else ""
-            if redraft and len(critique_reply(redraft, persona.id, goal, allowed, pace, recent_replies)) <= len(notes):
+            if redraft and len(critique_reply(redraft, persona.id, goal, allowed, pace, recent_replies, text)) <= len(notes):
                 spoken = spoken_again
                 draft = redraft
                 violations = inspect_outbound(draft, allowed, persona.id)
@@ -728,6 +766,16 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     if not final:
         final = fallback_reply(persona.id, recent_replies)
         action = "fallback"
+    # A replaced draft must not lose the read-back: it is the point of this turn.
+    if goal == "confirm_account" and readback is not None and not _read_back_in(final, readback):
+        spoken_back = readback_line(persona.id, _spoken_account(readback))
+        if not inspect_outbound(spoken_back, allowed, persona.id):
+            final = spoken_back
+            action = "rewrite" if action == "allow" else action
+    if goal == "ask_alternative" and action == "fallback":
+        asked_other = alternative_line(persona.id)
+        if not inspect_outbound(asked_other, allowed, persona.id):
+            final = asked_other
     rejected = None
     if final.strip() != draft.strip():
         codes = list(dict.fromkeys([*violations, *(verdict.violations or [])]))
@@ -748,6 +796,17 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         final = with_fake_otp(final, persona.id, state.fake_otp)
         if state.fake_otp in final:
             state.otp_reads += 1
+    # Last, and only after the safety gate: type it the way this persona types.
+    # Kept only if it adds no violation and keeps the read-back or the code.
+    voiced = humanize(final, persona.id, recent_replies, seed=f"{conversation.id}:{state.turn_index}", address=state.address_term)
+    if (
+        voiced
+        and voiced != final
+        and not set(inspect_outbound(voiced, allowed, persona.id)) - set(inspect_outbound(final, allowed, persona.id))
+        and (goal != "confirm_account" or readback is None or _read_back_in(voiced, readback) or not _read_back_in(final, readback))
+        and (state.fake_otp in voiced or state.fake_otp not in final)
+    ):
+        final = voiced
     if spoken.memory_note:
         state.memory.append(spoken.memory_note)
         state.memory = state.memory[-12:]
@@ -766,6 +825,13 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
                 "family_id": snap.family_id,
             }
         )
+    if goal == "confirm_account" and readback is not None:
+        readback["attempts"] = int(readback.get("attempts", 0)) + 1
+        if _read_back_in(final, readback):
+            readback["read_back"] = True
+            readback["read_back_turn"] = state.turn_index
+    if goal == "ask_alternative":
+        state.alt_asked = True
     state.goals_used.append(goal)
     state.match_history.append(snap)
     state.match_history = state.match_history[-30:]
@@ -897,9 +963,12 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "warnings": warning_refs,
         "aggressiveness": state.aggressiveness or "normal",
         "degraded": degraded,
+        "unmatched": state.unmatched,
+        "match_strength": strength,
+        "accounts": account_summary(state),
     }
     return {
-        "typing_ms": typing_ms(final, persona.id),
+        "typing_ms": typing_delay_ms(final, text, persona.id, conversation.id),
         "scammer_message": _message_dict(scammer_row),
         "victim_message": _message_dict(victim_row),
         "panel": panel,
@@ -938,7 +1007,7 @@ def recover_turn(session, conversation, text: str) -> dict:
     conversation.updated_at = _now()
     session.flush()
     return {
-        "typing_ms": typing_ms(final, persona.id),
+        "typing_ms": typing_delay_ms(final, text, persona.id, conversation.id),
         "scammer_message": _message_dict(scammer_row),
         "victim_message": _message_dict(victim_row),
         "panel": {
@@ -951,6 +1020,58 @@ def recover_turn(session, conversation, text: str) -> dict:
             "indicators": state.indicators,
         },
     }
+
+
+def _spoken_account(check: dict) -> str:
+    """What the persona reads back: the digits for a bank account or phone wallet."""
+    value = check.get("value") or ""
+    if check.get("kind") == "ewallets" and ":" in value:
+        brand, number = value.split(":", 1)
+        return f"{brand} {number}"
+    return value
+
+
+def _read_back_in(text: str, check: dict) -> bool:
+    value = check.get("value") or ""
+    digits = "".join(ch for ch in value if ch.isdigit())
+    sent = "".join(ch for ch in (text or "") if ch.isdigit())
+    if check.get("kind") == "crypto_wallets":
+        return value[-6:].lower() in (text or "").lower()
+    return len(digits) >= 6 and digits[-6:] in sent
+
+
+_VN = timezone(timedelta(hours=7))
+
+
+def _part_of_day(hour: int) -> str:
+    if hour < 5:
+        return "khuya"
+    if hour < 11:
+        return "sáng"
+    if hour < 13:
+        return "trưa"
+    if hour < 18:
+        return "chiều"
+    if hour < 22:
+        return "tối"
+    return "khuya"
+
+
+def _clock(messages, now: datetime | None = None) -> dict:
+    """Vietnam local time and the gap since the persona last spoke.
+
+    Without this a persona greets wrongly and ignores long silences, which is one
+    of the tells reported for LLM victims.
+    """
+    now = now or _now()
+    local = now.astimezone(_VN)
+    last = next((message.created_at for message in reversed(list(messages)) if message.role == "victim"), None)
+    gap = None
+    if last is not None:
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        gap = max(0, int((now - last).total_seconds() // 60))
+    return {"local_time": local.strftime("%H:%M"), "part_of_day": _part_of_day(local.hour), "gap_minutes": gap}
 
 
 def _message_dict(message: Message) -> dict:
@@ -977,7 +1098,10 @@ def _remote_was_mentioned(text: str) -> bool:
 
 
 def _playbook_brief(state: AgentState, script) -> dict:
-    category = (script.category if script is not None else "") or state.playbook_category
+    if script is None and state.unmatched:
+        category = ""
+    else:
+        category = (script.category if script is not None else "") or state.playbook_category
     book = playbook_state(category, state.checklist, state.indicators)
     return {
         "family": book["label"],

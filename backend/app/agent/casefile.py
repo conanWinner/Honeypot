@@ -7,7 +7,7 @@ regex already pulled out of the scammer's words.
 
 import re
 
-from app.agent.policy import inspect_outbound, repeats_opening
+from app.agent.policy import inspect_outbound, repeats_opening, reply_novelty
 from app.agent.state import AgentState
 from app.agent.textutil import fold
 
@@ -234,12 +234,44 @@ def _near_bank(body: str, start: int, end: int) -> bool:
 
 
 def _strong_account(body: str, start: int, end: int) -> bool:
-    window = body[max(0, start - 40) : min(len(body), end + 24)]
-    return bool(_STRONG_ACCOUNT.search(window))
+    """An account cue just before the number, or just after it with no other number in between.
+
+    "mã đơn 1234... phí qua stk 9988..." : the cue after the first number belongs to the second.
+    """
+    if _STRONG_ACCOUNT.search(body[max(0, start - 40) : start]):
+        return True
+    after = body[end : min(len(body), end + 24)]
+    cue = _STRONG_ACCOUNT.search(after)
+    return bool(cue) and not re.search(r"\d{6,}", after[cue.end() :])
 
 
 def _otp_number(body: str, start: int) -> bool:
     return bool(_OTP_BEFORE.search(body[max(0, start - 28) : start]))
+
+
+_AMOUNT_SHAPE = re.compile(r"^\d{1,3}(?:[.,]\d{3})+$")
+_AMOUNT_AFTER = re.compile(r"^\s*(?:đ\b|đồng|vnđ|vnd|k\b|nghìn|ngàn|triệu|tr\b|usdt|usd)", re.IGNORECASE)
+# Words that name a number as something other than a payment destination.
+_NOT_ACCOUNT_CUE = re.compile(
+    r"(căn\s*cước|\bcccd\b|\bcmnd\b|\bcmt\b|định\s*danh|hộ\s*chiếu|mã\s*(?:đơn|vận\s*đơn|giao\s*dịch|hồ\s*sơ|bưu\s*phẩm)|"
+    r"đơn\s*hàng|biên\s*bản|biển\s*số|số\s*hiệu|hợp\s*đồng\s*số|mã\s*số\s*thuế|\bmst\b)",
+    re.IGNORECASE,
+)
+
+
+def _is_amount(body: str, start: int, end: int) -> bool:
+    """1.250.000 or 500000đ is money, not an account."""
+    return bool(_AMOUNT_SHAPE.match(body[start:end].strip()) or _AMOUNT_AFTER.match(body[end : end + 8]))
+
+
+def _named_otherwise(body: str, start: int) -> bool:
+    """The closest cue before the number calls it an ID, order code or plate."""
+    before = body[max(0, start - 36) : start]
+    other = list(_NOT_ACCOUNT_CUE.finditer(before))
+    if not other:
+        return False
+    account = list(_STRONG_ACCOUNT.finditer(before))
+    return not account or other[-1].start() > account[-1].start()
 
 
 def _inside_lettered_token(body: str, start: int, end: int) -> bool:
@@ -307,6 +339,8 @@ def harvest_indicators(text: str) -> dict:
     for match in re.finditer(r"\d[\d\s.]{4,}\d", body):
         digits = re.sub(r"\D", "", match.group(0))
         if _inside_lettered_token(body, match.start(), match.end()) or _otp_number(body, match.start()):
+            continue
+        if _is_amount(body, match.start(), match.end()) or _named_otherwise(body, match.start()):
             continue
         if _hotline(digits):
             _add(found["hotlines"], digits, "hotlines")
@@ -429,6 +463,9 @@ def update_casefile(state: AgentState, message: str) -> None:
     if harvested["crypto_wallets"]:
         by_key["account"]["done"] = True
         by_key["account"]["detail"] = harvested["crypto_wallets"][-1]
+    if harvested["ewallets"]:
+        by_key["account"]["done"] = True
+        by_key["account"]["detail"] = harvested["ewallets"][-1]
     if (harvested["telegram"] or harvested["zalo"] or harvested["apk"]) and not by_key["link"]["done"]:
         by_key["link"]["done"] = True
         by_key["link"]["detail"] = (harvested["telegram"] + harvested["zalo"] + harvested["apk"])[-1]
@@ -592,6 +629,7 @@ def critique_reply(
     allowed: set[str],
     aggressiveness: str,
     recent: list[str] | None = None,
+    incoming: str = "",
 ) -> list[str]:
     """Notes for one rewrite. Empty means the line can go to the safety gate as-is."""
     issues = inspect_outbound(text or "", allowed, persona_id)
@@ -610,4 +648,172 @@ def critique_reply(
         notes.append("Kết bằng một câu hỏi để họ phải nói bước tiếp theo.")
     if repeats_opening(text or "", recent):
         notes.append("Đừng mở đầu giống câu vừa rồi. Hỏi một chi tiết mới, đừng lặp 'cháu là ai'.")
+    elif len((text or "").split()) >= 6 and reply_novelty(text or "", recent) < NOVELTY_FLOOR:
+        notes.append("Câu này gần như lặp lại các tin trước. Nói bằng lời khác và hỏi một chi tiết mới.")
+    from app.agent.humanize import ai_tells
+
+    tells = set(ai_tells(text or "", recent, persona_id, incoming))
+    for code, note in _TELL_NOTES:
+        if code in tells:
+            notes.append(note)
     return notes
+
+
+# Style tells worth one rewrite. repeated_disclaimer is trimmed by humanize instead.
+_TELL_NOTES = [
+    ("slash_address", "Chọn một cách gọi họ, đừng viết dạng anh/chị."),
+    ("formal_phrase", "Bỏ giọng văn bản hay trợ lý (ngoài ra, vui lòng, cảm ơn anh đã...). Nhắn như người thường."),
+    ("desk_words", "Persona này không nói kiểu cung cấp, thực hiện, thao tác. Dùng lời đời thường."),
+    ("too_long", "Tin quá dài so với người này. Cắt còn một ý."),
+    ("question_wall", "Đừng trả lời bằng một loạt câu hỏi. Phản ứng trước, rồi hỏi một câu."),
+]
+
+
+# Below this share of new trigrams a reply counts as a repeat and gets one rewrite.
+NOVELTY_FLOOR = 0.4
+
+
+# --- Payment destinations: read-back and confirmation -----------------------
+# A number counts only once the scammer has stood behind it: repeated in a later
+# turn, or affirmed after the persona read it back. One-off digits in a long
+# message are often order ids, hotlines or typos.
+
+_AFFIRM = re.compile(
+    r"(?<!\w)(đúng|chính xác|chuẩn|phải rồi|ok|oke|okie|vâng|dạ đúng|rồi đó|đúng rồi|y như|như vậy)(?!\w)",
+    re.IGNORECASE,
+)
+_DENY = re.compile(r"(?<!\w)(sai|nhầm|không phải|ko phải|khong phai)(?!\w)", re.IGNORECASE)
+_HOLDER = re.compile(
+    r"(?:chủ\s*(?:tài\s*khoản|tk)|\bctk\b|tên\s*(?:người\s*nhận|tài\s*khoản|tk)|người\s*nhận|đứng\s*tên)\s*(?:là|:)?\s*",
+    re.IGNORECASE,
+)
+_BANK_NAMES = re.compile(
+    r"(vietcombank|techcombank|bidv|agribank|vpbank|\bacb\b|tpbank|sacombank|vietinbank|"
+    r"\bmb\s*bank\b|mbbank|\bmsb\b|hdbank|\bocb\b|\bshb\b|momo|zalopay|viettel\s*pay|vnpay)",
+    re.IGNORECASE,
+)
+
+
+def _digits(value: str) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+def holder_name(text: str) -> str:
+    """Name after 'chủ tài khoản' and similar cues: two to five capitalised words."""
+    match = _HOLDER.search(text or "")
+    if not match:
+        return ""
+    words = []
+    for word in re.split(r"\s+", text[match.end():].strip()):
+        clean = word.strip(".,;:!?()\"'")
+        if not clean or not clean[0].isupper() or any(ch.isdigit() for ch in clean):
+            break
+        words.append(clean)
+        if len(words) == 5:
+            break
+    return " ".join(words) if len(words) >= 2 else ""
+
+
+def _destinations(harvested: dict) -> list[tuple[str, str]]:
+    rows = [("bank_accounts", value) for value in harvested.get("bank_accounts") or []]
+    rows += [("ewallets", value) for value in harvested.get("ewallets") or []]
+    rows += [("crypto_wallets", value) for value in harvested.get("crypto_wallets") or []]
+    return rows
+
+
+def _same(check: dict, value: str) -> bool:
+    if check["value"] == value:
+        return True
+    left, right = _digits(check["value"]), _digits(value)
+    return bool(left) and len(left) >= 8 and left == right
+
+
+def track_accounts(state: AgentState, message: str) -> list[dict]:
+    """Update read-back state from the scammer's latest message. Returns new rows."""
+    harvested = harvest_indicators(message)
+    turn = state.turn_index
+    fresh = []
+    affirmed = bool(_AFFIRM.search(message or "")) and not _DENY.search(message or "")
+    denied = bool(_DENY.search(message or ""))
+    mentioned = set()
+    for kind, value in _destinations(harvested):
+        row = next((check for check in state.account_checks if _same(check, value)), None)
+        if row is None:
+            row = {
+                "kind": kind,
+                "value": value,
+                "first_turn": turn,
+                "mentions": 1,
+                "read_back": False,
+                "read_back_turn": -1,
+                "attempts": 0,
+                "confirmed": False,
+                "how": "",
+                "holder": "",
+                "bank": "",
+            }
+            state.account_checks.append(row)
+            fresh.append(row)
+        elif turn > row["first_turn"]:
+            row["mentions"] += 1
+            if not row["confirmed"]:
+                row["confirmed"] = True
+                row["how"] = "nhắc lại ở lượt sau"
+        mentioned.add(row["value"])
+    holder = holder_name(message)
+    found_bank = _BANK_NAMES.search(message or "")
+    bank = found_bank.group(0) if found_bank else ""
+    # Attach a name or bank to the destination it was said with, else to the one
+    # just read back.
+    target = next((check for check in reversed(state.account_checks) if check["value"] in mentioned), None)
+    if target is None:
+        target = next(
+            (check for check in reversed(state.account_checks) if check["read_back"] and check["read_back_turn"] == turn - 1),
+            None,
+        )
+    if target is not None:
+        if holder and not target["holder"]:
+            target["holder"] = holder
+        if bank and not target["bank"]:
+            target["bank"] = bank.strip()
+    for check in state.account_checks:
+        if check["confirmed"] or not check["read_back"] or check["read_back_turn"] != turn - 1:
+            continue
+        if denied:
+            # The number we read back was wrong. Ask again rather than trust it.
+            check["read_back"] = False
+            check["read_back_turn"] = -1
+            continue
+        if affirmed or holder or check["value"] in mentioned:
+            check["confirmed"] = True
+            check["how"] = "xác nhận sau khi đọc lại"
+    return fresh
+
+
+def pending_readback(state: AgentState) -> dict | None:
+    """The oldest destination nobody has read back or confirmed yet.
+
+    Two tries at most, so a garbled read-back cannot hold the chat on one goal.
+    """
+    return next(
+        (
+            check
+            for check in state.account_checks
+            if not check["confirmed"] and not check["read_back"] and check.get("attempts", 0) < 2
+        ),
+        None,
+    )
+
+
+def account_summary(state: AgentState) -> list[dict]:
+    return [
+        {
+            "kind": check["kind"],
+            "value": check["value"],
+            "confirmed": check["confirmed"],
+            "how": check["how"],
+            "holder": check["holder"],
+            "bank": check["bank"],
+        }
+        for check in state.account_checks
+    ]

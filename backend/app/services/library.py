@@ -14,7 +14,7 @@ from app.agent.state import AgentState
 from app.data.personas import PERSONAS
 from app.data.scripts import SCRIPTS
 from app.models import Persona, Script, utcnow
-from app.services.matching import script_blob, vector_literal
+from app.services.matching import classify_transcript, script_blob, vector_literal
 from app.taxonomy import CATEGORIES, CHANNELS
 
 log = logging.getLogger("gianan.library")
@@ -80,6 +80,8 @@ def script_public(script: Script, variant_count: int = 0, parent: Script | None 
         "occurrence_count": script.occurrence_count,
         "status": script.status,
         "novelty_note": script.novelty_note or "",
+        "relation": script.relation or "",
+        "merge_target": script.merge_target,
         "indicators": script.indicators or {},
         "has_embedding": bool(script.embedding),
         "variant_count": variant_count,
@@ -91,6 +93,13 @@ def script_public(script: Script, variant_count: int = 0, parent: Script | None 
         data["steps"] = script.steps or []
     if parent is not None:
         data["parent"] = {"id": parent.id, "title": parent.title}
+    return data
+
+
+def with_target(session, data: dict) -> dict:
+    target_id = data.get("merge_target")
+    target = session.get(Script, target_id) if target_id else None
+    data["merge_target_title"] = target.title if target is not None else ""
     return data
 
 
@@ -143,7 +152,7 @@ def get_script(session, script_id: str) -> dict | None:
     data = script_public(script, counts.get(script.id, 0), parent=parent, with_steps=True)
     children = session.scalars(select(Script).where(Script.parent_id == script.id).order_by(Script.title)).all()
     data["variants"] = [script_public(child, with_steps=False) for child in children]
-    return data
+    return with_target(session, data)
 
 
 def _clean_category(value: str) -> str:
@@ -242,24 +251,38 @@ def finish_conversation(session, conversation, provider) -> dict:
     top = state.match_history[-1] if state.match_history else None
     new_hooks = [event for event in state.branch_events if event.get("kind") == "new"]
     known = [event for event in state.branch_events if event.get("kind") == "known_variant"]
-    if new_hooks and top and top.script_id:
-        relation = "variant"
-        parent_id = new_hooks[-1].get("family_id") or top.family_id or top.script_id
-        hook = new_hooks[-1].get("hook") or "nhánh mới"
-        title = f"{(by_id.get(parent_id).title if parent_id in by_id else 'Kịch bản')} — nhánh: {hook}"
-        novelty = new_hooks[-1].get("description") or ""
-    elif top and top.confidence >= 0.62 and not new_hooks:
-        relation = "duplicate"
-        parent_id = known[-1].get("variant_script_id") if known and known[-1].get("variant_script_id") else top.script_id
-        parent = by_id.get(parent_id)
-        title = parent.title if parent else "Kịch bản đã biết"
-        novelty = "Trùng kịch bản đã có trong thư viện."
-    else:
+    # Classify once, on the whole scammer side, and check the turns agreed on it.
+    # A family that only won by being the nearest of several weak hits is a new scam.
+    verdict = classify_transcript(session, scammer_messages, state.retrieval_log, provider)
+    family = verdict["family"]
+    if not verdict["strong"] or family not in by_id:
         relation = "new_root"
         parent_id = ""
         title = "Kịch bản mới từ hội thoại"
-        novelty = "Chưa khớp chắc một kịch bản đã công bố."
+        near = f" Gần nhất: «{verdict['title']}» (điểm {verdict['score']:.2f}, ổn định {verdict['consistency']:.0%})." if verdict["title"] else ""
+        novelty = "Chưa khớp chắc một kịch bản đã công bố." + near
+    elif new_hooks:
+        relation = "variant"
+        parent_id = family
+        hook = new_hooks[-1].get("hook") or "nhánh mới"
+        title = f"{by_id[family].title} — nhánh: {hook}"
+        novelty = new_hooks[-1].get("description") or ""
+    else:
+        relation = "duplicate"
+        # Merge into the most specific script of that family the turns settled on.
+        variant_id = known[-1].get("variant_script_id") if known else ""
+        last_id = top.script_id if top and top.script_id in by_id else ""
+        if variant_id in by_id:
+            parent_id = variant_id
+        elif last_id and (by_id[last_id].parent_id or last_id) == family:
+            parent_id = last_id
+        else:
+            parent_id = family
+        title = by_id[parent_id].title
+        # The queue and chat already say "merge into X"; the note carries the evidence.
+        novelty = f"Khớp chắc: điểm cả bản thoại {verdict['score']:.2f}, {verdict['consistency']:.0%} lượt chỉ về cùng họ."
     parent = by_id.get(parent_id)
+    destinations = _destinations_note(state)
     context = {
         "scammer_messages": scammer_messages,
         "transcript": [{"role": message.role, "content": message.content} for message in messages],
@@ -275,6 +298,7 @@ def finish_conversation(session, conversation, provider) -> dict:
         "red_flags": (parent.red_flags if parent else [])[:4],
         "advice": parent.advice if parent else "Không chuyển tiền, không đọc OTP, không cài phần mềm theo yêu cầu của người lạ.",
         "novelty_reason": novelty,
+        "payment_destinations": state.account_checks,
         "candidates": [
             {"id": script.id, "title": script.title, "category": script.category}
             for script in published
@@ -301,14 +325,6 @@ def finish_conversation(session, conversation, provider) -> dict:
     extracted.category = _clean_category(extracted.category or (parent.category if parent else "other"))
     extracted.channel = _clean_channel(extracted.channel or conversation.channel)
 
-    if relation == "duplicate" and parent is not None:
-        _merge_into(parent, extracted, conversation.id, state.indicators)
-        conversation.status = "ended"
-        conversation.extracted_script_id = parent.id
-        conversation.updated_at = utcnow()
-        session.flush()
-        return {"action": "merged", "script": get_script(session, parent.id), "relation": relation}
-
     script_id = "hs-" + uuid.uuid4().hex[:12]
     created = Script(
         id=script_id,
@@ -329,7 +345,10 @@ def finish_conversation(session, conversation, provider) -> dict:
         last_seen=utcnow(),
         occurrence_count=1,
         status="pending",
-        novelty_note=extracted.novelty_reason or novelty,
+        # The server's note goes first: it carries the match evidence the reviewer needs.
+        novelty_note=((novelty if relation != "variant" else (extracted.novelty_reason or novelty)) + destinations).strip(),
+        relation=relation,
+        merge_target=parent.id if relation == "duplicate" and parent is not None else None,
         indicators=_combine_indicators({}, extracted, state.indicators),
     )
     session.add(created)
@@ -348,7 +367,20 @@ def finish_conversation(session, conversation, provider) -> dict:
     conversation.extracted_script_id = created.id
     conversation.updated_at = utcnow()
     session.flush()
-    return {"action": "queued", "script": get_script(session, created.id), "relation": relation}
+    return {"action": "queued", "script": get_script(session, created.id), "relation": relation, "match": verdict}
+
+
+def _destinations_note(state: AgentState) -> str:
+    """Tell the reviewer which payment destinations the scammer stood behind."""
+    rows = []
+    for check in state.account_checks:
+        label = check["value"].replace(":", " ")
+        if check.get("holder"):
+            label += f", chủ TK {check['holder']}"
+        if check.get("bank"):
+            label += f", {check['bank']}"
+        rows.append(f"{label} ({'đã xác nhận' if check['confirmed'] else 'chưa xác nhận'})")
+    return f" Nơi nhận tiền: {'; '.join(rows)}." if rows else ""
 
 
 def _combine_indicators(base: dict | None, extracted: ExtractionOutput, harvested: dict | None) -> dict:
@@ -400,6 +432,31 @@ def embed_script(session, script_id: str, provider) -> None:
         note_embed_failure(exc, "Không tạo được embedding lúc duyệt kịch bản.")
         return
     _write_embedding(session, script, vector)
+
+
+def merge_pending(session, script_id: str) -> dict | None:
+    """Approve a queued duplicate: fold its lines and indicators into the target script."""
+    row = session.get(Script, script_id)
+    if row is None or not row.merge_target:
+        return None
+    target = session.get(Script, row.merge_target)
+    if target is None:
+        return None
+    extracted = ExtractionOutput.model_validate(
+        {
+            "title": row.title,
+            "category": row.category,
+            "channel": row.channel,
+            "summary": row.summary,
+            "steps": row.steps or [],
+        }
+    )
+    ref = next((item.get("ref") for item in row.sources or [] if item.get("type") == "conversation"), row.id)
+    _merge_into(target, extracted, ref, row.indicators or {})
+    row.status = "merged"
+    row.updated_at = utcnow()
+    session.flush()
+    return get_script(session, target.id)
 
 
 def set_status(session, script_id: str, status: str) -> dict | None:

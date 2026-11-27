@@ -17,7 +17,17 @@ from app.llm.base import LLMError
 from app.models import Conversation, Message, Persona, Script
 from app.services.checker import check_text
 from app.services.demo import DEMO, DEMOS
-from app.services.library import embed_script, finish_conversation, get_script, list_scripts, script_public, set_status, variant_counts
+from app.services.library import (
+    embed_script,
+    finish_conversation,
+    get_script,
+    list_scripts,
+    merge_pending,
+    script_public,
+    set_status,
+    variant_counts,
+    with_target,
+)
 from app.services.trends import build_trends
 from app.taxonomy import CATEGORIES, CHANNELS, GOALS
 
@@ -443,11 +453,21 @@ def intel_lookup(q: str = "", value: str = "", session=Depends(get_db)):
 def moderation(session=Depends(get_db), _: None = Depends(require_admin)):
     rows = session.scalars(select(Script).where(Script.status == "pending").order_by(Script.created_at.desc())).all()
     counts = variant_counts(session)
-    return [script_public(row, counts.get(row.id, 0)) for row in rows]
+    return [with_target(session, script_public(row, counts.get(row.id, 0))) for row in rows]
 
 
 @router.post("/moderation/{script_id}/approve")
-def approve(script_id: str, request: Request, session=Depends(get_db), _: None = Depends(require_admin)):
+def approve(script_id: str, request: Request, mode: str = "", session=Depends(get_db), _: None = Depends(require_admin)):
+    pending = session.get(Script, script_id)
+    if pending is not None and pending.merge_target and pending.status == "pending":
+        if mode != "publish":
+            merged = merge_pending(session, script_id)
+            if merged is None:
+                raise HTTPException(status_code=404, detail="Không thấy kịch bản đích để gộp.")
+            return merged
+        # The reviewer says it is not a duplicate: publish it as its own script.
+        pending.merge_target = None
+        pending.relation = "new_root"
     data = set_status(session, script_id, "published")
     if data is None:
         raise HTTPException(status_code=404, detail="Không thấy bản chờ duyệt.")

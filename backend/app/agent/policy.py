@@ -89,8 +89,8 @@ _QUESTION = re.compile(r"\b(nào|nao|đâu|dau|ai|gì|gi|sao)\b", re.IGNORECASE)
 # "con đang học / con trai" is the child. "con chuyển" is the speaker.
 _CON_FAMILY = re.compile(
     r"("
-    r"\bcon\s+(trai|gái|gai|cái|cai|nuôi|nuoi|của|cua|tôi|toi|em|cô|co|đang|dang|ở|o|bên|học|hoc|làm|lam)\b"
-    r"|\b(về|ve|của|cua|cho|với|voi|thằng|thang|đứa|dua)\s+con\b"
+    r"\bcon\s+(trai|gái|gai|cái|cai|nuôi|nuoi|của|cua|tôi|toi|tui|mình|minh|nhà|nha|em|cô|co|đang|dang|ở|o|bên|học|hoc|làm|lam)\b"
+    r"|\b(về|ve|của|cua|cho|với|voi|thằng|thang|đứa|dua|đón|don|trông|trong|đưa|dua|nuôi|nuoi|chăm|cham|dỗ|do)\s+con\b"
     r")",
     re.IGNORECASE,
 )
@@ -273,10 +273,27 @@ def hard_commitment(text: str) -> str:
     return ""
 
 
+# "Are you a machine?" in any address form: chú có phải máy không, em là bot à,
+# người thật không đấy, sao trả lời lạ vậy. Ignoring this is the fastest way to
+# get caught, so it must reach the planner as suspicion.
+_BOT_PROBE = re.compile(
+    r"((có\s+)?phải\s+(là\s+)?|\blà\s+)(máy|bot|robot|người máy|chatbot|trí tuệ nhân tạo|tự động)\b"
+    r"|\b(máy|bot|robot)\s+(à|hả|hở|phải không|không đấy|không vậy|ko|k)\b"
+    r"|người\s+thật\s+(không|ko|k|à|hả|chứ|hay)"
+    r"|trả\s+lời\s+(lạ|như máy|tự động|y hệt|giống máy|nhanh quá)",
+    re.IGNORECASE,
+)
+# "AI" only in capitals: lowercase "ai" means "who".
+_AI_PROBE = re.compile(r"\b(?:là|phải)\s+(?:là\s+)?(?:AI|A\.I)\b|\bAI\s+(?:à|hả|phải không)")
+
+
 def assess_inbound(text: str) -> dict:
     folded = (text or "").lower()
     jail_cues = [cue for cue in _JAILBREAK if cue in folded]
     sus_cues = [cue for cue in _SUSPICION if cue in folded]
+    probe = _BOT_PROBE.search(text or "") or _AI_PROBE.search(text or "")
+    if probe and not sus_cues:
+        sus_cues.append(probe.group(0).strip().lower())
     suspicion = 0.0
     if jail_cues:
         suspicion = 0.85
@@ -621,7 +638,10 @@ def holding_line(persona_id: str, recent: list[str] | None = None) -> str:
             "khoan, em nghe không rõ. bác nói lại một câu.",
         ],
     }
-    options = lines.get(persona_id) or lines["tuan-vp"]
+    options = lines.get(persona_id) or [
+        _voiced("Đợi {me} xíu, {me} đang bận tay. {You} nói lại được không?", persona_id),
+        _voiced("Khoan, {me} nghe không rõ. {You} nói lại một câu thôi.", persona_id),
+    ]
     recent_norm = [(item or "").strip().lower() for item in (recent or [])]
     for line in options:
         if line.strip().lower() not in recent_norm:
@@ -643,7 +663,9 @@ def rewrite_opening(text: str, recent: list[str] | None) -> str:
     if not raw or not repeats_opening(raw, recent):
         return raw
     pieces = re.split(r"(?<=[?.!])\s+", raw, maxsplit=1)
-    if len(pieces) == 2 and pieces[1].strip():
+    # Never drop a sentence that carries a long number: it is a read-back of the
+    # scammer's own account, the one thing this turn exists to say.
+    if len(pieces) == 2 and pieces[1].strip() and not re.search(r"\d{6,}", pieces[0]):
         return pieces[1].strip()
     rest = raw[10:].lstrip(" ,:;–-")
     if not rest:
@@ -654,6 +676,28 @@ def rewrite_opening(text: str, recent: list[str] | None) -> str:
     if _ASK_KEEP.search(raw) and not _ASK_KEEP.search(rewritten):
         return raw
     return rewritten
+
+
+def _trigrams(text: str) -> set[tuple[str, ...]]:
+    words = fold(re.sub(r"[^\w\s]", " ", text or "")).split()
+    return {tuple(words[index : index + 3]) for index in range(len(words) - 2)}
+
+
+def reply_novelty(text: str, recent: list[str] | None) -> float:
+    """Share of this reply's word trigrams not already used in the last few replies.
+
+    Repetitive, template-like asks are what scammers learn to spot; a reply that
+    mostly repeats earlier ones also adds nothing to the case.
+    """
+    mine = _trigrams(text)
+    if not mine:
+        return 1.0
+    seen: set[tuple[str, ...]] = set()
+    for old in (recent or [])[-4:]:
+        seen |= _trigrams(old)
+    if not seen:
+        return 1.0
+    return round(len(mine - seen) / len(mine), 3)
 
 
 def repeats_opening(text: str, recent: list[str] | None, width: int = 10) -> bool:
@@ -669,8 +713,29 @@ def repeats_opening(text: str, recent: list[str] | None, width: int = 10) -> boo
     return False
 
 
+_GENERIC_FALLBACKS = [
+    "Khoan, {me} chưa hiểu. {You} nói lại từ đầu được không?",
+    "{Me} chưa làm gì. Rồi sao nữa?",
+    "{You} là ai vậy, {me} đang nghe.",
+]
+
+
+def _pair(persona_slug: str) -> tuple[str, str]:
+    from app.data.personas import PRONOUNS
+
+    pair = PRONOUNS.get(persona_slug) or PRONOUNS["tuan-vp"]
+    return (pair.get("self") or ["em"])[0], (pair.get("other") or ["anh"])[0]
+
+
+def _voiced(template: str, persona_slug: str) -> str:
+    me, you = _pair(persona_slug)
+    return template.format(me=me, Me=me.capitalize(), you=you, You=you.capitalize())
+
+
 def fallback_reply(persona_slug: str, recent: list[str] | None = None) -> str:
-    options = _FALLBACKS.get(persona_slug) or _FALLBACKS["tuan-vp"]
+    # A persona without hand-written lines gets generic ones in its own pronouns,
+    # not another persona's: borrowing "em/anh" made a 72-year-old call himself "cháu".
+    options = _FALLBACKS.get(persona_slug) or [_voiced(line, persona_slug) for line in _GENERIC_FALLBACKS]
     recent_norm = [(item or "").strip().lower() for item in (recent or [])]
     for line in options:
         folded = line.strip().lower()
@@ -678,6 +743,18 @@ def fallback_reply(persona_slug: str, recent: list[str] | None = None) -> str:
             continue
         return line
     return options[len(recent_norm) % len(options)]
+
+
+def readback_line(persona_slug: str, account: str) -> str:
+    """A plain in-voice read-back, for when the drafted one had to be replaced."""
+    line = "{Me} ghi lại là số ACCOUNT, đúng chưa {you}? Ai đứng tên số này, ngân hàng nào? {Me} chưa chuyển đâu."
+    return _voiced(line, persona_slug).replace("ACCOUNT", account)
+
+
+def alternative_line(persona_slug: str) -> str:
+    """A harmless obstacle plus a request for another way to pay. Claims nothing was tried."""
+    line = "{Me} không dùng ngân hàng đó, cũng không rành chuyển khoản. {You} còn số nào khác hay người nhận khác không?"
+    return _voiced(line, persona_slug)
 
 
 def typing_ms(text: str, persona_slug: str) -> int:

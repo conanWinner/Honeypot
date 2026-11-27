@@ -3,6 +3,12 @@ import { Link } from 'react-router-dom'
 import { Banner, Button } from '../components/ui'
 import { api, ApiError, type Script } from '../lib/api'
 
+const RELATION_LABELS: Record<string, string> = {
+  new_root: 'Chiêu mới',
+  variant: 'Nhánh của kịch bản có sẵn',
+  duplicate: 'Đề xuất gộp',
+}
+
 export function AdminPage() {
   const [items, setItems] = useState<Script[] | null>(null)
   const [error, setError] = useState('')
@@ -37,8 +43,9 @@ export function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function act(id: string, action: 'approve' | 'reject') {
-    await api(`/api/moderation/${id}/${action}`, { method: 'POST', headers: headers() })
+  async function act(id: string, action: 'approve' | 'reject', mode = '') {
+    const query = mode ? `?mode=${mode}` : ''
+    await api(`/api/moderation/${id}/${action}${query}`, { method: 'POST', headers: headers() })
     await load()
   }
 
@@ -83,7 +90,14 @@ export function AdminPage() {
       <ul className="mt-5 space-y-3">
         {items?.map((script) => (
           <li key={script.id} className="dossier rounded-3xl p-5">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-gold">{script.category_label}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-gold">{script.category_label}</p>
+              {script.relation && (
+                <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-soft">
+                  {RELATION_LABELS[script.relation] ?? script.relation}
+                </span>
+              )}
+            </div>
             <h2 className="mt-1 font-display text-2xl">
               <Link to={`/canh-bao/kich-ban/${script.id}`} className="underline">
                 {script.title}
@@ -91,10 +105,30 @@ export function AdminPage() {
             </h2>
             <p className="mt-2 text-sm leading-6 text-ink-soft">{script.summary}</p>
             {script.novelty_note && <p className="mt-2 text-sm">{script.novelty_note}</p>}
-            <div className="mt-3 flex gap-2">
-              <Button size="sm" variant="seal" type="button" onClick={() => void act(script.id, 'approve')}>
-                Duyệt
-              </Button>
+            {script.merge_target && (
+              <p className="mt-2 text-sm">
+                Đề xuất gộp vào{' '}
+                <Link to={`/canh-bao/kich-ban/${script.merge_target}`} className="font-semibold underline">
+                  {script.merge_target_title || script.merge_target}
+                </Link>
+                . Gộp sẽ thêm câu chữ và chỉ dấu vào kịch bản đó, không tạo kịch bản mới.
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {script.merge_target ? (
+                <>
+                  <Button size="sm" variant="seal" type="button" onClick={() => void act(script.id, 'approve', 'merge')}>
+                    Gộp vào kịch bản có sẵn
+                  </Button>
+                  <Button size="sm" variant="ink" type="button" onClick={() => void act(script.id, 'approve', 'publish')}>
+                    Không trùng, công bố riêng
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="seal" type="button" onClick={() => void act(script.id, 'approve')}>
+                  Duyệt
+                </Button>
+              )}
               <Button size="sm" variant="ghost" type="button" onClick={() => void act(script.id, 'reject')}>
                 Từ chối
               </Button>

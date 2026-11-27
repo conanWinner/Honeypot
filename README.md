@@ -50,10 +50,8 @@ flowchart TD
   kenhs["Kênh web. Telegram và thoại là pha 2"] --> agent["Agent honeypot"]
   agent --> trich["Trích kịch bản"]
   trich --> phanloai{"Máy chủ phân loại"}
-  phanloai -->|"Trùng bản đã xuất bản"| gop["Gộp vào thư viện"]
-  phanloai -->|"Nhánh mới hoặc kịch bản mới"| hangcho["Hàng chờ kiểm duyệt"]
-  hangcho -->|"Duyệt"| thuvien[("Postgres và pgvector")]
-  gop --> thuvien
+  phanloai -->|"Chiêu mới, nhánh, hoặc đề xuất gộp"| hangcho["Hàng chờ kiểm duyệt"]
+  hangcho -->|"Duyệt hoặc gộp"| thuvien[("Postgres và pgvector")]
   thuvien --> xuhuong["Xu hướng"]
   thuvien --> luyentap["Luyện tập"]
   thuvien --> kichban["Tab kịch bản của Cảnh báo"]
@@ -61,8 +59,8 @@ flowchart TD
 ```
 
 1. Kênh đi qua adapter rồi gọi cùng một `handle_turn`. Pha 1 chỉ có web. Telegram và thoại đã có adapter, chưa nối vận chuyển thật.
-2. Hết hội thoại, người dùng bấm trích xuất. Mô hình viết hồ sơ. Máy chủ quyết định quan hệ: trùng thì gộp vào bản đã xuất bản, nhánh mới hoặc kịch bản mới thì vào hàng chờ `pending`.
-3. Duyệt chuyển bản chờ sang `published` và gắn embedding. Từ chối thì `rejected`.
+2. Hết hội thoại, người dùng bấm trích xuất. Mô hình viết hồ sơ. Máy chủ phân loại một lần trên toàn bộ lời kẻ lừa, rồi đối chiếu với kết quả tìm của từng lượt. Khớp chắc một họ thì là nhánh (khi có hoàn cảnh mới) hoặc đề xuất gộp. Không khớp chắc thì là kịch bản gốc mới. Mọi kết quả đều vào hàng chờ `pending`, kể cả đề xuất gộp.
+3. Duyệt chuyển bản chờ sang `published` và gắn embedding. Với đề xuất gộp, người duyệt chọn gộp vào kịch bản đích (bản chờ thành `merged`) hoặc công bố riêng. Từ chối thì `rejected`. Không gì vào thư viện công khai mà không qua người duyệt.
 4. Xu hướng, tab kịch bản và luyện tập đọc thư viện đã xuất bản. Kiểm tra tin cũng đối chiếu thư viện đó. Thẻ cảnh báo công khai là nội dung soạn sẵn trong `backend/app/data/warnings.py`, có liên kết sang kịch bản cùng nhóm.
 5. Luyện tập chỉ đọc kịch bản. Một phiên luyện không tạo kịch bản mới và không ghi chỉ dấu.
 
@@ -85,13 +83,14 @@ flowchart TD
 ```
 
 1. Luật đầu vào (`assess_inbound`) đánh dấu jailbreak và dấu hiệu đối phương đang nghi. Số lạ được ghi vào hồ sơ vụ.
-2. Tìm thư viện đã xuất bản: embedding pgvector trộn với từ khóa. Cuộc thoại đang bám một kịch bản thì giữ kịch bản đó, trừ khi kịch bản khác hơn ít nhất 0.22 điểm.
+2. Tìm thư viện đã xuất bản: embedding pgvector trộn với từ khóa. Cuộc thoại đang bám một kịch bản thì giữ kịch bản đó, trừ khi kịch bản khác hơn ít nhất 0.22 điểm. Kết quả thô của mỗi lượt được ghi lại. Nếu chưa có họ nào được xác lập (một lượt ≥ 0.75, hoặc hai lượt ≥ 0.55), lượt chạy ở chế độ **chưa khớp**: Planner không nhận kịch bản, agent hỏi theo playbook chung (họ là ai, muốn gì, chuyển vào đâu, link, app, hạn chót). Agent không cần biết trước kịch bản.
 3. Analyst và Planner chạy song song, vì cả hai chỉ cần gói tìm kiếm. Analyst đọc ý định, bước và cờ đỏ. Planner chọn mục tiêu. Vai nào không trả lời thì lượt giữ mạch cũ.
 4. Máy chủ quyết định có được khép kịch bản hay không. `close_polite` bị kéo về hỏi tiếp khi chưa đủ điều kiện. Jailbreak hoặc nghi ngờ cao chuyển mục tiêu sang giả vờ chưa hiểu.
-5. Persona viết một tin tiếng Việt theo hồ sơ giả.
-6. Guard duyệt câu nháp ngay khi có nháp. Nếu luật chê câu (nhận chuyển tiền, nhận đã cài, nhận là máy, giọng dạy đời, sai đại từ, lặp câu mở), persona viết lại một lần, rồi câu mới được duyệt lại. Luật vẫn phủ quyết: câu còn vi phạm cứng thì thay bằng câu an toàn trong vai. Guard không trả lời thì không gửi bản nháp.
+5. Khi kẻ lừa đưa số tài khoản hoặc ví, máy chủ cho persona đọc lại số đó để họ xác nhận và nói tên chủ tài khoản. Khi mọi số đã xác nhận, persona viện một trở ngại vô hại để hỏi cách nhận khác. Số chỉ được tính là đã xác nhận khi kẻ lừa nhắc lại hoặc đồng ý sau khi nghe đọc lại.
+6. Persona viết một tin tiếng Việt theo hồ sơ giả và hồ sơ văn phong (độ dài, viết tắt, viết thường, thói quen), biết giờ Việt Nam và khoảng lặng từ tin trước. Sau lớp an toàn, `humanize` chỉnh câu cho giống cách người đó gõ.
+7. Guard duyệt câu nháp ngay khi có nháp. Nếu luật chê câu (nhận chuyển tiền, nhận đã cài, nhận là máy, giọng dạy đời, sai đại từ, lặp câu mở, lặp ý với các tin trước), persona viết lại một lần, rồi câu mới được duyệt lại. Luật vẫn phủ quyết: câu còn vi phạm cứng thì thay bằng câu an toàn trong vai. Guard không trả lời thì không gửi bản nháp.
 
-Điều kiện khép, nhánh mới, playbook và cách trộn điểm embedding nằm ở [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md).
+Điều kiện khép, nhánh mới, playbook và cách trộn điểm embedding nằm ở [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md). Các chiến thuật đọc lại số, hỏi cách khác, đồng hồ, chống lặp và giọng người thật, cùng nguồn tham khảo, nằm ở [docs/cai-tien-agent.md](docs/cai-tien-agent.md).
 
 ### Một lượt luyện tập
 
@@ -156,7 +155,7 @@ backend/app/services/    thư viện, kiểm tra, xu hướng, luyện tập, ch
 backend/app/llm/         router, Gemini, mock
 backend/app/data/        kịch bản, persona, thẻ cảnh báo, câu trắc nghiệm an toàn
 backend/tests/           pytest, SQLite, provider mock
-backend/eval/            năm tình huống hội thoại
+backend/eval/            mười bốn tình huống hội thoại, gồm bốn chiêu không có trong thư viện
 frontend/src/            React, Vite
 docs/                    kiến trúc, biến môi trường, triển khai
 docker-compose.yml
@@ -171,16 +170,25 @@ pytest
 python -m eval.run
 ```
 
-`pytest` gồm 158 hàm test trong `backend/tests`. Môi trường test dùng SQLite và `LLM_PROVIDER=mock`, có `tests/test_training.py` cho việc che dữ liệu, điểm, điều kiện kết thúc, lời kẻ lừa và trắc nghiệm.
+`pytest` gồm 199 hàm test (454 ca khi tính cả ca tham số hóa) trong `backend/tests`. Môi trường test dùng SQLite và `LLM_PROVIDER=mock`, có `tests/test_training.py` cho việc che dữ liệu, điểm, điều kiện kết thúc, lời kẻ lừa và trắc nghiệm.
 
-Báo cáo hội thoại đã commit ở `eval/results/report.md` (2026-11-25, nhà cung cấp mock, năm tình huống):
+Báo cáo hội thoại đã commit ở `eval/results/report.md` (2026-11-27, nhà cung cấp mock, mười bốn tình huống). Ba tình huống là chiêu không có trong 48 kịch bản gốc (phạt nguội CSGT, trợ lý bác sĩ bán thuốc, nhờ bình chọn để chiếm Facebook). Một tình huống ranh giới (hãng bay hoàn vé, cùng cơ chế với Shopee hoàn tiền) không chấm.
 
 | Chỉ số | Giá trị |
 | --- | --- |
-| Khớp đúng kịch bản ở lượt cuối | 4/4 |
-| Độ phủ bước trung bình | 88% |
-| Lượt còn trong vai | 15/15 |
+| Khớp đúng kịch bản ở lượt cuối | 8/8 |
+| Độ phủ bước trung bình | 85% |
+| Lượt còn trong vai | 52/52 |
 | Lọt an toàn ở câu đã gửi | 0 |
+| Phân loại đúng lúc trích xuất | 11/11 |
+| Lượt chạy chế độ chưa khớp, chiêu mới | 12/12 |
+| Lượt chạy chế độ chưa khớp nhầm, chiêu đã biết | 0/29 |
+| Chỉ dấu moi được (tài khoản, đường dẫn) | 7/7 |
+| Nơi nhận tiền được xác nhận | 2/8 |
+| Độ mới trung bình của câu trả lời | 97% |
+| Câu có dấu hiệu văn máy | 1/52 |
+
+Nơi nhận tiền 2/8 là vì trên mock phần lớn tình huống đưa số ở câu cuối, không còn lượt để xác nhận. Cùng bộ tình huống chạy trên mã trước khi thêm chế độ chưa khớp cho 10/11 phân loại đúng và 0/12 lượt chưa khớp. Chiêu bình chọn bị xếp trùng và gộp thẳng vào một kịch bản đã xuất bản. Các ngưỡng nằm ở `backend/app/services/matching.py`, mới chỉnh trên đường mock (chỉ từ khóa), nên phải đo lại khi có embedding thật. Kế hoạch và lý do ở [docs/ke-hoach-kich-ban-moi.md](docs/ke-hoach-kich-ban-moi.md).
 
 Lần chạy đó không có khóa API. Agent vẫn đi đủ vòng trên lớp heuristic, và báo cáo ghi rõ điều đó. Một lần `python -m eval.run` mới ghi ra thư mục tạm, hoặc đường `EVAL_OUT` nếu đặt biến này.
 

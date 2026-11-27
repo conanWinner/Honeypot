@@ -88,7 +88,7 @@ export function ChatRoom({ id }: { id: string }) {
       }>(`/api/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ text: content }) })
       if (!alive.current) return
       setMessages((current) => current.map((message) => (message.id === localId ? result.scammer_message : message)))
-      const wait = Math.max(700, Math.min(result.typing_ms, 2200) - (Date.now() - started))
+      const wait = Math.max(700, Math.min(result.typing_ms, 4000) - (Date.now() - started))
       await sleep(wait)
       if (!alive.current) return
       setMessages((current) => [...current, result.victim_message])
@@ -136,7 +136,8 @@ export function ChatRoom({ id }: { id: string }) {
   async function approve() {
     if (!extracted) return
     const script = await api<Script>(`/api/moderation/${extracted.script.id}/approve`, { method: 'POST' })
-    setExtracted({ ...extracted, script })
+    // Approving a proposed duplicate returns the script it was merged into.
+    setExtracted({ ...extracted, script, action: extracted.script.merge_target ? 'merged' : extracted.action })
   }
 
   if (!conversation && !error) return <p className="text-ink-soft">Đang mở hồ sơ…</p>
@@ -216,9 +217,17 @@ export function ChatRoom({ id }: { id: string }) {
           {error && <Banner tone="danger">{error}</Banner>}
           {extracted && (
             <div className="rounded-2xl bg-[#e7f3ec] px-4 py-3 text-sm leading-6">
-              {extracted.action === 'merged' ? (
+              {extracted.script.relation === 'duplicate' && extracted.script.status === 'pending' ? (
                 <p>
-                  Trùng kịch bản đã có. Đã cộng một lượt ghi nhận vào{' '}
+                  Giống kịch bản đã có. Đã đưa vào hàng chờ với đề xuất gộp vào{' '}
+                  <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${extracted.script.merge_target}`}>
+                    {extracted.script.merge_target_title || extracted.script.title}
+                  </Link>
+                  . Thư viện chưa đổi cho tới khi có người duyệt.
+                </p>
+              ) : extracted.action === 'merged' ? (
+                <p>
+                  Đã gộp vào{' '}
                   <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${extracted.script.id}`}>
                     {extracted.script.title}
                   </Link>
@@ -235,7 +244,7 @@ export function ChatRoom({ id }: { id: string }) {
               )}
               {extracted.script.status === 'pending' && (
                 <Button className="mt-2" size="sm" variant="seal" type="button" onClick={() => void approve()}>
-                  Duyệt ngay
+                  {extracted.script.merge_target ? 'Duyệt gộp ngay' : 'Duyệt ngay'}
                 </Button>
               )}
             </div>

@@ -24,13 +24,29 @@ Planner có thể trả `close_polite`. Máy chủ đổi mục tiêu đó thàn
 
 Nhánh mới là hoàn cảnh riêng của persona (con ở xa, sống một mình, shop, học phí) mà kịch bản đang khớp và các biến thể của nó không có. Nếu thư viện đã có biến thể đó, hội thoại báo khớp nhánh đã có và tiếp tục bám nhánh. Nhánh mới cần hai lần cùng một loại trước khi được ghi nhận ổn định.
 
-Khi trích xuất, máy chủ gán quan hệ, không để mô hình tự chọn:
+## Chiêu chưa có trong thư viện
 
-- Có nhánh mới và đang khớp một kịch bản: `variant`, vào hàng chờ, `parent_id` là họ của kịch bản.
-- Độ tin cậy lượt cuối từ 0.62 và không có nhánh mới: `duplicate`, gộp câu mới vào bản đã xuất bản, tăng `occurrence_count`.
-- Còn lại: `new_root`, vào hàng chờ như kịch bản mới.
+Nhánh mới chỉ bắt được hoàn cảnh riêng của persona, không bắt được một **loại** lừa chưa từng thấy. Phần này lo việc đó, và nằm ở `backend/app/services/matching.py`.
 
-Duyệt (`POST /api/moderation/{id}/approve`) đặt `published` và gắn embedding. Từ chối đặt `rejected`. Nếu duyệt một biến thể, chỉ dấu của nó được gộp vào kịch bản cha.
+Mỗi lượt, `raw_best` ghi kết quả tìm kiếm thô (họ, kịch bản, điểm) vào `AgentState.retrieval_log`, trước khi bị làm dính vào kịch bản đang bám. `match_strength` đọc nhật ký đó:
+
+- Lượt có điểm dưới `MATCH_SIGNAL_SCORE` (0.55) không mang tín hiệu, ví dụ câu đệm "chị còn đó không". Nó không làm lệch họ đã xác lập.
+- Một họ được xác lập khi có một lượt từ `MATCH_STRONG_SCORE` (0.75) trở lên, hoặc hai lượt có tín hiệu.
+- Chưa có họ nào được xác lập thì lượt chạy ở chế độ chưa khớp: Planner nhận `top_match = null` và `unmatched = true`, playbook là "Chung" với sáu mục (họ là ai, họ muốn gì, tài khoản hoặc ví, đường dẫn hoặc file, ứng dụng, cách gây sức ép). Panel có cờ `unmatched`.
+
+Chiêu đã biết thường có một lượt khớp rất cao ngay đầu. Chiêu mới thì mỗi câu chạm nhẹ một kịch bản khác nhau, nên không họ nào được xác lập.
+
+## Trích xuất và phân loại
+
+Máy chủ gán quan hệ, không để mô hình tự chọn. `classify_transcript` tìm thư viện một lần bằng toàn bộ lời kẻ lừa, rồi tính độ ổn định: tỷ lệ các lượt có tín hiệu trỏ vào cùng họ đó.
+
+- Điểm cả bản thoại dưới `EXTRACT_STRONG_SCORE` (0.70) hoặc độ ổn định dưới `EXTRACT_MIN_CONSISTENCY` (0.5): `new_root`. Ghi chú nêu kịch bản gần nhất kèm điểm.
+- Khớp chắc và có nhánh mới: `variant`, `parent_id` là họ đó.
+- Khớp chắc, không có nhánh mới: `duplicate`. Bản chờ có `merge_target` là kịch bản đích, `parent_id` để trống. Thư viện chưa đổi.
+
+Mọi quan hệ đều vào hàng chờ. Duyệt (`POST /api/moderation/{id}/approve`) đặt `published` và gắn embedding. Với bản có `merge_target`, mặc định là gộp: câu mới và chỉ dấu vào kịch bản đích, tăng `occurrence_count`, bản chờ thành `merged`. `?mode=publish` công bố riêng khi người duyệt thấy không trùng. Từ chối đặt `rejected`. Nếu duyệt một biến thể, chỉ dấu của nó được gộp vào kịch bản cha.
+
+Các ngưỡng mới chỉnh trên đường mock (chỉ từ khóa) với 48 kịch bản gốc. Khi có embedding thật, chạy `python -m eval.run` và chỉnh lại.
 
 ## An toàn đầu ra
 

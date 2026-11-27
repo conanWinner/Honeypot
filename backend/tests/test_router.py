@@ -222,7 +222,12 @@ def test_embed_provider_none_keeps_keyword_search():
 
 
 def test_persona_prompt_teaches_naive_stalling():
-    assert "chậm hiểu" in PERSONA_SYSTEM
-    assert "mã vận đơn qua ứng dụng" in PERSONA_SYSTEM
-    assert "Ủa đơn nào vậy" in PERSONA_SYSTEM
-    assert "đổi đại từ cho đúng hồ sơ" in PERSONA_SYSTEM
+    # Naive, not an expert: no lecturing, no official-channel advice.
+    assert "ứng dụng chính thức" in PERSONA_SYSTEM
+    assert "không rành" in PERSONA_SYSTEM
+    # Shows a machine-sounding reply next to a human one.
+    assert "Ơ đơn nào vậy" in PERSONA_SYSTEM
+    assert "đổi theo hồ sơ" in PERSONA_SYSTEM
+    # The loudest tells from the Turing-test studies and the review of our transcripts.
+    assert "anh/chị" in PERSONA_SYSTEM
+    assert "KHÔNG phải tin nào cũng nói" in PERSONA_SYSTEM

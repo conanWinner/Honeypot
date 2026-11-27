@@ -307,9 +307,9 @@ def test_rewrite_uses_the_same_aggressiveness(client, monkeypatch):
     seen = []
     real = orchestrator.critique_reply
 
-    def wrapped(text, persona_id, goal, allowed, aggressiveness, recent=None):
+    def wrapped(text, persona_id, goal, allowed, aggressiveness, recent=None, incoming=""):
         seen.append(aggressiveness)
-        return real(text, persona_id, goal, allowed, aggressiveness, recent)
+        return real(text, persona_id, goal, allowed, aggressiveness, recent, incoming)
 
     monkeypatch.setattr(orchestrator, "critique_reply", wrapped)
 

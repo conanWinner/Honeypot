@@ -136,8 +136,11 @@ DEFAULT = {
     "label": "Chung",
     "targets": [
         _WHO,
-        _t("account", "Tài khoản nhận tiền", "ask_account_number", "hỏi chuyển vào đâu", ["bank_accounts", "crypto_wallets"]),
-        _t("link", "Đường dẫn / app", "ask_link", "xin đường dẫn", ["urls", "apk"]),
+        _t("payment", "Họ muốn mình làm gì", "ask_purpose", "hỏi lại cần làm gì, đóng khoản gì, để làm gì", ["checklist:payment"]),
+        _t("account", "Tài khoản hoặc ví nhận tiền", "ask_account_number", "hỏi chuyển vào đâu, tên chủ tài khoản là ai", ["bank_accounts", "crypto_wallets"]),
+        _t("link", "Đường dẫn hoặc file", "ask_link", "xin gửi lại đường dẫn vì bấm không vào", ["urls", "apk"]),
+        _t("app", "Ứng dụng họ bắt dùng", "ask_next_instruction", "hỏi phải cài hay mở ứng dụng nào", ["apps", "remote_ids", "checklist:app"]),
+        _t("pressure", "Cách gây sức ép", "emotional_hook", "hỏi nếu chậm thì sao, hạn đến bao giờ", ["checklist:pressure"]),
     ],
 }
 

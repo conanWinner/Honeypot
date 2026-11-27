@@ -159,6 +159,8 @@ class PlannerOutput(BaseModel):
         "ask_remote_id",
         "emotional_hook",
         "probe_hook",
+        "confirm_account",
+        "ask_alternative",
         "close_polite",
     ] = "ask_next_instruction"
     rationale: str = ""

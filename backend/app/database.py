@@ -57,6 +57,8 @@ def init_database(engine) -> None:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(engine)
     _ensure_column(engine, "scripts", "indicators", "JSON")
+    _ensure_column(engine, "scripts", "relation", "VARCHAR(16) DEFAULT ''")
+    _ensure_column(engine, "scripts", "merge_target", "VARCHAR(64)")
     if engine.dialect.name != "postgresql":
         return
     with engine.begin() as conn:

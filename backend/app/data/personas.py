@@ -60,6 +60,67 @@ PRONOUNS: dict[str, dict] = {
     },
 }
 
+# How each persona types. Read by the persona prompt and by app.agent.humanize.
+# case: "lower" types without capitals. abbrev: words this person shortens (not
+# always). strip_marks: share of messages typed without diacritics. max_chars:
+# above this a message reads like an essay for this person. ms_per_char: typing speed.
+STYLES: dict[str, dict] = {
+    "ba-nam": {
+        "case": "normal", "max_chars": 140, "abbrev": {}, "ellipsis": True, "strip_marks": 0.0, "ms_per_char": 90,
+        "reactions": ["Ôi", "Thế à", "Chết thật", "Ừ", "Khổ quá"],
+        "particles": ["nhé", "nhỉ", "đấy", "à"],
+        "habits": "Gõ chậm, hay dùng dấu ba chấm. Hay kể con trai bên Đức, hỏi lại cho chắc. Không biết từ công nghệ.",
+    },
+    "minh-sv": {
+        "case": "lower", "max_chars": 90, "drop_final_period": True, "ms_per_char": 35,
+        "abbrev": {"không": "ko", "được": "đc", "rồi": "r", "chuyển khoản": "ck", "gì": "j"},
+        "reactions": ["ủa", "ơ", "hả", "thật á", "vl"],
+        "particles": ["á", "nha", "hả", "luôn"],
+        "habits": "Tin rất ngắn, có khi vài chữ. Hay nói đang trên lớp, đang hết tiền. Không viết hoa, ít dấu câu.",
+    },
+    "huong-shop": {
+        "case": "normal", "max_chars": 130, "drop_final_period": True, "ms_per_char": 40,
+        "abbrev": {"không": "ko", "được": "đc"},
+        "reactions": ["Ơ", "Ủa", "Trời", "Ok"],
+        "particles": ["nha", "nhé", "đó"],
+        "habits": "Đang bận gói đơn, trả lời nhanh, thực dụng. Hay nhắc đơn hàng, khách, phí ship.",
+    },
+    "tuan-vp": {
+        "case": "normal", "max_chars": 120, "desk_words": True, "ms_per_char": 40,
+        "abbrev": {},
+        "reactions": ["Vâng", "Ơ", "À"],
+        "particles": ["ạ", "nhé"],
+        "habits": "Ngắn gọn vì đang họp, có dấu đầy đủ nhưng không văn vẻ. Hay nói để em xem lại, em đang họp.",
+    },
+    "lan-nt": {
+        "case": "normal", "max_chars": 130, "drop_final_period": True, "ms_per_char": 70,
+        "abbrev": {},
+        "reactions": ["Ui chao", "Răng rứa", "Chết rồi", "Ơ"],
+        "particles": ["rứa", "hỉ", "đó"],
+        "habits": "Giọng Nghệ nhẹ: răng (sao), rứa, mô, chi, tê. Lo cho con, hay kể đang đi chợ, đang nấu cơm.",
+    },
+    "khoa-tx": {
+        "case": "lower", "max_chars": 70, "drop_final_period": True, "ms_per_char": 30,
+        "abbrev": {"không": "k", "được": "đc", "rồi": "r", "chuyển khoản": "ck", "gì": "j"},
+        "reactions": ["ơ", "hả", "ủa", "ok"],
+        "particles": ["nha", "bác", "đó"],
+        "habits": "Gõ một tay khi đang chạy xe, cực ngắn, không dấu câu. Hay nói đang có khách, đang đổ xăng.",
+    },
+    "ong-sau": {
+        "case": "normal", "max_chars": 120, "abbrev": {}, "ellipsis": True, "strip_marks": 0.4, "ms_per_char": 110,
+        "reactions": ["Thế à", "Ờ", "Ơ hay", "Chú nghe đây"],
+        "particles": ["nhé", "đấy", "à"],
+        "habits": "Gõ chậm, nhiều tin không dấu vì không quen bàn phím. Hay nói con gái cài giúp, phải đợi con gái về.",
+    },
+    "thu-me-bim": {
+        "case": "normal", "max_chars": 120, "drop_final_period": True, "ms_per_char": 35,
+        "abbrev": {"không": "ko", "được": "đc"},
+        "reactions": ["Ôi", "Dạ", "Thật ạ", "Ơ"],
+        "particles": ["ạ", "nha", "nhé"],
+        "habits": "Nhắn nhanh giữa lúc trông con, hay nhắc bé Bông, hay dùng ạ, nha.",
+    },
+}
+
 PERSONAS: list[dict] = [
     {
         "id": "ba-nam",

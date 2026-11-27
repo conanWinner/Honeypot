@@ -49,3 +49,11 @@ class AgentState(BaseModel):
     risk_factors: list[dict] = Field(default_factory=list)
     playbook_category: str = ""
     asked_keys: list[str] = Field(default_factory=list)
+    # Raw library hit per turn, before any stickiness. Used to tell a new scam from a known one.
+    retrieval_log: list[dict] = Field(default_factory=list)
+    unmatched: bool = False
+    # One row per payment destination the scammer gave (bank account, e-wallet,
+    # crypto wallet). A destination counts as confirmed once the scammer repeats it
+    # in a later turn or affirms it after the persona read it back.
+    account_checks: list[dict] = Field(default_factory=list)
+    alt_asked: bool = False

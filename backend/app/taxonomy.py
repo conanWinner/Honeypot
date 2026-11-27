@@ -51,6 +51,8 @@ GOALS: dict[str, str] = {
     "ask_remote_id": "Hỏi ID điều khiển từ xa",
     "emotional_hook": "Lộ vẻ lo, bắt nói rõ",
     "probe_hook": "Đào đúng chi tiết vừa bịa",
+    "confirm_account": "Đọc lại số để họ xác nhận",
+    "ask_alternative": "Viện trở ngại, hỏi cách nhận khác",
     "close_polite": "Khép khi kịch bản đã đủ",
 }
 
