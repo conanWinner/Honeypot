@@ -46,3 +46,12 @@ def _clean(app):
         # approval cannot change what the next test matches against.
         session.query(Script).filter((Script.status != "published") | Script.id.like("hs-%")).delete(synchronize_session=False)
         session.commit()
+
+
+@pytest.fixture(autouse=True)
+def _no_cooling():
+    from app.llm import openai_provider
+
+    openai_provider._cooling.clear()
+    yield
+    openai_provider._cooling.clear()

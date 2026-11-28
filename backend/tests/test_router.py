@@ -262,3 +262,27 @@ def test_persona_prompt_teaches_naive_stalling():
     # The loudest tells from the Turing-test studies and the review of our transcripts.
     assert "anh/chị" in PERSONA_SYSTEM
     assert "KHÔNG phải tin nào cũng nói" in PERSONA_SYSTEM
+
+
+def test_rate_limited_model_cools_down_and_role_goes_to_fallback(monkeypatch):
+    from app.agent.schemas import SafetyOutput
+    from app.llm import openai_provider as op
+
+    calls = []
+
+    def fake_post(url, key, payload, timeout):
+        calls.append(payload["model"])
+        if payload["model"] == "ag/gemini-3.8-flash-low":
+            return 503, "application/json", '{"error":{"message":"[antigravity] [403]: HTTP 403 (reset after 1m 30s)"}}'
+        return 200, "application/json", json.dumps({"choices": [{"message": {"content": '{"action":"allow"}'}}]})
+
+    monkeypatch.setattr(op, "post_chat", fake_post)
+    provider = op.OpenAIProvider("k", "cx/gpt-6-luna", "https://router.example/v1")
+    first = provider.complete(SafetyOutput, "s", "u", model="ag/gemini-3.8-flash-low", fallback_model="cx/gpt-5.6-luna", timeout=5)
+    assert first.action == "allow"
+    assert op.is_cooling("ag/gemini-3.8-flash-low")
+    assert 80 < op.cooling_models()["ag/gemini-3.8-flash-low"] <= 92
+    calls.clear()
+    provider.complete(SafetyOutput, "s", "u", model="ag/gemini-3.8-flash-low", fallback_model="cx/gpt-5.6-luna", timeout=5)
+    # Second call skips the cooling model entirely.
+    assert calls == ["cx/gpt-5.6-luna"]

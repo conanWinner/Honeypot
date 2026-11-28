@@ -33,10 +33,47 @@ def failover_counts() -> dict[str, int]:
         return dict(_failover_counts)
 
 
+# Models the router says are rate limited ("HTTP 403 (reset after 1m 16s)", 429).
+# While one cools down, its role goes straight to the fallback instead of paying
+# two or three seconds per call for an answer that is known to be an error.
+_cooling: dict[str, float] = {}
+_RESET_AFTER = re.compile(r"reset after\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?", re.IGNORECASE)
+COOL_DEFAULT_S = 60.0
+COOL_MAX_S = 300.0
+
+
+def is_cooling(model: str) -> bool:
+    with _failover_lock:
+        until = _cooling.get(model or "", 0.0)
+    return until > time.monotonic()
+
+
+def cooling_models() -> dict[str, float]:
+    now = time.monotonic()
+    with _failover_lock:
+        return {name: round(until - now, 1) for name, until in _cooling.items() if until > now}
+
+
+def _cool_if_limited(model: str, reason: str) -> None:
+    text = reason or ""
+    match = _RESET_AFTER.search(text)
+    limited = bool(match) or bool(re.search(r"\b(?:403|429)\b|rate.?limit|quota", text, re.IGNORECASE))
+    if not limited or not model:
+        return
+    seconds = COOL_DEFAULT_S
+    if match and (match.group(1) or match.group(2)):
+        seconds = int(match.group(1) or 0) * 60 + int(match.group(2) or 0) + 2
+    seconds = max(5.0, min(COOL_MAX_S, float(seconds)))
+    with _failover_lock:
+        _cooling[model] = max(_cooling.get(model, 0.0), time.monotonic() + seconds)
+    log.info("llm cooling model=%s seconds=%.0f", model, seconds)
+
+
 def _record_failover(role: str, model: str, reason: str) -> None:
     key = role or "unknown"
     with _failover_lock:
         _failover_counts[key] = _failover_counts.get(key, 0) + 1
+    _cool_if_limited(model, reason)
     log.warning("llm failover role=%s model=%s reason=%s", key, model, (reason or "")[:180])
 
 
@@ -226,6 +263,10 @@ class OpenAIProvider:
         if alternate == primary:
             alternate = ""
         alt_budget = fallback_timeout if fallback_timeout and fallback_timeout > 0 else primary_budget
+        if alternate and is_cooling(primary) and not is_cooling(alternate):
+            # The router said this model is rate limited: go straight to the fallback.
+            primary, alternate = alternate, ""
+            primary_budget = alt_budget
         horizon = deadline
         hint = schema_hint(schema)
         messages = [
@@ -336,6 +377,9 @@ class OpenAIProvider:
         """One plain-text completion. No JSON schema, so a short line is not parsed twice."""
         primary = (fallback_model if prefer_fallback and fallback_model else model) or self.model
         primary = primary.strip() or self.model
+        if not prefer_fallback and fallback_model and is_cooling(primary) and not is_cooling(fallback_model.strip()):
+            prefer_fallback = True
+            primary = fallback_model.strip()
         budget = timeout if timeout and timeout > 0 else 6.0
         if prefer_fallback and fallback_timeout and fallback_timeout > 0:
             budget = fallback_timeout

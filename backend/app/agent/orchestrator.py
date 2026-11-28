@@ -741,7 +741,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         spoken = _ask(PersonaOutput, PERSONA_SYSTEM, pack("Viết tin nhắn trả lời trong vai.", persona_ctx), 0.9, "persona", 180)
     except (LLMError, TimeoutError, FuturesTimeout) as exc:
         log.warning("persona không trả lời, câu giữ chỗ: %s", type(exc).__name__)
-        spoken = PersonaOutput(reply=holding_line(persona.id, recent_replies), memory_note="")
+        spoken = PersonaOutput(reply=holding_line(persona.id, recent_replies, persona_ctx.get("they_call_me", "")), memory_note="")
         degraded = True
         persona_failed = True
     else:
@@ -836,7 +836,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
     action = "allow"
     final = draft
     if guard_failed or verdict is None:
-        final = holding_line(persona.id, recent_replies)
+        final = holding_line(persona.id, recent_replies, persona_ctx.get("they_call_me", ""))
         if _hard(inspect_outbound(final, allowed, persona.id)):
             final = fallback_reply(persona.id, recent_replies)
         action = "fallback"

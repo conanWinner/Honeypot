@@ -657,43 +657,54 @@ def repair_pronouns(text: str, persona_id: str, self_term: str = "") -> str:
     return body
 
 
-def holding_line(persona_id: str, recent: list[str] | None = None) -> str:
-    lines = {
-        "ba-nam": [
-            "Đợi cô xíu, cô đang bận tay. Cháu nói lại được không?",
-            "Ờ cháu chờ cô tí, cô đang tìm kính.",
-            "Khoan đã cháu, cô nghe không rõ. Nói lại một câu thôi.",
-        ],
-        "minh-sv": [
-            "đợi em xíu, em đang bận tay. anh nói lại được không?",
-            "khoan, em nghe không rõ. nói lại một câu thôi.",
-        ],
-        "huong-shop": [
-            "Đợi chị xíu, chị đang bận tay. Anh nói lại được không?",
-            "Khoan đã, chị nghe không rõ. Nói lại một câu thôi.",
-        ],
-        "tuan-vp": [
-            "Đợi em xíu, em đang bận tay. Anh nói lại được không?",
-            "Khoan, em nghe không rõ. Anh nói lại một câu thôi.",
-        ],
-        "lan-nt": [
-            "Đợi tui xíu, tui đang bận tay. Bạn nói lại được không?",
-            "Khoan, tui nghe không rõ. Nói lại một câu thôi.",
-        ],
-        "khoa-tx": [
-            "đợi em xíu, em đang bận tay. bác nói lại được không?",
-            "khoan, em nghe không rõ. bác nói lại một câu.",
-        ],
-    }
-    options = lines.get(persona_id) or [
-        _voiced("Đợi {me} xíu, {me} đang bận tay. {You} nói lại được không?", persona_id),
-        _voiced("Khoan, {me} nghe không rõ. {You} nói lại một câu thôi.", persona_id),
-    ]
-    recent_norm = [(item or "").strip().lower() for item in (recent or [])]
-    for line in options:
-        if line.strip().lower() not in recent_norm:
-            return line
-    return options[0]
+# Everyday interruptions, said once each. "Nói lại được không" three times in one
+# chat is the loudest tell, so most of these do not ask them to repeat anything.
+_HOLD_TEMPLATES = [
+    "Đợi {me} xíu, {me} đang bận tay. {You} nói lại được không?",
+    "Khoan, {me} nghe không rõ. {You} nói lại một câu thôi.",
+    "{You} chờ {me} tí, {me} đi lấy cái kính đã.",
+    "Ơ máy {me} vừa đơ, {you} chờ {me} chút.",
+    "Có người gọi cửa, {you} đợi {me} tí nhé.",
+    "Từ từ đã {you}, {me} đang ghi lại.",
+    "Để {me} ngồi xuống đã, nãy giờ {me} đứng ngoài đường.",
+]
+_HOLD_YOUNG = [
+    "đợi {me} xíu, {me} đang bận tay. {you} nói lại được không?",
+    "khoan, {me} nghe không rõ. {you} nói lại một câu.",
+    "{you} chờ {me} tí, đang dở tay.",
+    "máy {me} lag quá, đợi chút",
+    "ơ từ từ, {me} đang đọc lại",
+]
+
+
+def _norm_line(text: str) -> str:
+    return re.sub(r"[^\w]+", " ", fold(text or "")).strip()
+
+
+def holding_line(persona_id: str, recent: list[str] | None = None, self_term: str = "") -> str:
+    from app.data.personas import PRONOUNS, STYLES
+
+    spec = PRONOUNS.get(persona_id) or {}
+    young = (STYLES.get(persona_id) or {}).get("case") == "lower"
+    templates = _HOLD_YOUNG if young else _HOLD_TEMPLATES
+    options = [_voiced(line, persona_id) for line in templates]
+    default_self = (spec.get("self") or [""])[0]
+    if self_term and default_self and self_term != default_self:
+        options = [
+            re.sub(
+                rf"(?<!\w){re.escape(default_self)}(?!\w)",
+                lambda m: self_term.capitalize() if m.group(0)[0].isupper() else self_term,
+                line,
+                flags=re.IGNORECASE,
+            )
+            for line in options
+        ]
+    seen = {_norm_line(item) for item in (recent or [])}
+    fresh = [line for line in options if _norm_line(line) not in seen]
+    if not fresh:
+        return options[len(recent or []) % len(options)]
+    # Rotate through the unused ones so two degraded turns never match.
+    return fresh[len(recent or []) % len(fresh)]
 
 
 def needs_guard(text: str) -> bool:
@@ -845,13 +856,13 @@ def fallback_reply(persona_slug: str, recent: list[str] | None = None) -> str:
     # A persona without hand-written lines gets generic ones in its own pronouns,
     # not another persona's: borrowing "em/anh" made a 72-year-old call himself "cháu".
     options = _FALLBACKS.get(persona_slug) or [_voiced(line, persona_slug) for line in _GENERIC_FALLBACKS]
-    recent_norm = [(item or "").strip().lower() for item in (recent or [])]
+    # Sent messages are stored as typed (maybe without diacritics), so compare folded.
+    recent_norm = {_norm_line(item) for item in (recent or [])}
     for line in options:
-        folded = line.strip().lower()
-        if folded in recent_norm or repeats_opening(line, recent):
+        if _norm_line(line) in recent_norm or repeats_opening(line, recent):
             continue
         return line
-    return options[len(recent_norm) % len(options)]
+    return options[len(recent or []) % len(options)]
 
 
 def readback_line(persona_slug: str, account: str, kind: str = "bank_accounts") -> str:

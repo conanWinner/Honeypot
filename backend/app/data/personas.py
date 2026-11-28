@@ -39,10 +39,10 @@ PRONOUNS: dict[str, dict] = {
     },
     "khoa-tx": {
         "self": ["em"],
-        "other": ["bác", "anh", "chị"],
+        "other": ["anh", "chị", "bác"],
         "forbid_words": ["tao", "mày", "cô", "cháu"],
         "forbid_con_as_self": True,
-        "note": "Tự xưng em. Gọi người lớn hơn là bác, người ngang là anh hoặc chị.",
+        "note": "Tự xưng em. Gọi người lạ là anh hoặc chị, người lớn tuổi hẳn là bác.",
     },
     "ong-sau": {
         "self": ["chú", "bác", "tôi"],
