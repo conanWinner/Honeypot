@@ -715,6 +715,11 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
         "style": {key: value for key, value in style_of(persona.id).items() if key in {"case", "max_chars", "reactions", "particles", "habits"}},
     }
     recent_replies = [message.content for message in conversation.messages if message.role == "victim"][-4:]
+    persona_ctx["they_call_me"] = _they_call_me(
+        [message.content for message in conversation.messages if message.role == "scammer"] + [text],
+        PRONOUNS.get(persona.id, {}).get("self") or [],
+    )
+    persona_ctx["holder_known"] = bool(readback and readback.get("holder"))
     persona_ctx["recent_dialogue"] = [
         {"who": "họ" if message.role == "scammer" else "mình", "text": message.content[:220]}
         for message in conversation.messages[-5:]
@@ -850,7 +855,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             final = candidate
             action = "rewrite"
         else:
-            repaired = repair_pronouns(draft, persona.id) if "pronoun_mix" in violations else ""
+            repaired = repair_pronouns(draft, persona.id, persona_ctx.get("they_call_me", "")) if "pronoun_mix" in violations else ""
             if repaired and repaired != draft and not inspect_outbound(repaired, allowed, persona.id):
                 final = repaired
                 action = "rewrite"
@@ -1209,12 +1214,18 @@ def _message_dict(message: Message) -> dict:
 
 # Words that are money only in a phrase: "đóng phí" but not "đóng cổng", "trả
 # tiền" but not "trả lời", "hoàn tiền" but not "hoàn thành", "đồng" only after a number.
+# Money is "on the table" only when they ask for a payment: a pay verb aimed at
+# money or a destination, an account number, a wallet, or an amount. "rửa tiền",
+# "mở tài khoản" or "nợ học phí" alone do not count; a victim who then asks "which
+# account?" is running the scam for them.
 _MONEY_CUE = re.compile(
-    r"(?<!\w)(tiền|chuyển khoản|chuyển tiền|chuyển vào|chuyển qua|chuyển sang|phí|nạp|cọc|stk|tài khoản|"
-    r"ví|usdt|hoa hồng|vốn|lãi|giám định|ck|vnd|thanh toán|"
-    r"(?:đóng|nộp|trả)\s+(?:phí|tiền|phạt|thuế|học phí|cọc|bảo hiểm|góp|trước)|"
-    r"hoàn\s+(?:tiền|vé|phí|vốn|trả)|"
-    r"\d[\d.,]*\s*(?:đ|đồng|k|tr|triệu|nghìn|ngàn|usd)\b|triệu|nghìn|ngàn)(?!\w)",
+    r"(?<!\w)(?:"
+    r"(?:chuyển|nộp|đóng|trả|nạp|thanh toán|ck|gửi)\s+(?:\S+\s+){0,3}?(?:tiền|phí|phạt|khoản|vào|qua|sang|cho\s+(?:tôi|em|anh|chị|bên)|trước|ngay|liền|gấp|giúp|thay|\d+)"
+    r"|(?:đóng|nộp)\s+(?:phạt|phí|học phí|thuế|bảo hiểm|tiền)"
+    r"|đặt\s+cọc|\bcọc\b|giữ\s+suất\s+.*\d|stk|số\s+tài\s+khoản|tài\s+khoản\s+(?:số|giám định|\d+)"
+    r"|ví\s+(?:momo|zalopay|viettelpay)\s+(?:số\s+)?\d+|usdt|hoàn\s+(?:tiền|vé|phí)"
+    r"|\d[\d.,]*\s*(?:đ|đồng|k|tr|triệu|nghìn|ngàn|usd|usdt)\b"
+    r")(?!\w)",
     re.IGNORECASE,
 )
 _APP_CUE = re.compile(r"(?<!\w)(ứng dụng|app|apk|cài|tải|phần mềm|file|zalo|telegram)(?!\w)", re.IGNORECASE)
@@ -1224,6 +1235,20 @@ _TARGET_TOPIC = {
     "remote": "remote", "remote_id": "remote", "permission": "app", "app": "app", "apk": "app",
 }
 _GOAL_TOPIC = {"ask_account_number": "money", "ask_transfer_destination": "money", "ask_remote_id": "remote"}
+
+
+def _they_call_me(scammer_lines: list[str], allowed_self: list[str]) -> str:
+    """The kinship word the scammer uses for the victim, if it is one this persona may
+    use for itself. Called "bác", a 68-year-old answers as "bác", not "cô"."""
+    kin = [word for word in allowed_self if word not in {"tôi", "mình", "tui"}]
+    if len(kin) < 2:
+        return ""
+    counts = {word: 0 for word in kin}
+    for line in scammer_lines[-4:]:
+        for word in kin:
+            counts[word] += len(re.findall(rf"(?<!\w){word}(?!\w)", line, flags=re.IGNORECASE))
+    best = max(counts, key=counts.get)
+    return best if counts[best] else ""
 
 
 def _topics(text: str) -> set[str]:

@@ -755,8 +755,14 @@ def test_pronoun_mix_keeps_the_question(client):
             json={"text": "Tôi thấy con trai bác đang du học ở Đức."},
         ).json()
         text = body["victim_message"]["content"]
-        assert "Đức" in text or "đức" in text.lower()
-        assert "bác" not in text.lower()
+        from app.agent.textutil import fold
+
+        assert "duc" in fold(text)
+        # Called "bác", she answers as "bác"; what must not happen is "bác" and "cô" in one message.
+        import re as _re
+
+        low = fold(text)
+        assert not ("bac" in low and _re.search(r"(?<!\w)co(?!\w)", low)), text
         assert body["panel"]["safety_action"] != "fallback"
     finally:
         client.app.state.provider = MockProvider()
@@ -782,7 +788,9 @@ def test_persona_failure_returns_a_holding_line(client):
         assert response.status_code == 200, response.text
         body = response.json()
         assert "quota" not in body["victim_message"]["content"].lower()
-        assert "bận tay" in body["victim_message"]["content"]
+        from app.agent.textutil import fold
+
+        assert "ban tay" in fold(body["victim_message"]["content"])
         assert body["panel"]["degraded"] is True
     finally:
         client.app.state.provider = MockProvider()
@@ -881,9 +889,11 @@ def test_address_term_stays_for_the_conversation(client):
         created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
         first = client.post(f"/api/conversations/{created['id']}/messages", json={"text": "Alo cô nghe máy."}).json()
         second = client.post(f"/api/conversations/{created['id']}/messages", json={"text": "Tôi gọi từ cơ quan."}).json()
-        assert "cháu" in first["victim_message"]["content"].lower()
-        assert "anh" not in second["victim_message"]["content"].lower()
-        assert "cháu" in second["victim_message"]["content"].lower()
+        from app.agent.textutil import fold
+
+        assert "chau" in fold(first["victim_message"]["content"])
+        assert "anh" not in fold(second["victim_message"]["content"])
+        assert "chau" in fold(second["victim_message"]["content"])
     finally:
         client.app.state.provider = MockProvider()
 
@@ -971,7 +981,9 @@ def test_guard_allow_sends_a_question_the_rules_only_hint_at(client):
             f"/api/conversations/{created['id']}/messages",
             json={"text": "Cô chuyển khoản ngay vào tài khoản giám định."},
         ).json()
-        assert "chuyển ngay" in body["victim_message"]["content"].lower()
+        from app.agent.textutil import fold
+
+        assert "chuyen ngay" in fold(body["victim_message"]["content"])
         assert body["panel"]["safety_action"] == "allow"
     finally:
         client.app.state.provider = MockProvider()

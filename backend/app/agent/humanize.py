@@ -102,15 +102,35 @@ def _drop_repeated_disclaimer(text: str, recent: list[str] | None) -> str:
     return " ".join(kept) if kept else text
 
 
-def _abbreviate(text: str, table: dict[str, str], roll: float) -> str:
+def _abbreviate(text: str, table: dict[str, str], seed: str, rate: float = 0.7) -> str:
+    """Shorten listed words, each with its own roll: people are inconsistent, so
+    "ko" and "không" can sit in the same chat. Longer phrases go first."""
     if not table:
         return text
     out = text
-    for index, (word, short) in enumerate(table.items()):
-        # Not every word, every time: people are inconsistent.
-        if (roll * (index + 3)) % 1 < 0.7:
-            out = re.sub(rf"(?<!\w){re.escape(word)}(?!\w)", short, out, flags=re.IGNORECASE)
+    for word in sorted(table, key=len, reverse=True):
+        if _rng(seed, "abbr", word) >= rate:
+            continue
+        short = table[word]
+
+        def swap(match: re.Match, short: str = short) -> str:
+            return short.capitalize() if match.group(0)[0].isupper() and len(short) > 1 else short
+
+        out = re.sub(rf"(?<!\w){re.escape(word)}(?!\w)", swap, out, flags=re.IGNORECASE)
     return out
+
+
+def _elder(text: str, seed: str) -> str:
+    """How older people type on a phone: no space after a comma, a doubled "??",
+    "..." in place of a full stop. Words stay spelled out."""
+    body = text
+    if _rng(seed, "comma") < 0.5:
+        body = re.sub(r",\s+", ",", body)
+    if _rng(seed, "qq") < 0.35:
+        body = re.sub(r"\?(?=\s|$)", "??", body, count=1)
+    if _rng(seed, "dots") < 0.5:
+        body = re.sub(r"(?<=\w)\.(\s+)(?=\w)", r"...\1", body, count=1)
+    return body
 
 
 def humanize(text: str, persona_id: str, recent: list[str] | None = None, seed: str = "", address: str = "") -> str:
@@ -128,7 +148,9 @@ def humanize(text: str, persona_id: str, recent: list[str] | None = None, seed: 
     body = _SLASH.sub(pick, body)
     body = _drop_repeated_disclaimer(body, recent)
     roll = _rng(seed, persona_id, body[:24])
-    body = _abbreviate(body, style.get("abbrev") or {}, roll)
+    body = _abbreviate(body, style.get("abbrev") or {}, f"{seed}:{persona_id}", float(style.get("abbrev_rate", 0.7)))
+    if style.get("elder"):
+        body = _elder(body, f"{seed}:{persona_id}")
     if style.get("case") == "lower":
         body = body[:1].lower() + body[1:]
         body = re.sub(r"([.!?]\s+)([A-ZÀ-Ỹ])", lambda m: m.group(1) + m.group(2).lower(), body)
@@ -138,6 +160,9 @@ def humanize(text: str, persona_id: str, recent: list[str] | None = None, seed: 
         body = body[:-1] + "..."
     # Models already write "..." for this kind of persona; never stack more dots.
     body = re.sub(r"\.{4,}", "...", body)
+    emoticons = style.get("emoticons") or []
+    if emoticons and _rng(seed, "emo") < 0.15 and not re.search(r"[:=^@]", body[-3:]):
+        body = body.rstrip(".") + " " + emoticons[int(_rng(seed, "emo-pick") * len(emoticons)) % len(emoticons)]
     # Diacritics depend on the keyboard someone has set up, so decide once per
     # conversation, not per message: flipping between the two looks scripted.
     conversation = (seed or "").split(":", 1)[0]

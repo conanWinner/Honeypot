@@ -189,3 +189,22 @@ def test_humanize_never_stacks_dots():
         out = humanize("Có số hiệu không, cô hỏi cho chắc nhé...", "ba-nam", seed=seed)
         assert "...." not in out
         assert humanize("Thế à..... cháu nói đi", "ong-sau", seed=seed).count(".") <= 3
+
+
+def test_age_shapes_typing():
+    from app.agent.humanize import humanize
+    from app.agent.textutil import fold
+
+    elder = "Chú ghi số 190366778899 nhé, đúng chưa cháu? Không biết chuyển khoản đâu."
+    young = "Dạ anh ơi, em không biết chuyển khoản như thế nào, phải chuyển bao nhiêu vậy anh?"
+    elder_out = [humanize(elder, "ong-sau", [], seed=f"c{i}:3") for i in range(12)]
+    young_out = [humanize(young, "minh-sv", [], seed=f"c{i}:3") for i in range(12)]
+    # The account number survives every rewrite.
+    assert all("190366778899" in out for out in elder_out)
+    # Older people drop marks in most chats but spell words out.
+    assert sum(out.isascii() for out in elder_out) >= 6
+    assert all("ck" not in out.split() and "ko" not in out.split() for out in elder_out)
+    # Young people shorten words in most messages, and the meaning words stay.
+    shortened = [out for out in young_out if {"ko", "e", "a", "bt", "ck", "bn", "z", "ntn"} & set(out.replace(",", " ").replace("?", " ").split())]
+    assert len(shortened) >= 9
+    assert all(out[0].islower() for out in young_out)

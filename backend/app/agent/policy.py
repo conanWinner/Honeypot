@@ -363,6 +363,9 @@ def voice_issues(text: str, persona_id: str | None) -> list[str]:
             continue
         issues.append("pronoun_mix")
         break
+    if "pronoun_mix" not in issues and len(_self_kin_used(body, spec)) > 1:
+        # "Bác nói con trai cô…": two ways of saying "I" in one message.
+        issues.append("pronoun_mix")
     if "pronoun_mix" not in issues:
         for match in _ADDRESS_FRAME.finditer(body):
             if match.group(1).lower() not in allowed_other:
@@ -614,13 +617,39 @@ def pin_address(text: str, persona_id: str, term: str) -> str:
     return body
 
 
-def repair_pronouns(text: str, persona_id: str) -> str:
-    """Swap a forbidden address word for this persona's own, and keep the question."""
+def _self_kin_used(text: str, spec: dict) -> list[str]:
+    """Kinship words for "I" this persona may use, in the order they appear."""
+    kin = [w.lower() for w in spec.get("self") or [] if w.lower() not in {"tôi", "mình", "tui", "em"}]
+    if len(kin) < 2:
+        return []
+    found: list[str] = []
+    for match in re.finditer(r"(?<!\w)(" + "|".join(map(re.escape, kin)) + r")(?!\w)", text or "", flags=re.IGNORECASE):
+        word = match.group(1).lower()
+        if word not in found:
+            found.append(word)
+    return found
+
+
+def repair_pronouns(text: str, persona_id: str, self_term: str = "") -> str:
+    """Swap a forbidden address word for this persona's own, keep one word for "I",
+    and keep the question."""
     from app.data.personas import PRONOUNS
 
     spec = PRONOUNS.get(persona_id) or {}
     other = (spec.get("other") or ["anh"])[0]
     body = text or ""
+    used = _self_kin_used(body, spec)
+    if len(used) > 1:
+        keep = self_term if self_term in used else used[0]
+        for word in used:
+            if word == keep:
+                continue
+            body = re.sub(
+                rf"(?<!\w){re.escape(word)}(?!\w)",
+                lambda m: keep.capitalize() if m.group(0)[0].isupper() else keep,
+                body,
+                flags=re.IGNORECASE,
+            )
     for word in spec.get("forbid_words") or []:
         if word.lower() in {"tao", "mày", "tụi bây", "chúng mày"}:
             continue

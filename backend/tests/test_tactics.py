@@ -14,6 +14,7 @@ from app.agent.casefile import critique_reply, harvest_indicators, holder_name, 
 from app.agent.orchestrator import _clock
 from app.agent.policy import reply_novelty, rewrite_opening
 from app.agent.state import AgentState
+from app.agent.textutil import fold
 from app.llm.mock import MockProvider
 
 FLOW = [
@@ -272,7 +273,8 @@ def test_every_persona_asks_for_an_alternative(client):
         _, turns = _talk(client, FLOW[1:3], persona=persona["id"])
         assert turns[1]["panel"]["goal"]["goal"] == "ask_alternative", persona["id"]
         reply = turns[1]["victim_message"]["content"]
-        assert "khác" in reply, (persona["id"], reply)
+        # Older personas often type without diacritics, so compare folded text.
+        assert "khac" in fold(reply), (persona["id"], reply)
         assert voice_issues(reply, persona["id"]) == [], (persona["id"], reply)
 
 
@@ -284,11 +286,11 @@ def test_alternative_never_contradicts_the_persona_bank(client):
     ]
     _, turns = _talk(client, lines, persona="ba-nam")
     assert turns[1]["panel"]["goal"]["goal"] == "ask_alternative"
-    reply = turns[1]["victim_message"]["content"].lower()
-    assert "không dùng" not in reply and "khác" in reply
+    reply = fold(turns[1]["victim_message"]["content"])
+    assert "khong dung" not in reply and "khac" in reply
     # A different bank may use the plain obstacle.
     _, turns = _talk(client, ["Cô chuyển vào stk 9704229912345 MB Bank.", "Đúng rồi cô."], persona="ba-nam")
-    assert "khác" in turns[1]["victim_message"]["content"]
+    assert "khac" in fold(turns[1]["victim_message"]["content"])
 
 
 def test_bot_probe_with_empty_draft_gets_a_denial(client):
@@ -301,8 +303,8 @@ def test_bot_probe_with_empty_draft_gets_a_denial(client):
             return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
 
     _, turns = _talk(client, ["Cô có phải máy không đấy? Sao trả lời lạ vậy."], persona="ba-nam", provider=Blank())
-    reply = turns[0]["victim_message"]["content"].lower()
-    assert "máy" in reply and "người" in reply, reply
+    reply = fold(turns[0]["victim_message"]["content"])
+    assert "may" in reply and "nguoi" in reply, reply
 
 
 def test_new_hook_does_not_block_the_read_back(client):
