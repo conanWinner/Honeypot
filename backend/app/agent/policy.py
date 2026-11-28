@@ -776,23 +776,27 @@ def rewrite_opening(text: str, recent: list[str] | None) -> str:
     return rewritten
 
 
-_INTERJECTIONS = {"ôi", "ơ", "ờ", "ừ", "ui", "ủa", "chết", "trời", "thế", "ồ", "à", "ây"}
+_INTERJECTIONS = {"oi", "o", "u", "ui", "ua", "chet", "troi", "the", "a", "ay", "chet that", "chet roi", "troi oi", "the a"}
 
 
-def _first_word(text: str) -> str:
-    match = re.match(r"\s*([^\W\d_]+)", text or "")
-    return match.group(1).lower() if match else ""
+def _opening(text: str, words: int = 2) -> list[str]:
+    return re.sub(r"[^\w\s]", " ", fold(text or "")).split()[:words]
 
 
-def drop_repeated_interjection(text: str, recent: list[str] | None) -> str:
-    """'Ôi…', 'Ôi…', 'Ôi…': the same exclamation opening reply after reply is a tell.
-    Drop it when one of the last two replies opened with it. 'Dạ' stays: it is register."""
-    word = _first_word(text)
-    if word not in _INTERJECTIONS:
+def drop_repeated_interjection(text: str, recent: list[str] | None, reactions: list[str] | None = None) -> str:
+    """'Chết thật…', 'Chết thật…', 'Chết thật…': the same exclamation opening reply
+    after reply is a tell. Drop it when one of the last two replies opened with it.
+    Compared without diacritics, since sent messages may have been typed without them.
+    'Dạ' stays: it is register, not a reaction."""
+    phrases = sorted({fold(p) for p in (reactions or [])} | _INTERJECTIONS, key=lambda p: -len(p.split()))
+    head = " ".join(_opening(text, 3))
+    hit = next((p for p in phrases if p != "da" and (head == p or head.startswith(p + " "))), None)
+    if hit is None:
         return text
-    if not any(_first_word(old) == word for old in (recent or [])[-2:]):
+    size = len(hit.split())
+    if not any(_opening(old, size) == hit.split() for old in (recent or [])[-2:]):
         return text
-    rest = re.sub(r"^\s*[^\W\d_]+[\s,.!…]*", "", text, count=1)
+    rest = re.sub(r"^\s*" + r"[\s,.!…]*".join([r"[^\W\d_]+"] * size) + r"[\s,.!…]*", "", text, count=1)
     if len(rest) < 4:
         return text
     return rest[0].upper() + rest[1:]

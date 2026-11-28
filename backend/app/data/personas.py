@@ -11,10 +11,10 @@ PRONOUNS: dict[str, dict] = {
     },
     "minh-sv": {
         "self": ["em", "mình"],
-        "other": ["anh", "chị"],
+        "other": ["anh", "chị", "bạn"],
         "forbid_words": ["tao", "mày", "bác", "cô"],
         "forbid_con_as_self": True,
-        "note": "Tự xưng em hoặc mình. Gọi người lạ là anh hoặc chị.",
+        "note": "Tự xưng em, gọi anh hoặc chị. Nếu họ xưng mình gọi bạn thì đáp lại mình và bạn.",
     },
     "huong-shop": {
         "self": ["chị"],
@@ -124,7 +124,7 @@ STYLES: dict[str, dict] = {
             "tài khoản": "tk", "em": "e", "anh": "a", "bao nhiêu": "bn", "trước": "trc",
         },
         "reactions": ["ơ", "hả", "ủa", "ok"],
-        "particles": ["nha", "bác", "đó"],
+        "particles": ["nha", "đó", "hả"],
         "habits": "Gõ một tay khi đang chạy xe, cực ngắn, viết tắt (k, dc, r, j, v), hay bỏ dấu. Hay nói đang có khách, đang đổ xăng.",
     },
     "ong-sau": {

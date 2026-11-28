@@ -868,7 +868,7 @@ def handle_turn(session, conversation, text: str, provider) -> dict:
             final = rewritten
             if action == "allow":
                 action = "rewrite"
-    trimmed = drop_repeated_interjection(final, recent_replies)
+    trimmed = drop_repeated_interjection(final, recent_replies, style_of(persona.id).get("reactions") or [])
     if trimmed != final and not inspect_outbound(trimmed, allowed, persona.id):
         final = trimmed
     if not final:

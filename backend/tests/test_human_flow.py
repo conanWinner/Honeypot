@@ -90,3 +90,10 @@ def test_same_exclamation_is_not_repeated():
     assert drop("Dạ em ghi lại nha", ["Dạ thật ạ?"]) == "Dạ em ghi lại nha"
     assert drop("Ôi thế à", ["Ơ"]) == "Ôi thế à"
     assert drop("Ơ, chú không rành.", ["Ơ hay, xe chú để ở nhà."]) == "Chú không rành."
+
+
+def test_repeated_two_word_reaction_is_dropped_even_without_diacritics():
+    from app.agent.policy import drop_repeated_interjection as drop
+
+    assert drop("Chết thật, bác sợ lắm.", ["Chet that... bac co biet gi dau"], ["Chết thật"]) == "Bác sợ lắm."
+    assert drop("Thế à, chú không rành.", ["Ờ", "Thế à cháu"], ["Thế à"]) == "Chú không rành."
