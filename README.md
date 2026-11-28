@@ -128,15 +128,15 @@ Mọi vai chat đi qua router tương thích OpenAI (9router) tại `OPENAI_BASE
 | Vai | Model | Dự phòng | Trần thời gian |
 | --- | --- | --- | --- |
 | Persona | `cx/gpt-6-luna` | `cx/gpt-5.6-luna` | 12 giây, dự phòng 10 giây |
-| Analyst | `ag/gemini-4-hydrogen-low` | `ag/gemini-3.8-flash-low` | 18 giây, dự phòng 12 giây |
-| Planner | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 18 giây, dự phòng 12 giây |
-| Guard | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 9 giây, dự phòng 7 giây |
+| Analyst | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 18 giây, dự phòng 12 giây |
+| Planner | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 18 giây, dự phòng 12 giây |
+| Guard | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 9 giây, dự phòng 7 giây |
 | Trích kịch bản | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 30 giây, dự phòng 20 giây |
-| Giọng luyện tập (`sim`) | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 7 giây, dự phòng 5 giây |
+| Giọng luyện tập (`sim`) | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 7 giây, dự phòng 5 giây |
 | Lớp cuối (`MODEL_LAST_RESORT`) | `gemini/gemini-3.5-flash-lite` qua router | khóa Gemini gọi thẳng nếu có | 8 giây |
 | Embedding | `openrouter/openai/text-embedding-3-small` | để trống: lỗi thì tìm theo từ khóa | 6 giây một câu |
 
-Cả lượt honeypot có trần `TURN_DEADLINE` 25 giây. `GET /api/health/llm` là ping làm nóng lúc khởi động. Embedding mặc định 768 chiều qua `/v1/embeddings`. Chi tiết failover, cosine và gắn lại vector nằm ở [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md).
+Mọi vai dùng bậc nhỏ `luna` trên tuyến codex (`cx/`): đo ngày 28/11/2026, mọi model `cx/` trả JSON hợp lệ 3/3 lần trong 3–5 giây, còn tuyến `ag/` bị giới hạn gần như liên tục. Model bị router báo giới hạn (403, 429, "reset after") tạm nghỉ đúng khoảng đó và vai của nó đi thẳng sang dự phòng. Cả lượt honeypot có trần `TURN_DEADLINE` 25 giây. `GET /api/health/llm` là ping làm nóng lúc khởi động. Embedding mặc định 768 chiều qua `/v1/embeddings`. Chi tiết failover, cosine và gắn lại vector nằm ở [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md).
 
 ## An toàn và quyền riêng tư
 

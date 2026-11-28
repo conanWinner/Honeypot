@@ -107,7 +107,7 @@ def test_lenient_schema_coerces_enums_and_lists():
 def test_empty_role_model_falls_back_to_openai_model():
     settings = Settings(llm_provider="mock", model_analyst="", openai_model="cx/gpt-6-luna")
     assert role_model(settings, "analyst") == "cx/gpt-6-luna"
-    assert Settings(llm_provider="mock").model_guard == "ag/gemini-3.8-flash-low"
+    assert Settings(llm_provider="mock").model_guard == "cx/gpt-5.6-luna"
 
 
 def test_gemini_client_uses_v1beta(monkeypatch):
@@ -576,8 +576,8 @@ def test_role_timeouts_and_fallbacks():
     assert provider.role_fallback_timeouts["persona"] == 10
     assert provider.role_fallback_timeouts["guard"] == 7
     assert provider.role_fallbacks["persona"] == "cx/gpt-5.6-luna"
-    assert provider.role_fallbacks["analyst"] == "ag/gemini-3.8-flash-low"
-    assert provider.role_fallbacks["guard"] == "cx/gpt-5.6-luna"
+    assert provider.role_fallbacks["analyst"] == "cx/gpt-6-luna"
+    assert provider.role_fallbacks["guard"] == "cx/gpt-6-luna"
 
 
 AGREE_THEN_ASK = [
