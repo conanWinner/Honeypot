@@ -177,7 +177,7 @@ python -m eval.run
 
 Mười bốn tình huống. Ba tình huống là chiêu không có trong 48 kịch bản gốc (phạt nguội CSGT, trợ lý bác sĩ bán thuốc, nhờ bình chọn để chiếm Facebook). Một tình huống ranh giới (hãng bay hoàn vé, cùng cơ chế với Shopee hoàn tiền) không chấm. Hai báo cáo đã commit:
 
-- `eval/results/live/report.md`: mô hình thật qua router (27/11/2026), embedding thật. Phía kẻ lừa nói đúng câu soạn sẵn (`EVAL_SIM=scripted`), nên chỉ agent thay đổi giữa các lần chạy. Báo cáo kèm toàn bộ bản thoại trong `report.json`.
+- `eval/results/live/report.md`: mô hình thật qua router (28/11/2026, mọi vai trên model nhỏ `luna` của tuyến `cx/`), embedding thật. Phía kẻ lừa nói đúng câu soạn sẵn (`EVAL_SIM=scripted`), nên chỉ agent thay đổi giữa các lần chạy. Báo cáo kèm toàn bộ bản thoại trong `report.json`.
 - `eval/results/report.md`: provider mock, không cần khóa.
 
 | Chỉ số | Mô hình thật | Mock |
@@ -192,10 +192,12 @@ Mười bốn tình huống. Ba tình huống là chiêu không có trong 48 k�
 | Chỉ dấu moi được (tài khoản, đường dẫn) | 7/7 | 7/7 |
 | Nơi nhận tiền được xác nhận | 2/8 | 2/8 |
 | Câu có dấu hiệu văn máy | 1/52 | 1/52 |
-| Độ dài trung bình một câu trả lời | 73 ký tự | 40 ký tự |
-| Thời gian một lượt (trung vị / p90) | 11,7 / 14,7 giây | không đo |
+| Độ dài trung bình một câu trả lời | 71 ký tự | 41 ký tự |
+| Thời gian một lượt (trung vị / p90) | 16,4 / 23,0 giây | không đo |
 
 Nơi nhận tiền 2/8 là vì phần lớn tình huống đưa số ở câu cuối, không còn lượt để xác nhận. Tình huống "Moi thêm nơi nhận tiền" được viết để kẻ lừa đáp lại việc đọc lại, và trên mô hình thật cả hai số đều được xác nhận, kèm tên chủ tài khoản.
+
+Thời gian theo vai trên `luna` (trung vị / p90): Analyst 6,9 / 8,7 giây, Planner 5,9 / 7,7, Persona 3,4 / 6,8, Guard 4,2 / 5,8. Lần đo 27/11 dùng `ag/gemini-*` cho Analyst, Planner, Guard nên nhanh hơn khoảng 4–5 giây một lượt, nhưng tuyến đó bị router giới hạn gần như liên tục, nên đổi sang `luna` để ổn định. 9/52 lượt rơi về câu dự phòng, phần lớn vì mạng tới router hết giờ.
 
 Chạy với mô hình thật và để mô hình viết lại câu kẻ lừa (`EVAL_SIM=model`, mặc định) thì 31/52 câu là lời từ chối đóng vai ("đây là dấu hiệu lừa đảo, hãy gọi số chính thức"). Eval giờ nhận ra câu kiểu đó, thay bằng câu soạn sẵn, và đếm trong báo cáo. Eval cũng đợi thư viện có đủ embedding rồi mới chạy.
 

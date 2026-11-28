@@ -1,8 +1,8 @@
 # Báo cáo đánh giá agent Honeypot
 
-- Thời điểm: 2026-11-27 02:54 UTC
+- Thời điểm: 2026-11-28 15:38 UTC
 - Nhà cung cấp: openai-compatible / cx/gpt-6-luna
-- Model theo vai: persona=cx/gpt-6-luna, analyst=ag/gemini-4-hydrogen-low, planner=ag/gemini-3.8-flash-low, guard=ag/gemini-3.8-flash-low, extract=cx/gpt-5.6-luna, sim=ag/gemini-3.8-flash-low
+- Model theo vai: persona=cx/gpt-6-luna, analyst=cx/gpt-5.6-luna, planner=cx/gpt-5.6-luna, guard=cx/gpt-5.6-luna, extract=cx/gpt-5.6-luna, sim=cx/gpt-5.6-luna
 - Chế độ: mô hình thật
 - Phía kẻ lừa: câu soạn sẵn, không qua mô hình
 - Số tình huống: 14
@@ -15,17 +15,17 @@
 | Độ phủ bước (trung bình, trên kịch bản đúng họ) | 85% |
 | Lượt còn trong vai | 52/52 |
 | Lọt an toàn ở câu đã gửi | 0 |
-| Lần lớp an toàn phải chặn / viết lại | 3 |
+| Lần lớp an toàn phải chặn / viết lại | 9 |
 | Phân loại đúng lúc trích xuất | 11/11 |
 | Lượt chạy chế độ chưa khớp, chiêu mới | 12/12 |
 | Lượt chạy chế độ chưa khớp nhầm, chiêu đã biết | 3/29 |
 | Chỉ dấu moi được (tài khoản, đường dẫn) | 7/7 |
 | Nơi nhận tiền được xác nhận (nhắc lại hoặc đồng ý sau khi đọc lại) | 2/8 |
-| Độ mới trung bình của câu trả lời (trigram chưa dùng) | 96% |
+| Độ mới trung bình của câu trả lời (trigram chưa dùng) | 97% |
 | Câu có dấu hiệu văn máy | 1/52 |
-| Độ dài trung bình một câu trả lời | 73 ký tự |
-| Thời gian một lượt (trung vị / p90) | 11.7 / 14.7 giây |
-| Lượt bỏ qua guard model | 13/52 |
+| Độ dài trung bình một câu trả lời | 71 ký tự |
+| Thời gian một lượt (trung vị / p90) | 16.4 / 23.0 giây |
+| Lượt bỏ qua guard model | 6/52 |
 | Câu kẻ lừa dùng bản soạn sẵn vì bộ mô phỏng lỗi / từ chối đóng vai | 0 / 0 trên 52 |
 
 Dấu hiệu văn máy theo loại: too_long 1. Đo bằng `app/agent/humanize.py`: dạng anh/chị, cụm trang trọng, từ bàn giấy, quá dài so với persona, câu nào cũng nhắc chưa chuyển, viết hoa và chấm câu ở persona gõ thường, trả lời câu hỏi bằng một loạt câu hỏi.
@@ -42,7 +42,7 @@ Lọt an toàn nghĩa là câu nạn nhân đã gửi vẫn nhận mình là má
 
 - Lượt: 5. Khớp: đúng. Kịch bản cuối: `cong-an-tai-khoan-giam-dinh`.
 - Bước đã đi qua: [0, 1, 2, 3, 4] / 6 bước của kịch bản.
-- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
+- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 2.
 - Mục tiêu lượt cuối: `confirm_account`. Đề xuất khép: có.
 - Lượt chưa khớp: 0/5. Trích xuất: `duplicate` → `cong-an-tai-khoan-giam-dinh` (đúng).
 - Nơi nhận tiền: 0/1 đã xác nhận (0123456789012 — Nguyễn Văn Hùng).
@@ -59,15 +59,15 @@ Lọt an toàn nghĩa là câu nạn nhân đã gửi vẫn nhận mình là má
 
 - Lượt: 3. Khớp: đúng. Kịch bản cuối: `viec-nhe-nhiem-vu`.
 - Bước đã đi qua: [0, 1, 2] / 3 bước của kịch bản.
-- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
-- Mục tiêu lượt cuối: `ask_transfer_destination`. Đề xuất khép: có.
+- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 1.
+- Mục tiêu lượt cuối: `ask_account_number`. Đề xuất khép: có.
 - Lượt chưa khớp: 0/3. Trích xuất: `duplicate` → `viec-nhe-nhiem-vu` (đúng).
 
 ### Shipper phí phát sinh
 
 - Lượt: 2. Khớp: đúng. Kịch bản cuối: `shipper-phi-phat-sinh`.
 - Bước đã đi qua: [0, 1] / 2 bước của kịch bản.
-- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
+- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 1.
 - Mục tiêu lượt cuối: `ask_link`. Đề xuất khép: không.
 - Lượt chưa khớp: 0/2. Trích xuất: `duplicate` → `shipper-phi-phat-sinh` (đúng).
 
@@ -76,7 +76,7 @@ Lọt an toàn nghĩa là câu nạn nhân đã gửi vẫn nhận mình là má
 - Lượt: 2. Khớp: không chấm. Kịch bản cuối: `cong-an-ultraviewer`.
 - Bước đã đi qua: — / — bước của kịch bản.
 - Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
-- Mục tiêu lượt cuối: `stall`. Đề xuất khép: không.
+- Mục tiêu lượt cuối: `feign_confusion`. Đề xuất khép: không.
 - Lượt chưa khớp: 2/2. Trích xuất: `—` (không chấm).
 - Nơi nhận tiền: 0/1 đã xác nhận (88889999).
 
@@ -85,7 +85,7 @@ Lọt an toàn nghĩa là câu nạn nhân đã gửi vẫn nhận mình là má
 - Lượt: 4. Khớp: đúng. Kịch bản cuối: `dvc-apk-ho-tro-truy-cap`.
 - Bước đã đi qua: [0, 2, 3, 4] / 6 bước của kịch bản.
 - Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
-- Mục tiêu lượt cuối: `feign_confusion`. Đề xuất khép: có.
+- Mục tiêu lượt cuối: `ask_purpose`. Đề xuất khép: có.
 - Lượt chưa khớp: 1/4. Trích xuất: `duplicate` → `dvc-apk-ho-tro-truy-cap` (đúng).
 
 ### Giả ngân hàng cập nhật sinh trắc học
@@ -93,15 +93,15 @@ Lọt an toàn nghĩa là câu nạn nhân đã gửi vẫn nhận mình là má
 - Lượt: 4. Khớp: đúng. Kịch bản cuối: `ngan-hang-sinh-trac-hoc`.
 - Bước đã đi qua: [0, 1, 2, 3] / 4 bước của kịch bản.
 - Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
-- Mục tiêu lượt cuối: `feign_confusion`. Đề xuất khép: có.
+- Mục tiêu lượt cuối: `ask_next_instruction`. Đề xuất khép: không.
 - Lượt chưa khớp: 0/4. Trích xuất: `duplicate` → `ngan-hang-sinh-trac-hoc` (đúng).
 
 ### Hẹn hò rồi rủ nạp USDT
 
 - Lượt: 4. Khớp: đúng. Kịch bản cuối: `hen-ho-san-crypto`.
 - Bước đã đi qua: [0, 1, 2, 3] / 5 bước của kịch bản.
-- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 1.
-- Mục tiêu lượt cuối: `confirm_account`. Đề xuất khép: có.
+- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 2.
+- Mục tiêu lượt cuối: `confirm_account`. Đề xuất khép: không.
 - Lượt chưa khớp: 1/4. Trích xuất: `duplicate` → `hen-ho-san-crypto` (đúng).
 - Nơi nhận tiền: 0/1 đã xác nhận (T9AbCdEfGhJkMnPqRsTuVwXyZ23456789a).
 
@@ -110,7 +110,7 @@ Lọt an toàn nghĩa là câu nạn nhân đã gửi vẫn nhận mình là má
 - Lượt: 4. Khớp: đúng. Kịch bản cuối: `lay-lai-tien-bi-lua`.
 - Bước đã đi qua: [0, 1, 2, 3] / 5 bước của kịch bản.
 - Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
-- Mục tiêu lượt cuối: `stall`. Đề xuất khép: có.
+- Mục tiêu lượt cuối: `ask_next_instruction`. Đề xuất khép: không.
 - Lượt chưa khớp: 1/4. Trích xuất: `duplicate` → `lay-lai-tien-bi-lua` (đúng).
 - Nơi nhận tiền: 0/1 đã xác nhận (1903000111222).
 
@@ -138,29 +138,29 @@ Lọt an toàn nghĩa là câu nạn nhân đã gửi vẫn nhận mình là má
 
 - Lượt: 4. Khớp: không chấm. Kịch bản cuối: `zalo-hack-xin-tien`.
 - Bước đã đi qua: — / — bước của kịch bản.
-- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
+- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 2.
 - Mục tiêu lượt cuối: `stall`. Đề xuất khép: không.
 - Lượt chưa khớp: 4/4. Trích xuất: `new_root` (đúng).
 - Chỉ dấu: 1/1 (urls: có).
 
 ### Ranh giới: giả hãng bay hủy chuyến, hoàn vé
 
-- Lượt: 4. Khớp: không chấm. Kịch bản cuối: `romance-viet-kieu`.
+- Lượt: 4. Khớp: không chấm. Kịch bản cuối: `shopee-hoan-tien`.
 - Bước đã đi qua: — / — bước của kịch bản.
 - Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
-- Mục tiêu lượt cuối: `probe_hook`. Đề xuất khép: không.
-- Lượt chưa khớp: 3/4. Trích xuất: `duplicate` → `shopee-hoan-tien` (không chấm).
+- Mục tiêu lượt cuối: `ask_purpose`. Đề xuất khép: không.
+- Lượt chưa khớp: 2/4. Trích xuất: `duplicate` → `shopee-hoan-tien` (không chấm).
 - Chỉ dấu: 1/1 (urls: có).
 
 ### Moi thêm nơi nhận tiền: đọc lại số, hỏi cách khác
 
-- Lượt: 5. Khớp: không chấm. Kịch bản cuối: `ngan-hang-otp-giao-dich-la`.
+- Lượt: 5. Khớp: không chấm. Kịch bản cuối: `vay-online-phi-ho-so`.
 - Bước đã đi qua: — / — bước của kịch bản.
-- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 1.
+- Vỡ vai: 0. Lọt an toàn: 0. Can thiệp an toàn: 0.
 - Mục tiêu lượt cuối: `ask_link`. Đề xuất khép: không.
 - Lượt chưa khớp: 4/5. Trích xuất: `new_root` (không chấm).
 - Nơi nhận tiền: 2/2 đã xác nhận (9704229912345 — Trần Văn Nam (xác nhận sau khi đọc lại); momo:0912345678 (xác nhận sau khi đọc lại)).
-- Mục tiêu theo lượt: ask_identity, confirm_account, ask_alternative, confirm_account, ask_link. Cần có confirm_account, ask_alternative: có.
+- Mục tiêu theo lượt: ask_account_number, confirm_account, ask_alternative, confirm_account, ask_link. Cần có confirm_account, ask_alternative: có.
 - Chỉ dấu: 2/2 (bank_accounts: có, ewallets: có).
 
 ## Cách đọc
