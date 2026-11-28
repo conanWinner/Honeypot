@@ -9,19 +9,19 @@ Mặc định lấy từ `backend/app/config.py`. `.env.example` liệt kê các
 | `LLM_API_KEY` | trống | Khóa router. `OPENAI_API_KEY` được dùng khi biến này trống |
 | `OPENAI_API_KEY` | trống | Bí danh của khóa router |
 | `OPENAI_BASE_URL` | `https://rm7g66d.abc-tunnel.us/v1` | Router tương thích OpenAI (9router) |
-| `OPENAI_MODEL` | `cx/gpt-6-luna` | Model khi một biến vai để trống |
+| `OPENAI_MODEL` | `cx/gpt-6-luna` | Model khi một biến vai để trống. Mọi vai mặc định dùng bậc nhỏ `luna` trên tuyến `cx/`; không dùng bậc `sol`, `astra` |
 | `MODEL_PERSONA` | `cx/gpt-6-luna` | Giọng nạn nhân |
-| `MODEL_ANALYST` | `ag/gemini-4-hydrogen-low` | Phân tích lượt, và chấm nhãn luyện tập khi luật còn trung tính |
-| `MODEL_PLANNER` | `ag/gemini-3.8-flash-low` | Chọn mục tiêu lượt kế |
-| `MODEL_GUARD` | `ag/gemini-3.8-flash-low` | Duyệt câu trước khi gửi |
+| `MODEL_ANALYST` | `cx/gpt-5.6-luna` | Phân tích lượt, và chấm nhãn luyện tập khi luật còn trung tính |
+| `MODEL_PLANNER` | `cx/gpt-5.6-luna` | Chọn mục tiêu lượt kế |
+| `MODEL_GUARD` | `cx/gpt-5.6-luna` | Duyệt câu trước khi gửi |
 | `MODEL_EXTRACT` | `cx/gpt-5.6-luna` | Trích kịch bản cuối hội thoại |
-| `MODEL_SIM` | `ag/gemini-3.8-flash-low` | Giọng người lừa trong bài luyện |
+| `MODEL_SIM` | `cx/gpt-5.6-luna` | Giọng người lừa trong bài luyện |
 | `MODEL_PERSONA_FALLBACK` | `cx/gpt-5.6-luna` | Một lần đổi vai. Trùng model chính thì bỏ qua |
-| `MODEL_ANALYST_FALLBACK` | `ag/gemini-3.8-flash-low` | Như trên |
-| `MODEL_PLANNER_FALLBACK` | `cx/gpt-5.6-luna` | Như trên |
-| `MODEL_GUARD_FALLBACK` | `cx/gpt-5.6-luna` | Như trên |
+| `MODEL_ANALYST_FALLBACK` | `cx/gpt-6-luna` | Như trên |
+| `MODEL_PLANNER_FALLBACK` | `cx/gpt-6-luna` | Như trên |
+| `MODEL_GUARD_FALLBACK` | `cx/gpt-6-luna` | Như trên |
 | `MODEL_EXTRACT_FALLBACK` | `cx/gpt-6-luna` | Như trên |
-| `MODEL_SIM_FALLBACK` | `cx/gpt-5.6-luna` | Cổng khác model chính của `sim` |
+| `MODEL_SIM_FALLBACK` | `cx/gpt-6-luna` | Như trên |
 | `TIMEOUT_PERSONA` | 12 | Giây, lần gọi chính |
 | `TIMEOUT_ANALYST` | 18 | Giây |
 | `TIMEOUT_PLANNER` | 18 | Giây |

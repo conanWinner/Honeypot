@@ -192,8 +192,14 @@ def test_default_chat_order_is_router_then_gemini_embeddings_via_router():
     assert provider.embeddings_mock is False
     assert provider.embed_model == "openrouter/openai/text-embedding-3-small"
     assert provider.role_models["persona"] == "cx/gpt-6-luna"
-    assert provider.role_models["analyst"] == "ag/gemini-4-hydrogen-low"
-    assert provider.role_models["guard"] == "ag/gemini-3.8-flash-low"
+    # Every role on the codex route; none on ag/, which was rate limited most of the time.
+    assert provider.role_models["analyst"] == "cx/gpt-5.6-luna"
+    assert provider.role_models["planner"] == "cx/gpt-5.6-luna"
+    assert provider.role_models["guard"] == "cx/gpt-5.6-luna"
+    assert all(model.startswith("cx/") for model in provider.role_models.values())
+    assert all(model.startswith("cx/") for model in provider.role_fallbacks.values())
+    # Small tier only.
+    assert all(model.endswith("-luna") for model in [*provider.role_models.values(), *provider.role_fallbacks.values()])
     assert provider.role_models["extract"] == "cx/gpt-5.6-luna"
     assert provider._chat.chain[0].name == "openai-compatible"
     assert provider._chat.chain[0].model == "cx/gpt-6-luna"

@@ -128,15 +128,15 @@ Mọi vai chat đi qua router tương thích OpenAI (9router) tại `OPENAI_BASE
 | Vai | Model | Dự phòng | Trần thời gian |
 | --- | --- | --- | --- |
 | Persona | `cx/gpt-6-luna` | `cx/gpt-5.6-luna` | 12 giây, dự phòng 10 giây |
-| Analyst | `ag/gemini-4-hydrogen-low` | `ag/gemini-3.8-flash-low` | 18 giây, dự phòng 12 giây |
-| Planner | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 18 giây, dự phòng 12 giây |
-| Guard | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 9 giây, dự phòng 7 giây |
+| Analyst | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 18 giây, dự phòng 12 giây |
+| Planner | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 18 giây, dự phòng 12 giây |
+| Guard | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 9 giây, dự phòng 7 giây |
 | Trích kịch bản | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 30 giây, dự phòng 20 giây |
-| Giọng luyện tập (`sim`) | `ag/gemini-3.8-flash-low` | `cx/gpt-5.6-luna` | 7 giây, dự phòng 5 giây |
+| Giọng luyện tập (`sim`) | `cx/gpt-5.6-luna` | `cx/gpt-6-luna` | 7 giây, dự phòng 5 giây |
 | Lớp cuối (`MODEL_LAST_RESORT`) | `gemini/gemini-3.5-flash-lite` qua router | khóa Gemini gọi thẳng nếu có | 8 giây |
 | Embedding | `openrouter/openai/text-embedding-3-small` | để trống: lỗi thì tìm theo từ khóa | 6 giây một câu |
 
-Cả lượt honeypot có trần `TURN_DEADLINE` 25 giây. `GET /api/health/llm` là ping làm nóng lúc khởi động. Embedding mặc định 768 chiều qua `/v1/embeddings`. Chi tiết failover, cosine và gắn lại vector nằm ở [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md).
+Mọi vai dùng bậc nhỏ `luna` trên tuyến codex (`cx/`): đo ngày 28/11/2026, mọi model `cx/` trả JSON hợp lệ 3/3 lần trong 3–5 giây, còn tuyến `ag/` bị giới hạn gần như liên tục. Model bị router báo giới hạn (403, 429, "reset after") tạm nghỉ đúng khoảng đó và vai của nó đi thẳng sang dự phòng. Cả lượt honeypot có trần `TURN_DEADLINE` 25 giây. `GET /api/health/llm` là ping làm nóng lúc khởi động. Embedding mặc định 768 chiều qua `/v1/embeddings`. Chi tiết failover, cosine và gắn lại vector nằm ở [docs/kien-truc-chi-tiet.md](docs/kien-truc-chi-tiet.md).
 
 ## An toàn và quyền riêng tư
 
@@ -177,7 +177,7 @@ python -m eval.run
 
 Mười bốn tình huống. Ba tình huống là chiêu không có trong 48 kịch bản gốc (phạt nguội CSGT, trợ lý bác sĩ bán thuốc, nhờ bình chọn để chiếm Facebook). Một tình huống ranh giới (hãng bay hoàn vé, cùng cơ chế với Shopee hoàn tiền) không chấm. Hai báo cáo đã commit:
 
-- `eval/results/live/report.md`: mô hình thật qua router (27/11/2026), embedding thật. Phía kẻ lừa nói đúng câu soạn sẵn (`EVAL_SIM=scripted`), nên chỉ agent thay đổi giữa các lần chạy. Báo cáo kèm toàn bộ bản thoại trong `report.json`.
+- `eval/results/live/report.md`: mô hình thật qua router (28/11/2026, mọi vai trên model nhỏ `luna` của tuyến `cx/`), embedding thật. Phía kẻ lừa nói đúng câu soạn sẵn (`EVAL_SIM=scripted`), nên chỉ agent thay đổi giữa các lần chạy. Báo cáo kèm toàn bộ bản thoại trong `report.json`.
 - `eval/results/report.md`: provider mock, không cần khóa.
 
 | Chỉ số | Mô hình thật | Mock |
@@ -192,10 +192,12 @@ Mười bốn tình huống. Ba tình huống là chiêu không có trong 48 k�
 | Chỉ dấu moi được (tài khoản, đường dẫn) | 7/7 | 7/7 |
 | Nơi nhận tiền được xác nhận | 2/8 | 2/8 |
 | Câu có dấu hiệu văn máy | 1/52 | 1/52 |
-| Độ dài trung bình một câu trả lời | 73 ký tự | 40 ký tự |
-| Thời gian một lượt (trung vị / p90) | 11,7 / 14,7 giây | không đo |
+| Độ dài trung bình một câu trả lời | 71 ký tự | 41 ký tự |
+| Thời gian một lượt (trung vị / p90) | 16,4 / 23,0 giây | không đo |
 
 Nơi nhận tiền 2/8 là vì phần lớn tình huống đưa số ở câu cuối, không còn lượt để xác nhận. Tình huống "Moi thêm nơi nhận tiền" được viết để kẻ lừa đáp lại việc đọc lại, và trên mô hình thật cả hai số đều được xác nhận, kèm tên chủ tài khoản.
+
+Thời gian theo vai trên `luna` (trung vị / p90): Analyst 6,9 / 8,7 giây, Planner 5,9 / 7,7, Persona 3,4 / 6,8, Guard 4,2 / 5,8. Lần đo 27/11 dùng `ag/gemini-*` cho Analyst, Planner, Guard nên nhanh hơn khoảng 4–5 giây một lượt, nhưng tuyến đó bị router giới hạn gần như liên tục, nên đổi sang `luna` để ổn định. 9/52 lượt rơi về câu dự phòng, phần lớn vì mạng tới router hết giờ.
 
 Chạy với mô hình thật và để mô hình viết lại câu kẻ lừa (`EVAL_SIM=model`, mặc định) thì 31/52 câu là lời từ chối đóng vai ("đây là dấu hiệu lừa đảo, hãy gọi số chính thức"). Eval giờ nhận ra câu kiểu đó, thay bằng câu soạn sẵn, và đếm trong báo cáo. Eval cũng đợi thư viện có đủ embedding rồi mới chạy.
 

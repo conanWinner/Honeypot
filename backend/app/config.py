@@ -17,20 +17,23 @@ class Settings(BaseSettings):
     llm_provider: str = "auto"
     openai_base_url: str = "https://rm7g66d.abc-tunnel.us/v1"
     openai_model: str = "cx/gpt-6-luna"
-    # Per-role router models. Empty falls back to OPENAI_MODEL. Small models only.
+    # Per-role router models. Empty falls back to OPENAI_MODEL. All on the codex (cx/)
+    # route: in Nov 2026 the ag/ route was rate limited most of the time (403, reset
+    # after 1-2 min) while every cx/ model answered JSON in 3-5 s.
+    # Only the small luna tier: enough for these short structured calls.
     model_persona: str = "cx/gpt-6-luna"
-    model_analyst: str = "ag/gemini-4-hydrogen-low"
-    model_planner: str = "ag/gemini-3.8-flash-low"
-    model_guard: str = "ag/gemini-3.8-flash-low"
+    model_analyst: str = "cx/gpt-5.6-luna"
+    model_planner: str = "cx/gpt-5.6-luna"
+    model_guard: str = "cx/gpt-5.6-luna"
     model_extract: str = "cx/gpt-5.6-luna"
-    model_sim: str = "ag/gemini-3.8-flash-low"
+    model_sim: str = "cx/gpt-5.6-luna"
     # One failover on the router, then MODEL_LAST_RESORT, then the direct Gemini key if set. Same id as the primary is skipped.
     model_persona_fallback: str = "cx/gpt-5.6-luna"
-    model_analyst_fallback: str = "ag/gemini-3.8-flash-low"
-    model_planner_fallback: str = "cx/gpt-5.6-luna"
-    model_guard_fallback: str = "cx/gpt-5.6-luna"
+    model_analyst_fallback: str = "cx/gpt-6-luna"
+    model_planner_fallback: str = "cx/gpt-6-luna"
+    model_guard_fallback: str = "cx/gpt-6-luna"
     model_extract_fallback: str = "cx/gpt-6-luna"
-    model_sim_fallback: str = "cx/gpt-5.6-luna"
+    model_sim_fallback: str = "cx/gpt-6-luna"
     # Tried after a role's primary and fallback both fail. Pick another upstream than
     # ag/ and cx/ so one rate limit cannot take out all three. Empty = no extra layer.
     model_last_resort: str = "gemini/gemini-3.5-flash-lite"
