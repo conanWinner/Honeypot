@@ -118,7 +118,10 @@ def test_recovery_playbook_moves_past_identity(client):
             goals.append(panel["goal"]["goal"])
             replies.append(body.json()["victim_message"]["content"].lower())
         assert all("là ai" not in reply for reply in replies)
-        assert goals == ["ask_purpose", "ask_account_number", "ask_link"]
+        # Past identity, and no question about accounts: nobody has asked her to pay yet.
+        assert "ask_identity" not in goals
+        assert not {"ask_account_number", "ask_transfer_destination"} & set(goals), goals
+        assert len(set(goals)) >= 2, goals
     finally:
         client.app.state.provider = MockProvider()
 

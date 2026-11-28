@@ -192,13 +192,44 @@ def test_default_chat_order_is_router_then_gemini_embeddings_via_router():
     assert provider.embeddings_mock is False
     assert provider.embed_model == "openrouter/openai/text-embedding-3-small"
     assert provider.role_models["persona"] == "cx/gpt-6-luna"
-    assert provider.role_models["analyst"] == "ag/gemini-3.8-flash-low"
+    assert provider.role_models["analyst"] == "ag/gemini-4-hydrogen-low"
     assert provider.role_models["guard"] == "ag/gemini-3.8-flash-low"
     assert provider.role_models["extract"] == "cx/gpt-5.6-luna"
     assert provider._chat.chain[0].name == "openai-compatible"
     assert provider._chat.chain[0].model == "cx/gpt-6-luna"
     assert provider._chat.chain[0].base_url == "https://router.example/v1"
-    assert provider._chat.chain[1].name == "gemini"
+    assert provider._chat.chain[1].name == "router-last-resort"
+    assert provider._chat.chain[1].model == "gemini/gemini-3.5-flash-lite"
+    assert provider._chat.chain[2].name == "gemini"
+
+
+def test_last_resort_runs_after_role_models_and_ignores_them():
+    from app.agent.schemas import SafetyOutput
+    from app.llm.openai_provider import FallbackProvider, LastResortProvider
+
+    calls = []
+
+    class Router:
+        name = "openai-compatible"
+        model = "cx/gpt-6-luna"
+
+        def complete(self, schema, system, user, temperature=0.4, **kw):
+            calls.append((kw["model"], kw.get("fallback_model")))
+            if kw["model"] != "gemini/gemini-3.5-flash-lite":
+                raise RuntimeError("router 503")
+            return schema(action="allow")
+
+    router = Router()
+    chat = FallbackProvider([router, LastResortProvider(router, "gemini/gemini-3.5-flash-lite")])
+    out = chat.complete(SafetyOutput, "s", "u", model="ag/gemini-3.8-flash-low", fallback_model="cx/gpt-5.6-luna")
+    assert out.action == "allow"
+    assert calls == [("ag/gemini-3.8-flash-low", "cx/gpt-5.6-luna"), ("gemini/gemini-3.5-flash-lite", None)]
+
+
+def test_no_last_resort_when_unset_and_no_gemini_key():
+    settings = Settings(llm_api_key="router-key", gemini_api_key="", model_last_resort="", llm_provider="auto")
+    provider = build_provider(settings)
+    assert provider._chat.name == "openai-compatible"
 
 
 def test_gemini_mode_reverses_the_chat_order():
@@ -222,7 +253,36 @@ def test_embed_provider_none_keeps_keyword_search():
 
 
 def test_persona_prompt_teaches_naive_stalling():
-    assert "chậm hiểu" in PERSONA_SYSTEM
-    assert "mã vận đơn qua ứng dụng" in PERSONA_SYSTEM
-    assert "Ủa đơn nào vậy" in PERSONA_SYSTEM
-    assert "đổi đại từ cho đúng hồ sơ" in PERSONA_SYSTEM
+    # Naive, not an expert: no lecturing, no official-channel advice.
+    assert "ứng dụng chính thức" in PERSONA_SYSTEM
+    assert "không rành" in PERSONA_SYSTEM
+    # Shows a machine-sounding reply next to a human one.
+    assert "Ơ đơn nào vậy" in PERSONA_SYSTEM
+    assert "đổi theo hồ sơ" in PERSONA_SYSTEM
+    # The loudest tells from the Turing-test studies and the review of our transcripts.
+    assert "anh/chị" in PERSONA_SYSTEM
+    assert "KHÔNG phải tin nào cũng nói" in PERSONA_SYSTEM
+
+
+def test_rate_limited_model_cools_down_and_role_goes_to_fallback(monkeypatch):
+    from app.agent.schemas import SafetyOutput
+    from app.llm import openai_provider as op
+
+    calls = []
+
+    def fake_post(url, key, payload, timeout):
+        calls.append(payload["model"])
+        if payload["model"] == "ag/gemini-3.8-flash-low":
+            return 503, "application/json", '{"error":{"message":"[antigravity] [403]: HTTP 403 (reset after 1m 30s)"}}'
+        return 200, "application/json", json.dumps({"choices": [{"message": {"content": '{"action":"allow"}'}}]})
+
+    monkeypatch.setattr(op, "post_chat", fake_post)
+    provider = op.OpenAIProvider("k", "cx/gpt-6-luna", "https://router.example/v1")
+    first = provider.complete(SafetyOutput, "s", "u", model="ag/gemini-3.8-flash-low", fallback_model="cx/gpt-5.6-luna", timeout=5)
+    assert first.action == "allow"
+    assert op.is_cooling("ag/gemini-3.8-flash-low")
+    assert 80 < op.cooling_models()["ag/gemini-3.8-flash-low"] <= 92
+    calls.clear()
+    provider.complete(SafetyOutput, "s", "u", model="ag/gemini-3.8-flash-low", fallback_model="cx/gpt-5.6-luna", timeout=5)
+    # Second call skips the cooling model entirely.
+    assert calls == ["cx/gpt-5.6-luna"]

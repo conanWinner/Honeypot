@@ -20,6 +20,7 @@ from app.taxonomy import CATEGORIES
 KINDS = {
     "bank_accounts": "Tài khoản",
     "crypto_wallets": "Ví crypto",
+    "ewallets": "Ví điện tử",
     "apk": "File APK",
     "urls": "Tên miền",
     "telegram": "Telegram",

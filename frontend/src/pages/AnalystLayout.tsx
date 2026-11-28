@@ -8,6 +8,7 @@ import { cn } from '../lib/utils'
 const tabs = [
   { to: '/phan-tich/hoi-thoai', label: 'Hội thoại' },
   { to: '/phan-tich/mang-luoi', label: 'Mạng lưới' },
+  { to: '/phan-tich/noi-nhan-tien', label: 'Nơi nhận tiền' },
   { to: '/phan-tich/kiem-duyet', label: 'Kiểm duyệt' },
   { to: '/phan-tich/demo', label: 'Demo' },
   { to: '/phan-tich', label: 'Trạng thái hệ thống', end: true },
@@ -18,11 +19,11 @@ export function AnalystLayout() {
   const state = useOutletContext<ShellState>()
   return (
     <div className="space-y-5">
-      <div>
+      <div className="print:hidden">
         <p className="text-[11px] uppercase tracking-[0.16em] text-gold">Dành cho người vận hành</p>
         <h1 className="mt-1 font-display text-3xl">Phòng phân tích</h1>
       </div>
-      <nav className="flex flex-wrap gap-2">
+      <nav className="flex flex-wrap gap-2 print:hidden">
         {tabs.map((tab) => (
           <NavLink
             key={tab.to}

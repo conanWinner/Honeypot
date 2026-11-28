@@ -292,11 +292,22 @@ def test_suspicion_from_the_previous_turn_does_not_force_a_stall(client):
 
 
 def test_quiet_turns_ask_for_a_missing_account(client):
+    # Once a fee is on the table, quiet turns push for where the money goes.
     created = client.post("/api/conversations", json={"persona_id": "tuan-vp", "channel": "web"}).json()
     last = None
-    for line in ("xin chào", "xin chào lại", "xin chào nữa"):
+    for line in ("Anh cần đóng một khoản phí nhé.", "xin chào lại", "xin chào nữa"):
         last = client.post(f"/api/conversations/{created['id']}/messages", json={"text": line}).json()
     assert last["panel"]["goal"]["goal"] == "ask_account_number"
+
+
+def test_quiet_turns_without_money_do_not_invent_an_account(client):
+    created = client.post("/api/conversations", json={"persona_id": "tuan-vp", "channel": "web"}).json()
+    goals = []
+    for line in ("xin chào", "xin chào lại", "xin chào nữa"):
+        body = client.post(f"/api/conversations/{created['id']}/messages", json={"text": line}).json()
+        goals.append(body["panel"]["goal"]["goal"])
+        assert "tài khoản" not in body["victim_message"]["content"].lower()
+    assert "ask_account_number" not in goals
 
 
 def test_rewrite_uses_the_same_aggressiveness(client, monkeypatch):
@@ -307,9 +318,9 @@ def test_rewrite_uses_the_same_aggressiveness(client, monkeypatch):
     seen = []
     real = orchestrator.critique_reply
 
-    def wrapped(text, persona_id, goal, allowed, aggressiveness, recent=None):
+    def wrapped(text, persona_id, goal, allowed, aggressiveness, recent=None, incoming=""):
         seen.append(aggressiveness)
-        return real(text, persona_id, goal, allowed, aggressiveness, recent)
+        return real(text, persona_id, goal, allowed, aggressiveness, recent, incoming)
 
     monkeypatch.setattr(orchestrator, "critique_reply", wrapped)
 
@@ -565,7 +576,7 @@ def test_role_timeouts_and_fallbacks():
     assert provider.role_fallback_timeouts["persona"] == 10
     assert provider.role_fallback_timeouts["guard"] == 7
     assert provider.role_fallbacks["persona"] == "cx/gpt-5.6-luna"
-    assert provider.role_fallbacks["analyst"] == "cx/gpt-5.6-luna"
+    assert provider.role_fallbacks["analyst"] == "ag/gemini-3.8-flash-low"
     assert provider.role_fallbacks["guard"] == "cx/gpt-5.6-luna"
 
 
@@ -620,7 +631,8 @@ def test_agree_then_ask_is_blocked_and_plain_asks_pass():
     assert not is_extraction_ask(app_ask)
 
 
-def test_guard_runs_on_a_plain_question(client):
+def _guard_calls(client, reply: str, skip_plain: bool = True) -> list[str]:
+    from app.agent.schemas import PersonaOutput
     from app.llm.mock import MockProvider
 
     seen = []
@@ -628,19 +640,31 @@ def test_guard_runs_on_a_plain_question(client):
     class Spy(MockProvider):
         def complete(self, schema, system, user, temperature=0.4, thinking=False, **kwargs):
             seen.append(kwargs.get("role") or "")
+            if schema.__name__ == "PersonaOutput":
+                return PersonaOutput(reply=reply, memory_note="")
             return super().complete(schema, system, user, temperature, thinking=thinking, **kwargs)
 
-    client.app.state.provider = Spy()
+    provider = Spy()
+    provider.guard_skip_plain = skip_plain
+    client.app.state.provider = provider
     try:
         created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
-        response = client.post(
-            f"/api/conversations/{created['id']}/messages",
-            json={"text": "Alo, cô nghe máy không?"},
-        )
+        response = client.post(f"/api/conversations/{created['id']}/messages", json={"text": "Alo, cô nghe máy không?"})
         assert response.status_code == 200, response.text
-        assert "guard" in seen
+        return seen
     finally:
         client.app.state.provider = MockProvider()
+
+
+def test_guard_runs_on_a_question_that_touches_money(client):
+    # daab4fc dropped a skip based on question shape. A question about where money
+    # goes is still guarded; only content decides, never the question mark.
+    assert "guard" in _guard_calls(client, "Tiền ấy chuyển cho ai, rồi sau đó cô làm gì?")
+
+
+def test_guard_skips_a_plain_line_unless_turned_off(client):
+    assert "guard" not in _guard_calls(client, "Ai đấy? Cô không lưu số này.")
+    assert "guard" in _guard_calls(client, "Ai đấy? Cô không lưu số này.", skip_plain=False)
 
 
 def test_app_names_keep_vietnamese_letters():
@@ -731,8 +755,14 @@ def test_pronoun_mix_keeps_the_question(client):
             json={"text": "Tôi thấy con trai bác đang du học ở Đức."},
         ).json()
         text = body["victim_message"]["content"]
-        assert "Đức" in text or "đức" in text.lower()
-        assert "bác" not in text.lower()
+        from app.agent.textutil import fold
+
+        assert "duc" in fold(text)
+        # Called "bác", she answers as "bác"; what must not happen is "bác" and "cô" in one message.
+        import re as _re
+
+        low = fold(text)
+        assert not ("bac" in low and _re.search(r"(?<!\w)co(?!\w)", low)), text
         assert body["panel"]["safety_action"] != "fallback"
     finally:
         client.app.state.provider = MockProvider()
@@ -758,7 +788,9 @@ def test_persona_failure_returns_a_holding_line(client):
         assert response.status_code == 200, response.text
         body = response.json()
         assert "quota" not in body["victim_message"]["content"].lower()
-        assert "bận tay" in body["victim_message"]["content"]
+        from app.agent.textutil import fold
+
+        assert "ban tay" in fold(body["victim_message"]["content"])
         assert body["panel"]["degraded"] is True
     finally:
         client.app.state.provider = MockProvider()
@@ -857,9 +889,11 @@ def test_address_term_stays_for_the_conversation(client):
         created = client.post("/api/conversations", json={"persona_id": "ba-nam"}).json()
         first = client.post(f"/api/conversations/{created['id']}/messages", json={"text": "Alo cô nghe máy."}).json()
         second = client.post(f"/api/conversations/{created['id']}/messages", json={"text": "Tôi gọi từ cơ quan."}).json()
-        assert "cháu" in first["victim_message"]["content"].lower()
-        assert "anh" not in second["victim_message"]["content"].lower()
-        assert "cháu" in second["victim_message"]["content"].lower()
+        from app.agent.textutil import fold
+
+        assert "chau" in fold(first["victim_message"]["content"])
+        assert "anh" not in fold(second["victim_message"]["content"])
+        assert "chau" in fold(second["victim_message"]["content"])
     finally:
         client.app.state.provider = MockProvider()
 
@@ -947,7 +981,9 @@ def test_guard_allow_sends_a_question_the_rules_only_hint_at(client):
             f"/api/conversations/{created['id']}/messages",
             json={"text": "Cô chuyển khoản ngay vào tài khoản giám định."},
         ).json()
-        assert "chuyển ngay" in body["victim_message"]["content"].lower()
+        from app.agent.textutil import fold
+
+        assert "chuyen ngay" in fold(body["victim_message"]["content"])
         assert body["panel"]["safety_action"] == "allow"
     finally:
         client.app.state.provider = MockProvider()

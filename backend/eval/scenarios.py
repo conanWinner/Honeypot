@@ -113,4 +113,90 @@ SCENARIOS = [
             "Chị tham gia nhóm Telegram t.me/hotro_thuhoi để luật sư hướng dẫn tiếp.",
         ],
     },
+    # Scams that are not among the 48 seed scripts. The agent has no script to
+    # follow, so it should run on the general playbook, still draw out the
+    # account or link, and extraction should file a new root, not a duplicate.
+    {
+        "id": "moi-phat-nguoi",
+        "title": "Chiêu mới: giả CSGT báo phạt nguội",
+        "persona_id": "ong-sau",
+        "channel": "web",
+        "expected_script": "",
+        "expected_relation": ["new_root"],
+        "expected_indicators": {"urls": "csgt-phatnguoi.top", "bank_accounts": "190366778899"},
+        "lines": [
+            "Tôi gọi từ phòng CSGT, xe biển số của anh có biên bản phạt nguội vượt đèn đỏ.",
+            "Anh phải nộp phạt trong hôm nay, quá hạn sẽ bị tước bằng lái và cưỡng chế.",
+            "Anh vào đường dẫn csgt-phatnguoi.top để tra biên bản và nộp phạt online.",
+            "Nếu không vào được link thì chuyển 1.250.000 vào số tài khoản 190366778899 Techcombank để nộp thay.",
+        ],
+    },
+    {
+        "id": "moi-bac-si-thuoc",
+        "title": "Chiêu mới: giả trợ lý bác sĩ bán thuốc đặc trị",
+        "persona_id": "ba-nam",
+        "channel": "web",
+        "expected_script": "",
+        "expected_relation": ["new_root"],
+        "expected_indicators": {"bank_accounts": "0451000123987"},
+        "lines": [
+            "Cô ơi con là trợ lý của giáo sư bác sĩ ở viện, bên con có chương trình khám tiểu đường miễn phí.",
+            "Theo chỉ số cô gửi thì cô phải dùng liệu trình thuốc đông y đặc trị 3 tháng.",
+            "Thuốc giá gốc 12 triệu nhưng chương trình hỗ trợ còn 4 triệu, cô đặt cọc 1 triệu để giữ suất.",
+            "Cô chuyển cọc vào số 0451000123987 Vietcombank tên Lê Thị Hoa, nội dung đặt thuốc.",
+        ],
+    },
+    {
+        "id": "moi-binh-chon",
+        "title": "Chiêu mới: nhờ bình chọn cuộc thi, chiếm Facebook",
+        "persona_id": "minh-sv",
+        "channel": "web",
+        "expected_script": "",
+        "expected_relation": ["new_root"],
+        "expected_indicators": {"urls": "binhchon-tainang.online"},
+        "lines": [
+            "Ê bạn ơi, em gái mình đang thi ảnh tài năng nhí, bạn bình chọn giúp mình một phiếu với.",
+            "Bạn vào binhchon-tainang.online, bấm vào ảnh số 12 rồi đăng nhập Facebook để bình chọn.",
+            "Nó báo nhập mã 6 số gửi về điện thoại là để xác nhận phiếu thật, bạn gửi mình mã đó nhé.",
+            "Nhanh giúp mình với, 9 giờ tối nay đóng cổng bình chọn rồi.",
+        ],
+    },
+    {
+        # Same refund mechanism as the Shopee script, different brand. A reviewer
+        # decides whether it is a duplicate; the report shows what was proposed.
+        "id": "ranh-gioi-hang-bay",
+        "title": "Ranh giới: giả hãng bay hủy chuyến, hoàn vé",
+        "persona_id": "tuan-vp",
+        "channel": "web",
+        "expected_script": "",
+        "expected_relation": None,
+        "expected_indicators": {"urls": "hoantien-vemaybay.vip"},
+        "lines": [
+            "Chào anh, em bên chăm sóc khách hàng hãng bay, chuyến bay của anh ngày mai bị hủy.",
+            "Hãng hoàn 100% tiền vé và đền bù thêm 500 nghìn, anh cần xác nhận để nhận tiền.",
+            "Anh cho em xin số thẻ và ngày hết hạn để hệ thống hoàn tiền về thẻ.",
+            "Hoặc anh bấm vào hoantien-vemaybay.vip điền thông tin, tiền về trong 5 phút.",
+        ],
+    },
+    {
+        # Read-back and alternative payment: the scammer confirms the first account
+        # after the persona reads it back, then offers a wallet when the persona
+        # says that bank is hard to use. With a live model the scammer side is
+        # written by the simulator; the mock reads these lines as given.
+        "id": "doi-tai-khoan",
+        "title": "Moi thêm nơi nhận tiền: đọc lại số, hỏi cách khác",
+        "persona_id": "tuan-vp",
+        "channel": "web",
+        "expected_script": "",
+        "expected_relation": None,
+        "expected_indicators": {"bank_accounts": "9704229912345", "ewallets": "0912345678"},
+        "expected_goals": ["confirm_account", "ask_alternative"],
+        "lines": [
+            "Em bên ngân hàng, tài khoản của anh đang bị trừ phí bảo hiểm 2 triệu mỗi tháng, muốn hủy phải đóng phí hủy.",
+            "Anh chuyển phí hủy 500 nghìn vào số tài khoản 9704229912345 MB Bank để em làm lệnh hủy.",
+            "Đúng rồi anh, chủ tài khoản Trần Văn Nam.",
+            "Vậy anh chuyển qua ví MoMo số 0912345678 cũng được, nhanh giúp em.",
+            "Đúng số đó anh, chuyển trong 10 phút.",
+        ],
+    },
 ]

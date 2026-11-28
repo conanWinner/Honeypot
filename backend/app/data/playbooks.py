@@ -20,7 +20,7 @@ PLAYBOOKS: dict[str, dict] = {
         "label": "Cài app chiếm quyền",
         "targets": [
             _WHO,
-            _t("apk", "Tên app / file .apk và đường dẫn tải", "ask_link", "hỏi lại tên ứng dụng, xin gửi lại đường dẫn tải vì máy báo lỗi", ["apk", "urls"]),
+            _t("apk", "Tên app / file .apk và đường dẫn tải", "ask_link", "hỏi lại tên ứng dụng, nhờ gửi lại đường dẫn tải vì chưa thấy tin, hoặc hỏi tên ứng dụng để nhờ con xem", ["apk", "urls"]),
             _t("zalo", "Zalo/số họ dùng để gửi file", "ask_purpose", "hỏi gửi qua Zalo nào, số nào để lưu cho khỏi nhầm", ["zalo", "phones"]),
             _t("permission", "Họ bắt bật quyền gì", "ask_next_instruction", "hỏi cài xong thì bấm gì, bật cái gì trong cài đặt", ["checklist:app"]),
             _t("remote_id", "ID AnyDesk hoặc UltraViewer", "ask_remote_id", "hỏi họ cần đọc ID nào trên màn hình, chưa cài", ["remote_ids"]),
@@ -39,7 +39,7 @@ PLAYBOOKS: dict[str, dict] = {
         "label": "Giả công an",
         "targets": [
             _WHO,
-            _t("account", "Tài khoản 'giám định' nhận tiền", "ask_account_number", "hỏi chuyển vào tài khoản nào, tên ai, ngân hàng nào", ["bank_accounts"]),
+            _t("account", "Tài khoản 'giám định' nhận tiền", "ask_account_number", "hỏi thì chuyển kiểu gì, như người chưa chuyển khoản bao giờ", ["bank_accounts"]),
             _t("app", "App hoặc phần mềm họ bắt cài", "ask_next_instruction", "hỏi cài ứng dụng gì, tên là gì", ["apps", "apk"]),
             _t("remote", "ID UltraViewer/AnyDesk", "ask_next_instruction", "hỏi họ cần đọc số ID nào", ["remote_ids"]),
             _t("pressure", "Họ dọa gì, cấm gì", "emotional_hook", "hỏi lại nếu không làm thì sao", ["pressure"]),
@@ -76,7 +76,7 @@ PLAYBOOKS: dict[str, dict] = {
         "label": "Việc làm / nhiệm vụ",
         "targets": [
             _t("group", "Nhóm Telegram/Zalo giao nhiệm vụ", "ask_link", "xin link nhóm để vào nhận việc", ["telegram", "zalo", "urls"]),
-            _t("account", "Tài khoản / ví nhận tiền nạp", "ask_account_number", "hỏi nạp vào tài khoản nào", ["bank_accounts", "crypto_wallets"]),
+            _t("account", "Tài khoản / ví nhận tiền nạp", "ask_account_number", "hỏi nạp tiền kiểu gì", ["bank_accounts", "crypto_wallets"]),
             _t("amount", "Số tiền mỗi nhiệm vụ", "ask_next_instruction", "hỏi nhiệm vụ sau bao nhiêu, rút khi nào", ["checklist:payment"]),
         ],
     },
@@ -85,7 +85,7 @@ PLAYBOOKS: dict[str, dict] = {
         "targets": [
             _WHO,
             _t("fee", "Phí giữ chỗ hoặc phí thi", "ask_purpose", "hỏi phí gì, bao nhiêu, đóng cho ai", ["checklist:payment"]),
-            _t("account", "Tài khoản nhận phí", "ask_account_number", "hỏi chuyển phí vào tài khoản nào", ["bank_accounts"]),
+            _t("account", "Tài khoản nhận phí", "ask_account_number", "hỏi phí đó đóng kiểu gì", ["bank_accounts"]),
             _t("link", "Link lớp hoặc trang thi", "ask_link", "xin link lớp học hoặc trang thi", ["urls", "telegram", "zalo"]),
         ],
     },
@@ -94,7 +94,7 @@ PLAYBOOKS: dict[str, dict] = {
         "targets": [
             _WHO,
             _t("fee", "Khoản phí họ đòi", "ask_purpose", "hỏi phí gì, bao nhiêu, có biên lai không", ["checklist:payment"]),
-            _t("account", "Tài khoản nhận phí", "ask_account_number", "hỏi chuyển phí vào đâu, tên ai", ["bank_accounts"]),
+            _t("account", "Tài khoản nhận phí", "ask_account_number", "hỏi phí đó đưa cho ai, đóng kiểu gì", ["bank_accounts"]),
             _t("group", "Nhóm/Telegram 'luật sư'", "ask_link", "xin link liên hệ luật sư", ["telegram", "zalo", "urls"]),
         ],
     },
@@ -111,7 +111,7 @@ PLAYBOOKS: dict[str, dict] = {
         "targets": [
             _WHO,
             _t("app", "App / link thanh toán", "ask_link", "hỏi tải app ở đâu, xin link", ["urls", "apk"]),
-            _t("account", "Tài khoản nhận tiền", "ask_account_number", "hỏi đóng vào tài khoản nào", ["bank_accounts"]),
+            _t("account", "Tài khoản nhận tiền", "ask_account_number", "hỏi đóng tiền kiểu gì", ["bank_accounts"]),
         ],
     },
     "tax": {
@@ -126,7 +126,7 @@ PLAYBOOKS: dict[str, dict] = {
         "label": "Du lịch / đặt phòng",
         "targets": [
             _t("page", "Fanpage / web đặt phòng", "ask_link", "xin link trang để xem ảnh phòng", ["urls"]),
-            _t("account", "Tài khoản nhận cọc", "ask_account_number", "hỏi cọc vào tài khoản nào, tên ai", ["bank_accounts"]),
+            _t("account", "Tài khoản nhận cọc", "ask_account_number", "hỏi cọc thì gửi kiểu gì, có giấy tờ gì không", ["bank_accounts"]),
             _t("hotline", "Số liên hệ", "ask_identity", "hỏi số hotline", ["phones"]),
         ],
     },
@@ -136,8 +136,11 @@ DEFAULT = {
     "label": "Chung",
     "targets": [
         _WHO,
-        _t("account", "Tài khoản nhận tiền", "ask_account_number", "hỏi chuyển vào đâu", ["bank_accounts", "crypto_wallets"]),
-        _t("link", "Đường dẫn / app", "ask_link", "xin đường dẫn", ["urls", "apk"]),
+        _t("payment", "Họ muốn mình làm gì", "ask_purpose", "hỏi lại cần làm gì, đóng khoản gì, để làm gì", ["checklist:payment"]),
+        _t("account", "Tài khoản hoặc ví nhận tiền", "ask_account_number", "hỏi thì chuyển kiểu gì, đưa cho ai, như người không rành", ["bank_accounts", "crypto_wallets"]),
+        _t("link", "Đường dẫn hoặc file", "ask_link", "nhờ gửi lại hoặc đọc lại đường dẫn vì chưa thấy tin", ["urls", "apk"]),
+        _t("app", "Ứng dụng họ bắt dùng", "ask_next_instruction", "hỏi phải cài hay mở ứng dụng nào", ["apps", "remote_ids", "checklist:app"]),
+        _t("pressure", "Cách gây sức ép", "emotional_hook", "hỏi nếu chậm thì sao, hạn đến bao giờ", ["checklist:pressure"]),
     ],
 }
 

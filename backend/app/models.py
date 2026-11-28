@@ -54,6 +54,10 @@ class Script(Base):
     embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(16), index=True, default="published")
     novelty_note: Mapped[str] = mapped_column(Text, default="")
+    # How extraction filed this row: new_root, variant or duplicate. A duplicate
+    # waits in the queue with merge_target set; approving it merges into that script.
+    relation: Mapped[str] = mapped_column(String(16), default="")
+    merge_target: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

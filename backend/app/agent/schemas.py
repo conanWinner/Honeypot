@@ -114,7 +114,10 @@ class AnalystOutput(BaseModel):
     step_label: str = ""
     red_flags: list[str] = Field(default_factory=list)
     extracted_fact: str = ""
-    scammer_suspicion: float = 0
+    scammer_suspicion: float = Field(
+        default=0,
+        description="0-1: how much the SCAMMER suspects the victim is a bot or a trap. Not the chance this is a scam (that is is_scam). 0 when they are simply scamming.",
+    )
     is_scam: bool | None = None
     matches: list[MatchOut] = Field(default_factory=list)
     branch: BranchOut = Field(default_factory=BranchOut)
@@ -159,6 +162,8 @@ class PlannerOutput(BaseModel):
         "ask_remote_id",
         "emotional_hook",
         "probe_hook",
+        "confirm_account",
+        "ask_alternative",
         "close_polite",
     ] = "ask_next_instruction"
     rationale: str = ""

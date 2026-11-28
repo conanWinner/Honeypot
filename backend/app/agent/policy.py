@@ -89,8 +89,8 @@ _QUESTION = re.compile(r"\b(nào|nao|đâu|dau|ai|gì|gi|sao)\b", re.IGNORECASE)
 # "con đang học / con trai" is the child. "con chuyển" is the speaker.
 _CON_FAMILY = re.compile(
     r"("
-    r"\bcon\s+(trai|gái|gai|cái|cai|nuôi|nuoi|của|cua|tôi|toi|em|cô|co|đang|dang|ở|o|bên|học|hoc|làm|lam)\b"
-    r"|\b(về|ve|của|cua|cho|với|voi|thằng|thang|đứa|dua)\s+con\b"
+    r"\bcon\s+(trai|gái|gai|cái|cai|nuôi|nuoi|của|cua|tôi|toi|tui|mình|minh|nhà|nha|em|cô|co|đang|dang|ở|o|bên|học|hoc|làm|lam)\b"
+    r"|\b(về|ve|của|cua|cho|với|voi|thằng|thang|đứa|dua|đón|don|trông|trong|đưa|dua|nuôi|nuoi|chăm|cham|dỗ|do)\s+con\b"
     r")",
     re.IGNORECASE,
 )
@@ -273,10 +273,45 @@ def hard_commitment(text: str) -> str:
     return ""
 
 
+# "Are you a machine?" in any address form: chú có phải máy không, em là bot à,
+# người thật không đấy, sao trả lời lạ vậy. Ignoring this is the fastest way to
+# get caught, so it must reach the planner as suspicion.
+_BOT_PROBE = re.compile(
+    r"((có\s+)?phải\s+(là\s+)?|\blà\s+)(máy|bot|robot|người máy|chatbot|trí tuệ nhân tạo|tự động)\b"
+    r"|\b(máy|bot|robot)\s+(à|hả|hở|phải không|không đấy|không vậy|ko|k)\b"
+    r"|người\s+thật\s+(không|ko|k|à|hả|chứ|hay)"
+    r"|trả\s+lời\s+(lạ|như máy|tự động|y hệt|giống máy|nhanh quá)",
+    re.IGNORECASE,
+)
+# "AI" only in capitals: lowercase "ai" means "who".
+_AI_PROBE = re.compile(r"\b(?:là|phải)\s+(?:là\s+)?(?:AI|A\.I)\b|\bAI\s+(?:à|hả|phải không)")
+
+
+# Words a scammer uses when they start to doubt the victim. The analyst's
+# scammer_suspicion only counts when the message itself shows one of these: models
+# often score "how scammy is this" there instead, which would stall every turn.
+_DOUBT = re.compile(
+    r"(?i:(?:là|phải)\s+(?:máy|bot|robot|người máy)\b|\b(?:bot|robot|chatbot)\b|người\s+thật"
+    r"|trả\s+lời\s+(?:lạ|như\s+máy|tự\s+động)|tự\s+động\s+trả\s+lời"
+    r"|sao\s+(?:hỏi|nói)\s+(?:nhiều|lắm|kỹ)|hỏi\s+(?:nhiều|lắm)\s+(?:thế|vậy|quá)"
+    r"|(?:không|ko|chẳng)\s+(?:tin|làm)\s+thì\s+thôi|thôi\s+(?:không|ko)\s+nói\s+nữa"
+    r"|(?:gài|thử|test)\s+(?:tôi|tao|em|anh|chị)|có\s+vẻ\s+(?:lạ|không\s+bình\s+thường))"
+    # "AI" only in capitals: "ai" is the everyday "who".
+    r"|\bAI\b"
+)
+
+
+def doubt_cue(text: str) -> bool:
+    return bool(_DOUBT.search(text or ""))
+
+
 def assess_inbound(text: str) -> dict:
     folded = (text or "").lower()
     jail_cues = [cue for cue in _JAILBREAK if cue in folded]
     sus_cues = [cue for cue in _SUSPICION if cue in folded]
+    probe = _BOT_PROBE.search(text or "") or _AI_PROBE.search(text or "")
+    if probe and not sus_cues:
+        sus_cues.append(probe.group(0).strip().lower())
     suspicion = 0.0
     if jail_cues:
         suspicion = 0.85
@@ -328,6 +363,9 @@ def voice_issues(text: str, persona_id: str | None) -> list[str]:
             continue
         issues.append("pronoun_mix")
         break
+    if "pronoun_mix" not in issues and len(_self_kin_used(body, spec)) > 1:
+        # "Bác nói con trai cô…": two ways of saying "I" in one message.
+        issues.append("pronoun_mix")
     if "pronoun_mix" not in issues:
         for match in _ADDRESS_FRAME.finditer(body):
             if match.group(1).lower() not in allowed_other:
@@ -579,13 +617,39 @@ def pin_address(text: str, persona_id: str, term: str) -> str:
     return body
 
 
-def repair_pronouns(text: str, persona_id: str) -> str:
-    """Swap a forbidden address word for this persona's own, and keep the question."""
+def _self_kin_used(text: str, spec: dict) -> list[str]:
+    """Kinship words for "I" this persona may use, in the order they appear."""
+    kin = [w.lower() for w in spec.get("self") or [] if w.lower() not in {"tôi", "mình", "tui", "em"}]
+    if len(kin) < 2:
+        return []
+    found: list[str] = []
+    for match in re.finditer(r"(?<!\w)(" + "|".join(map(re.escape, kin)) + r")(?!\w)", text or "", flags=re.IGNORECASE):
+        word = match.group(1).lower()
+        if word not in found:
+            found.append(word)
+    return found
+
+
+def repair_pronouns(text: str, persona_id: str, self_term: str = "") -> str:
+    """Swap a forbidden address word for this persona's own, keep one word for "I",
+    and keep the question."""
     from app.data.personas import PRONOUNS
 
     spec = PRONOUNS.get(persona_id) or {}
     other = (spec.get("other") or ["anh"])[0]
     body = text or ""
+    used = _self_kin_used(body, spec)
+    if len(used) > 1:
+        keep = self_term if self_term in used else used[0]
+        for word in used:
+            if word == keep:
+                continue
+            body = re.sub(
+                rf"(?<!\w){re.escape(word)}(?!\w)",
+                lambda m: keep.capitalize() if m.group(0)[0].isupper() else keep,
+                body,
+                flags=re.IGNORECASE,
+            )
     for word in spec.get("forbid_words") or []:
         if word.lower() in {"tao", "mày", "tụi bây", "chúng mày"}:
             continue
@@ -593,40 +657,54 @@ def repair_pronouns(text: str, persona_id: str) -> str:
     return body
 
 
-def holding_line(persona_id: str, recent: list[str] | None = None) -> str:
-    lines = {
-        "ba-nam": [
-            "Đợi cô xíu, cô đang bận tay. Cháu nói lại được không?",
-            "Ờ cháu chờ cô tí, cô đang tìm kính.",
-            "Khoan đã cháu, cô nghe không rõ. Nói lại một câu thôi.",
-        ],
-        "minh-sv": [
-            "đợi em xíu, em đang bận tay. anh nói lại được không?",
-            "khoan, em nghe không rõ. nói lại một câu thôi.",
-        ],
-        "huong-shop": [
-            "Đợi chị xíu, chị đang bận tay. Anh nói lại được không?",
-            "Khoan đã, chị nghe không rõ. Nói lại một câu thôi.",
-        ],
-        "tuan-vp": [
-            "Đợi em xíu, em đang bận tay. Anh nói lại được không?",
-            "Khoan, em nghe không rõ. Anh nói lại một câu thôi.",
-        ],
-        "lan-nt": [
-            "Đợi tui xíu, tui đang bận tay. Bạn nói lại được không?",
-            "Khoan, tui nghe không rõ. Nói lại một câu thôi.",
-        ],
-        "khoa-tx": [
-            "đợi em xíu, em đang bận tay. bác nói lại được không?",
-            "khoan, em nghe không rõ. bác nói lại một câu.",
-        ],
-    }
-    options = lines.get(persona_id) or lines["tuan-vp"]
-    recent_norm = [(item or "").strip().lower() for item in (recent or [])]
-    for line in options:
-        if line.strip().lower() not in recent_norm:
-            return line
-    return options[0]
+# Everyday interruptions, said once each. "Nói lại được không" three times in one
+# chat is the loudest tell, so most of these do not ask them to repeat anything.
+_HOLD_TEMPLATES = [
+    "Đợi {me} xíu, {me} đang bận tay. {You} nói lại được không?",
+    "Khoan, {me} nghe không rõ. {You} nói lại một câu thôi.",
+    "{You} chờ {me} tí, {me} đi lấy cái kính đã.",
+    "Ơ máy {me} vừa đơ, {you} chờ {me} chút.",
+    "Có người gọi cửa, {you} đợi {me} tí nhé.",
+    "Từ từ đã {you}, {me} đang ghi lại.",
+    "Để {me} ngồi xuống đã, nãy giờ {me} đứng ngoài đường.",
+]
+_HOLD_YOUNG = [
+    "đợi {me} xíu, {me} đang bận tay. {you} nói lại được không?",
+    "khoan, {me} nghe không rõ. {you} nói lại một câu.",
+    "{you} chờ {me} tí, đang dở tay.",
+    "máy {me} lag quá, đợi chút",
+    "ơ từ từ, {me} đang đọc lại",
+]
+
+
+def _norm_line(text: str) -> str:
+    return re.sub(r"[^\w]+", " ", fold(text or "")).strip()
+
+
+def holding_line(persona_id: str, recent: list[str] | None = None, self_term: str = "") -> str:
+    from app.data.personas import PRONOUNS, STYLES
+
+    spec = PRONOUNS.get(persona_id) or {}
+    young = (STYLES.get(persona_id) or {}).get("case") == "lower"
+    templates = _HOLD_YOUNG if young else _HOLD_TEMPLATES
+    options = [_voiced(line, persona_id) for line in templates]
+    default_self = (spec.get("self") or [""])[0]
+    if self_term and default_self and self_term != default_self:
+        options = [
+            re.sub(
+                rf"(?<!\w){re.escape(default_self)}(?!\w)",
+                lambda m: self_term.capitalize() if m.group(0)[0].isupper() else self_term,
+                line,
+                flags=re.IGNORECASE,
+            )
+            for line in options
+        ]
+    seen = {_norm_line(item) for item in (recent or [])}
+    fresh = [line for line in options if _norm_line(line) not in seen]
+    if not fresh:
+        return options[len(recent or []) % len(options)]
+    # Rotate through the unused ones so two degraded turns never match.
+    return fresh[len(recent or []) % len(fresh)]
 
 
 def needs_guard(text: str) -> bool:
@@ -637,13 +715,55 @@ def needs_guard(text: str) -> bool:
     return bool(re.search(r"https?://|www\.|(?<![\w@])[a-z0-9-]+\.[a-z]{2,24}", text or "", re.IGNORECASE))
 
 
+# Words that put a draft in the guard model's territory: acting, paying, codes,
+# papers, apps, or the bot question. Matched on the text with diacritics, so
+# "cái" (a determiner) is not "cài" (install).
+_GUARD_ACTION = re.compile(
+    r"(?<!\w)(cài|tải|bấm|nhấn|ấn|mở|quét|nhập|điền|đọc|gửi|làm theo|làm đúng|xong|sẵn sàng|chờ lệnh|bảo gì|"
+    r"thanh toán|đóng|nộp|trả|chuyển|ck|nạp|rút|xác nhận|xác thực|đăng nhập|mật khẩu|mã|căn cước|cccd|"
+    r"địa chỉ|số điện thoại|sđt|ảnh|chụp|video|ứng dụng|app|phần mềm|link|đường dẫn|ví|thẻ|"
+    r"máy|bot|người thật|trí tuệ|tiền|phí|khoản|đưa|triệu|nghìn|ngàn|đồng|vnd|otp|stk|tk|tài khoản|ngân hàng|bank|momo|zalopay|viettel ?pay|vnpay|usdt|id|"
+    r"anydesk|ultraviewer|teamviewer)(?!\w)",
+    re.IGNORECASE,
+)
+_GUARD_LINK = re.compile(r"https?://|www\.|(?<![\w@])[a-z0-9-]+\.[a-z]{2,24}\b", re.IGNORECASE)
+SKIP_GUARD_MAX_CHARS = 120
+
+
+# Turns where the guard always runs, whatever the wording.
+GUARD_ALWAYS_GOALS = {"read_fake_otp", "ask_alternative", "ask_remote_id"}
+
+
+def guard_skippable(text: str, rule_violations: list[str], allowed_numbers: set[str] | None = None, goal: str = "") -> bool:
+    """True only for a short, plain line the rules found clean and that touches nothing risky.
+
+    The guard model costs 3 to 5 seconds a turn. A line like "Ôi, cháu tên gì, ở
+    phường nào?" cannot claim a payment, an install or a code, so the model has
+    nothing to judge. Anything about money, codes, apps, links, papers, acting on
+    instructions, or being a machine still goes to the guard.
+    """
+    body = (text or "").strip()
+    if goal in GUARD_ALWAYS_GOALS:
+        return False
+    if not body or rule_violations or len(body) > SKIP_GUARD_MAX_CHARS:
+        return False
+    # Not needs_guard(): it folds diacritics, so "chuyện" (matter) reads as "chuyển" (transfer).
+    if _GUARD_ACTION.search(body) or _GUARD_LINK.search(body) or _AI_TOKEN.search(body):
+        return False
+    from app.agent.textutil import digit_runs
+
+    return all(number in (allowed_numbers or set()) for number in digit_runs(body))
+
+
 def rewrite_opening(text: str, recent: list[str] | None) -> str:
     """Change a repeated opening and keep the rest, especially a question that asks for an account, link, or app."""
     raw = (text or "").strip()
     if not raw or not repeats_opening(raw, recent):
         return raw
     pieces = re.split(r"(?<=[?.!])\s+", raw, maxsplit=1)
-    if len(pieces) == 2 and pieces[1].strip():
+    # Never drop a sentence that carries a long number: it is a read-back of the
+    # scammer's own account, the one thing this turn exists to say.
+    if len(pieces) == 2 and pieces[1].strip() and not re.search(r"\d{6,}", pieces[0]):
         return pieces[1].strip()
     rest = raw[10:].lstrip(" ,:;–-")
     if not rest:
@@ -654,6 +774,54 @@ def rewrite_opening(text: str, recent: list[str] | None) -> str:
     if _ASK_KEEP.search(raw) and not _ASK_KEEP.search(rewritten):
         return raw
     return rewritten
+
+
+_INTERJECTIONS = {"oi", "o", "u", "ui", "ua", "chet", "troi", "the", "a", "ay", "chet that", "chet roi", "troi oi", "the a"}
+
+
+def _opening(text: str, words: int = 2) -> list[str]:
+    return re.sub(r"[^\w\s]", " ", fold(text or "")).split()[:words]
+
+
+def drop_repeated_interjection(text: str, recent: list[str] | None, reactions: list[str] | None = None) -> str:
+    """'Chết thật…', 'Chết thật…', 'Chết thật…': the same exclamation opening reply
+    after reply is a tell. Drop it when one of the last two replies opened with it.
+    Compared without diacritics, since sent messages may have been typed without them.
+    'Dạ' stays: it is register, not a reaction."""
+    phrases = sorted({fold(p) for p in (reactions or [])} | _INTERJECTIONS, key=lambda p: -len(p.split()))
+    head = " ".join(_opening(text, 3))
+    hit = next((p for p in phrases if p != "da" and (head == p or head.startswith(p + " "))), None)
+    if hit is None:
+        return text
+    size = len(hit.split())
+    if not any(_opening(old, size) == hit.split() for old in (recent or [])[-2:]):
+        return text
+    rest = re.sub(r"^\s*" + r"[\s,.!…]*".join([r"[^\W\d_]+"] * size) + r"[\s,.!…]*", "", text, count=1)
+    if len(rest) < 4:
+        return text
+    return rest[0].upper() + rest[1:]
+
+
+def _trigrams(text: str) -> set[tuple[str, ...]]:
+    words = fold(re.sub(r"[^\w\s]", " ", text or "")).split()
+    return {tuple(words[index : index + 3]) for index in range(len(words) - 2)}
+
+
+def reply_novelty(text: str, recent: list[str] | None) -> float:
+    """Share of this reply's word trigrams not already used in the last few replies.
+
+    Repetitive, template-like asks are what scammers learn to spot; a reply that
+    mostly repeats earlier ones also adds nothing to the case.
+    """
+    mine = _trigrams(text)
+    if not mine:
+        return 1.0
+    seen: set[tuple[str, ...]] = set()
+    for old in (recent or [])[-4:]:
+        seen |= _trigrams(old)
+    if not seen:
+        return 1.0
+    return round(len(mine - seen) / len(mine), 3)
 
 
 def repeats_opening(text: str, recent: list[str] | None, width: int = 10) -> bool:
@@ -669,15 +837,64 @@ def repeats_opening(text: str, recent: list[str] | None, width: int = 10) -> boo
     return False
 
 
+_GENERIC_FALLBACKS = [
+    "Khoan, {me} chưa hiểu. {You} nói lại từ đầu được không?",
+    "{Me} chưa làm gì. Rồi sao nữa?",
+    "{You} là ai vậy, {me} đang nghe.",
+]
+
+
+def _pair(persona_slug: str) -> tuple[str, str]:
+    from app.data.personas import PRONOUNS
+
+    pair = PRONOUNS.get(persona_slug) or PRONOUNS["tuan-vp"]
+    return (pair.get("self") or ["em"])[0], (pair.get("other") or ["anh"])[0]
+
+
+def _voiced(template: str, persona_slug: str) -> str:
+    me, you = _pair(persona_slug)
+    return template.format(me=me, Me=me.capitalize(), you=you, You=you.capitalize())
+
+
 def fallback_reply(persona_slug: str, recent: list[str] | None = None) -> str:
-    options = _FALLBACKS.get(persona_slug) or _FALLBACKS["tuan-vp"]
-    recent_norm = [(item or "").strip().lower() for item in (recent or [])]
+    # A persona without hand-written lines gets generic ones in its own pronouns,
+    # not another persona's: borrowing "em/anh" made a 72-year-old call himself "cháu".
+    options = _FALLBACKS.get(persona_slug) or [_voiced(line, persona_slug) for line in _GENERIC_FALLBACKS]
+    # Sent messages are stored as typed (maybe without diacritics), so compare folded.
+    recent_norm = {_norm_line(item) for item in (recent or [])}
     for line in options:
-        folded = line.strip().lower()
-        if folded in recent_norm or repeats_opening(line, recent):
+        if _norm_line(line) in recent_norm or repeats_opening(line, recent):
             continue
         return line
-    return options[len(recent_norm) % len(options)]
+    return options[len(recent or []) % len(options)]
+
+
+def readback_line(persona_slug: str, account: str, kind: str = "bank_accounts") -> str:
+    """A plain in-voice read-back, for when the drafted one had to be replaced."""
+    if kind == "bank_accounts":
+        line = "{Me} ghi lại là số ACCOUNT, đúng chưa {you}? Ai đứng tên số này, ngân hàng nào? {Me} chưa chuyển đâu."
+    else:
+        # A wallet has an owner, not a bank.
+        line = "{Me} ghi lại là ví ACCOUNT, đúng chưa {you}? Ví này đứng tên ai? {Me} chưa chuyển đâu."
+    return _voiced(line, persona_slug).replace("ACCOUNT", account)
+
+
+def alternative_line(persona_slug: str, same_bank: bool = False) -> str:
+    """A harmless obstacle plus a request for another way to pay. Claims nothing was tried.
+
+    When the scammer's bank is the persona's own, "I don't use that bank" would
+    contradict the profile, so the obstacle is not knowing how to transfer.
+    """
+    if same_bank:
+        line = "{Me} không rành chuyển khoản trên điện thoại, phải nhờ người nhà làm hộ. {You} có cách nào khác không, ví hay số khác?"
+    else:
+        line = "{Me} không dùng ngân hàng đó, cũng không rành chuyển khoản. {You} còn số nào khác hay người nhận khác không?"
+    return _voiced(line, persona_slug)
+
+
+def denial_line(persona_slug: str) -> str:
+    """Answer "are you a bot?" the way a confused person would, instead of ignoring it."""
+    return _voiced("Máy gì cơ, {me} là người chứ máy gì. {You} nói gì {me} chẳng hiểu.", persona_slug)
 
 
 def typing_ms(text: str, persona_slug: str) -> int:

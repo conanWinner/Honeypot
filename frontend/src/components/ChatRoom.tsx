@@ -1,23 +1,23 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, panelFromMessage, type Conversation, type Message, type Panel, type Script } from '../lib/api'
+import { api, ApiError, panelFromMessage, type Conversation, type DemoMeta, type Message, type Panel, type Script } from '../lib/api'
 import { sleep } from '../lib/utils'
 import { CasePanel } from './CasePanel'
 import { Button, Banner } from './ui'
 
-function DemoCoach({ sent }: { sent: number }) {
-  const beats = [
-    [0, '0:00 — Họ vừa gọi. Bà Năm sẽ hỏi họ là ai. Bạn chỉ cần gửi câu gợi ý.'],
-    [2, '0:40 — Họ đang cô lập nạn nhân. Đừng bấm trích xuất.'],
-    [4, '1:20 — Số tài khoản và phần mềm xuất hiện ở buồng lái.'],
-    [6, '2:00 — Nhánh con ở Đức, rồi chuyện sống một mình. Agent không khép.'],
-    [8, '2:30 — Bấm Trích xuất. Hồ sơ vào hàng chờ, duyệt để thấy trên thư viện.'],
-  ]
+const DEFAULT_BEATS: [number, string][] = [
+  [0, 'Bạn đóng vai kẻ lừa. Gửi câu gợi ý, hoặc tự gõ.'],
+  [3, 'Xem buồng lái bên phải: giai đoạn, chỉ dấu, nơi nhận tiền.'],
+  [6, 'Đủ rồi thì bấm Trích xuất, rồi Xuất hồ sơ.'],
+]
+
+function DemoCoach({ sent, demo }: { sent: number; demo?: DemoMeta | null }) {
+  const beats = demo?.beats?.length ? demo.beats : DEFAULT_BEATS
   const line = [...beats].reverse().find(([at]) => sent >= Number(at))?.[1] ?? beats[0][1]
   return (
     <p className="border-b border-line bg-[#fde7ef] px-4 py-2 text-sm text-seal-deep">
-      <span className="font-semibold">Honeypot.</span> {line}
+      <span className="font-semibold">{demo?.kind === 'new' ? 'Chiêu mới.' : 'Honeypot.'}</span> {line}
     </p>
   )
 }
@@ -88,7 +88,7 @@ export function ChatRoom({ id }: { id: string }) {
       }>(`/api/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ text: content }) })
       if (!alive.current) return
       setMessages((current) => current.map((message) => (message.id === localId ? result.scammer_message : message)))
-      const wait = Math.max(700, Math.min(result.typing_ms, 2200) - (Date.now() - started))
+      const wait = Math.max(700, Math.min(result.typing_ms, 4000) - (Date.now() - started))
       await sleep(wait)
       if (!alive.current) return
       setMessages((current) => [...current, result.victim_message])
@@ -135,8 +135,25 @@ export function ChatRoom({ id }: { id: string }) {
 
   async function approve() {
     if (!extracted) return
-    const script = await api<Script>(`/api/moderation/${extracted.script.id}/approve`, { method: 'POST' })
-    setExtracted({ ...extracted, script })
+    setError('')
+    const token = sessionStorage.getItem('gianan-admin') ?? ''
+    try {
+      const script = await api<Script>(`/api/moderation/${extracted.script.id}/approve`, {
+        method: 'POST',
+        headers: token ? { 'X-Admin-Token': token } : undefined,
+      })
+      // Approving a proposed duplicate returns the script it was merged into.
+      setExtracted({ ...extracted, script, action: extracted.script.merge_target ? 'merged' : extracted.action })
+    } catch (reason) {
+      const status = reason instanceof ApiError ? reason.status : 0
+      setError(
+        status === 401 || status === 403
+          ? 'Cần mã quản trị. Nhập ADMIN_TOKEN ở tab Kiểm duyệt một lần, rồi bấm duyệt lại.'
+          : reason instanceof Error
+            ? reason.message
+            : 'Không duyệt được.',
+      )
+    }
   }
 
   if (!conversation && !error) return <p className="text-ink-soft">Đang mở hồ sơ…</p>
@@ -167,12 +184,17 @@ export function ChatRoom({ id }: { id: string }) {
             <Button variant="ghost" size="sm" onClick={toggleReason} type="button">
               {showReason ? 'Ẩn luận giải' : 'Luận giải của agent'}
             </Button>
+            {messages.length > 0 && (
+              <Button asChild variant="ink" size="sm">
+                <Link to={`/phan-tich/ho-so/${id}`}>Xuất hồ sơ</Link>
+              </Button>
+            )}
             <Button variant="ghost" size="sm" className="lg:hidden" type="button" onClick={() => setSheet(true)}>
               Hồ sơ vụ
             </Button>
           </div>
         </header>
-        {conversation.is_demo && <DemoCoach sent={sentCount} />}
+        {conversation.is_demo && <DemoCoach sent={sentCount} demo={conversation.demo} />}
         <div ref={scroller} className="thread flex-1 space-y-3 overflow-y-auto px-4 py-4">
           {messages.length === 0 && (
             <p className="rounded-2xl bg-paper-deep px-4 py-3 text-sm leading-6 text-ink-soft">
@@ -216,26 +238,57 @@ export function ChatRoom({ id }: { id: string }) {
           {error && <Banner tone="danger">{error}</Banner>}
           {extracted && (
             <div className="rounded-2xl bg-[#e7f3ec] px-4 py-3 text-sm leading-6">
-              {extracted.action === 'merged' ? (
+              {extracted.script.relation === 'duplicate' && extracted.script.status === 'pending' ? (
                 <p>
-                  Trùng kịch bản đã có. Đã cộng một lượt ghi nhận vào{' '}
+                  Giống kịch bản đã có. Đã đưa vào hàng chờ với đề xuất gộp vào{' '}
+                  <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${extracted.script.merge_target}`}>
+                    {extracted.script.merge_target_title || extracted.script.title}
+                  </Link>
+                  . Thư viện chưa đổi cho tới khi có người duyệt.
+                </p>
+              ) : extracted.action === 'merged' ? (
+                <p>
+                  Đã gộp vào{' '}
                   <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${extracted.script.id}`}>
                     {extracted.script.title}
                   </Link>
                   .
                 </p>
-              ) : (
+              ) : extracted.script.status === 'published' ? (
                 <p>
-                  Đã đưa vào hàng chờ duyệt:{' '}
+                  Đã công bố{' '}
                   <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${extracted.script.id}`}>
                     {extracted.script.title}
                   </Link>
-                  . {extracted.script.status === 'published' ? 'Đã công bố.' : 'Chưa hiện ở thư viện công khai.'}
+                  . Người dùng đang thấy chiêu này ở mục <b>Chiêu mới ghi nhận</b> trên{' '}
+                  <Link className="font-semibold underline" to="/">
+                    Trang chủ
+                  </Link>{' '}
+                  và trang{' '}
+                  <Link className="font-semibold underline" to="/canh-bao">
+                    Cảnh báo
+                  </Link>
+                  , và ô kiểm tra tin nhắn đã nhận ra nó.
+                </p>
+              ) : (
+                <p>
+                  {extracted.script.relation === 'variant' ? 'Nhánh mới của chiêu đã biết' : <b>Chiêu chưa có trong thư viện.</b>} Đã đưa
+                  vào hàng chờ duyệt:{' '}
+                  <Link className="font-semibold underline" to={`/canh-bao/kich-ban/${extracted.script.id}`}>
+                    {extracted.script.title}
+                  </Link>
+                  . Chưa hiện cho người dùng cho tới khi có người duyệt.
                 </p>
               )}
+              <p className="mt-1">
+                <Link className="font-semibold underline" to={`/phan-tich/ho-so/${id}`}>
+                  Xuất hồ sơ tố giác
+                </Link>{' '}
+                — nơi nhận tiền, đường dẫn, dòng thời gian, in ra PDF.
+              </p>
               {extracted.script.status === 'pending' && (
                 <Button className="mt-2" size="sm" variant="seal" type="button" onClick={() => void approve()}>
-                  Duyệt ngay
+                  {extracted.script.merge_target ? 'Duyệt gộp ngay' : 'Duyệt ngay'}
                 </Button>
               )}
             </div>

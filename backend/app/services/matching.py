@@ -316,6 +316,93 @@ def _family_covers(script, text: str) -> bool:
     return False
 
 
+# Thresholds for telling a new scam from a known one. Tuned on the mock (keyword)
+# path against the 48 seed scripts; re-measure once real embeddings are on.
+# A turn below MATCH_SIGNAL_SCORE carries no signal (filler such as "còn đó không").
+# A family is established by one turn at MATCH_STRONG_SCORE or two at the signal score.
+MATCH_SIGNAL_SCORE = 0.55
+MATCH_STRONG_SCORE = 0.75
+# Measured with real embeddings (text-embedding-3-small) on the eval set: known
+# scams score 0.92-0.97 on the whole transcript, new ones 0.62-0.69. On the
+# keyword-only path known scams score 0.86 and up. 0.80 sits between both.
+EXTRACT_STRONG_SCORE = 0.80
+EXTRACT_MIN_CONSISTENCY = 0.5
+
+
+def family_of(script) -> str:
+    if script is None:
+        return ""
+    return script.parent_id or script.id
+
+
+def raw_best(ranked: list[dict]) -> dict:
+    """The highest-scoring hit, ignoring the reorder that keeps the current script on top."""
+    if not ranked:
+        return {"family": "", "script_id": "", "score": 0.0}
+    best = max(ranked, key=lambda item: item["score"])
+    return {"family": family_of(best["script"]), "script_id": best["script"].id, "score": float(best["score"])}
+
+
+def _signal(log: list[dict]) -> list[dict]:
+    return [item for item in log or [] if item.get("family") and float(item.get("score") or 0) >= MATCH_SIGNAL_SCORE]
+
+
+def consistency(log: list[dict], family: str) -> float:
+    """Share of the turns that carried a signal which pointed at this family."""
+    signal = _signal(log)
+    if not signal or not family:
+        return 0.0
+    return sum(1 for item in signal if item.get("family") == family) / len(signal)
+
+
+def match_strength(log: list[dict]) -> dict:
+    """Is the conversation so far clearly one library family?
+
+    A known scam has at least one turn that matches a family strongly, or keeps
+    returning to it. A new scam drifts: each line brushes a different script
+    that shares a few words with it, and none of them gets established.
+    """
+    support: dict[str, list[float]] = {}
+    for item in _signal(log):
+        support.setdefault(item["family"], []).append(float(item["score"]))
+    established = {
+        family: scores
+        for family, scores in support.items()
+        if max(scores) >= MATCH_STRONG_SCORE or len(scores) >= 2
+    }
+    if not established:
+        best = max((float(item.get("score") or 0) for item in log or []), default=0.0)
+        return {"weak": True, "family": "", "score": round(best, 3), "consistency": 0.0}
+    family = max(established, key=lambda key: (len(established[key]), max(established[key])))
+    return {
+        "weak": False,
+        "family": family,
+        "score": round(max(established[family]), 3),
+        "consistency": round(consistency(log, family), 3),
+    }
+
+
+def classify_transcript(session, scammer_messages: list[str], log: list[dict], provider) -> dict:
+    """Match the whole scammer side once, then check that the turns agreed on it."""
+    text = " ".join(message for message in scammer_messages if message)
+    ranked = search_scripts(session, text, provider, k=3)
+    if not ranked:
+        return {"strong": False, "family": "", "script_id": "", "score": 0.0, "consistency": 0.0, "title": ""}
+    best = ranked[0]
+    family = family_of(best["script"])
+    share = consistency(log, family) if _signal(log) else 0.0
+    score = float(best["score"])
+    strong = score >= EXTRACT_STRONG_SCORE and share >= EXTRACT_MIN_CONSISTENCY
+    return {
+        "strong": strong,
+        "family": family,
+        "script_id": best["script"].id,
+        "title": best["script"].title,
+        "score": round(score, 3),
+        "consistency": round(share, 3),
+    }
+
+
 def candidate_payload(ranked: list[dict]) -> list[dict]:
     payload = []
     for item in ranked:

@@ -124,6 +124,28 @@ export function CasePanel({ panel, reasoning, explain = false }: { panel: Panel 
         )}
       </section>
 
+      {panel.accounts && panel.accounts.length > 0 && (
+        <section className="dossier rounded-3xl p-5">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Nơi nhận tiền</p>
+          <ul className="mt-2 space-y-2 text-sm">
+            {panel.accounts.map((item) => (
+              <li key={item.value} className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="font-mono">{item.value.replace(':', ' ')}</span>
+                <span className={item.confirmed ? 'text-xs text-[#2f6b45]' : 'text-xs text-ink-soft'}>
+                  {item.confirmed ? 'Đã xác nhận' : 'Chờ xác nhận'}
+                </span>
+                {(item.holder || item.bank) && (
+                  <span className="w-full text-xs text-ink-soft">{[item.holder, item.bank].filter(Boolean).join(' · ')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs leading-5 text-ink-soft">
+            Một số chỉ được tính khi họ nhắc lại, hoặc đồng ý sau khi agent đọc lại.
+          </p>
+        </section>
+      )}
+
       {panel.timeline && panel.timeline.length > 0 && (
         <section className="dossier rounded-3xl p-5">
           <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Dòng thời gian kịch bản</p>
@@ -133,7 +155,17 @@ export function CasePanel({ panel, reasoning, explain = false }: { panel: Panel 
 
       <section className="dossier rounded-3xl p-5">
         <p className="text-[11px] uppercase tracking-[0.16em] text-ink-soft">Bước trong kịch bản</p>
-        <p className="mt-1 font-medium">{panel.current_step.script_title || 'Chưa khớp kịch bản'}</p>
+        {panel.unmatched ? (
+          <>
+            <p className="mt-1 font-medium">Chưa khớp kịch bản nào trong thư viện</p>
+            <p className="mt-1 text-sm leading-6 text-ink-soft">
+              Có thể là chiêu mới. Agent đang hỏi theo playbook chung, và sẽ phân loại cả cuộc thoại lúc trích xuất.
+              {panel.current_step.script_title && <> Gần nhất hiện tại: {panel.current_step.script_title}.</>}
+            </p>
+          </>
+        ) : (
+          <p className="mt-1 font-medium">{panel.current_step.script_title || 'Chưa khớp kịch bản'}</p>
+        )}
         <ol className="mt-3 space-y-2">
           {panel.script_steps.map((step, index) => {
             if (step.actor !== 'scammer') return null

@@ -1,6 +1,7 @@
 """Chat and embeddings are chosen separately.
 
-Default chat order is the OpenAI-compatible router, then Gemini. Embeddings go
+Default chat order is the OpenAI-compatible router (role model, its fallback, then
+MODEL_LAST_RESORT on another upstream), then Gemini only if GEMINI_API_KEY is set. Embeddings go
 through the router (/v1/embeddings) when EMBED_PROVIDER is auto or 9router and a
 router key exists; Gemini is the optional alternative. Vectors from different
 models are never mixed: an outage falls back to keyword search, not to another
@@ -11,7 +12,7 @@ from app.config import Settings
 from app.llm.base import LLMError
 from app.llm.gemini import GeminiProvider
 from app.llm.mock import MockProvider
-from app.llm.openai_provider import FallbackProvider, OpenAIEmbedder, OpenAIProvider
+from app.llm.openai_provider import FallbackProvider, LastResortProvider, OpenAIEmbedder, OpenAIProvider
 
 
 class SplitProvider:
@@ -204,12 +205,16 @@ def build_provider(settings: Settings):
     key = router_api_key(settings)
     if key:
         openai = OpenAIProvider(key, settings.openai_model, settings.openai_base_url)
+    last = None
+    if openai is not None and (settings.model_last_resort or "").strip():
+        last = LastResortProvider(openai, settings.model_last_resort.strip(), float(settings.timeout_last_resort))
 
     if mode == "gemini":
-        chain = [item for item in (gemini, openai) if item]
+        chain = [item for item in (gemini, openai, last) if item]
     else:
-        # auto, openai, openai-compatible: router first, Gemini if the tunnel fails.
-        chain = [item for item in (openai, gemini) if item]
+        # auto, openai, openai-compatible: router role model, router fallback, a last
+        # router model on another upstream, then the direct Gemini key if one is set.
+        chain = [item for item in (openai, last, gemini) if item]
 
     if not chain:
         return MockProvider()
@@ -224,6 +229,8 @@ def build_provider(settings: Settings):
         role_fallback_timeouts(settings),
     )
     provider.turn_deadline = float(settings.turn_deadline)
+    provider.guard_skip_plain = bool(settings.guard_skip_plain)
+    provider.analyst_grace = float(settings.analyst_grace)
     provider.embed_cos_floor = floor if settings.embed_cos_floor < 0 else float(settings.embed_cos_floor)
     provider.embed_cos_span = span if settings.embed_cos_span <= 0 else float(settings.embed_cos_span)
     return provider

@@ -11,13 +11,13 @@ Mặc định lấy từ `backend/app/config.py`. `.env.example` liệt kê các
 | `OPENAI_BASE_URL` | `https://rm7g66d.abc-tunnel.us/v1` | Router tương thích OpenAI (9router) |
 | `OPENAI_MODEL` | `cx/gpt-6-luna` | Model khi một biến vai để trống |
 | `MODEL_PERSONA` | `cx/gpt-6-luna` | Giọng nạn nhân |
-| `MODEL_ANALYST` | `ag/gemini-3.8-flash-low` | Phân tích lượt, và chấm nhãn luyện tập khi luật còn trung tính |
+| `MODEL_ANALYST` | `ag/gemini-4-hydrogen-low` | Phân tích lượt, và chấm nhãn luyện tập khi luật còn trung tính |
 | `MODEL_PLANNER` | `ag/gemini-3.8-flash-low` | Chọn mục tiêu lượt kế |
 | `MODEL_GUARD` | `ag/gemini-3.8-flash-low` | Duyệt câu trước khi gửi |
 | `MODEL_EXTRACT` | `cx/gpt-5.6-luna` | Trích kịch bản cuối hội thoại |
 | `MODEL_SIM` | `ag/gemini-3.8-flash-low` | Giọng người lừa trong bài luyện |
 | `MODEL_PERSONA_FALLBACK` | `cx/gpt-5.6-luna` | Một lần đổi vai. Trùng model chính thì bỏ qua |
-| `MODEL_ANALYST_FALLBACK` | `cx/gpt-5.6-luna` | Như trên |
+| `MODEL_ANALYST_FALLBACK` | `ag/gemini-3.8-flash-low` | Như trên |
 | `MODEL_PLANNER_FALLBACK` | `cx/gpt-5.6-luna` | Như trên |
 | `MODEL_GUARD_FALLBACK` | `cx/gpt-5.6-luna` | Như trên |
 | `MODEL_EXTRACT_FALLBACK` | `cx/gpt-6-luna` | Như trên |
@@ -35,8 +35,12 @@ Mặc định lấy từ `backend/app/config.py`. `.env.example` liệt kê các
 | `TIMEOUT_EXTRACT_FALLBACK` | 20 | Giây |
 | `TIMEOUT_SIM_FALLBACK` | 5 | Giây |
 | `TURN_DEADLINE` | 25 | Trần cả lượt honeypot, gồm sửa JSON và đổi model |
-| `LLM_PROVIDER` | `auto` | `auto` hoặc `openai-compatible`: router rồi Gemini. `gemini`: ngược lại. `mock`: test và demo không khóa |
-| `GEMINI_API_KEY` | trống | Khóa Google AI Studio. Chat dự phòng, và embedding khi không đi router |
+| `GUARD_SKIP_PLAIN` | `true` | Bỏ qua guard model với câu ngắn mà luật thấy sạch và không chạm tiền, mã, app, link, giấy tờ hay chuyện máy. `false` để luôn gọi guard |
+| `ANALYST_GRACE` | 1.0 | Giây analyst được chạy quá planner. Quá mức này lượt đi tiếp theo khớp thư viện, ghi chú của analyst được ghép vào hồ sơ nếu kịp. `0` để đợi đủ |
+| `LLM_PROVIDER` | `auto` | `auto` hoặc `openai-compatible`: router, rồi lớp cuối, rồi Gemini nếu có khóa. `gemini`: ngược lại. `mock`: test và demo không khóa |
+| `MODEL_LAST_RESORT` | `gemini/gemini-3.5-flash-lite` | Model router thử sau khi model chính và dự phòng của một vai đều lỗi. Nên chọn upstream khác `ag/` và `cx/`. Để trống là tắt lớp này |
+| `TIMEOUT_LAST_RESORT` | `8` | Giây cho lớp cuối |
+| `GEMINI_API_KEY` | trống | Không bắt buộc. Khóa Google AI Studio gọi thẳng, chỉ thử sau `MODEL_LAST_RESORT`, và cho embedding khi không đi router |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Chat Gemini. `gemini-2.5-flash-lite` bị từ chối vì 404 |
 | `GEMINI_MODEL_PREFERRED` | trống | Thử trước, ví dụ `gemini-3.5-flash`. 503, timeout hoặc 404 thì về `GEMINI_MODEL` |
 | `GEMINI_MODEL_FALLBACK` | `gemini-2.5-flash` | Model Gemini cuối cùng |

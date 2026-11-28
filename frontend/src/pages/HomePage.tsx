@@ -1,3 +1,4 @@
+import { FreshScams } from '../components/FreshScams'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckResult } from '../components/CheckResult'
@@ -118,6 +119,7 @@ export function HomePage() {
         )}
       </section>
 
+      <FreshScams compact />
       <section className="grid gap-3 md:grid-cols-3">
         <article className="dossier rounded-3xl border-seal/40 p-5">
           <h2 className="font-display text-2xl">Luyện tập chống lừa</h2>

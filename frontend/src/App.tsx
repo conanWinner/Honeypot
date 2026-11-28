@@ -5,6 +5,8 @@ import { AnalystLayout, ArchitecturePage, SystemStatusPage } from './pages/Analy
 import { ChatPage } from './pages/ChatPage'
 import { DebriefPage } from './pages/DebriefPage'
 import { DemoPage } from './pages/DemoPage'
+import { DestinationsPage } from './pages/DestinationsPage'
+import { DossierPage } from './pages/DossierPage'
 import { HomePage } from './pages/HomePage'
 import { IntelPage } from './pages/IntelPage'
 import { QuizPage } from './pages/QuizPage'
@@ -46,6 +48,8 @@ export default function App() {
           <Route path="hoi-thoai" element={<ChatPage />} />
           <Route path="hoi-thoai/:id" element={<ChatPage />} />
           <Route path="mang-luoi" element={<IntelPage />} />
+          <Route path="noi-nhan-tien" element={<DestinationsPage />} />
+          <Route path="ho-so/:id" element={<DossierPage />} />
           <Route path="kiem-duyet" element={<AdminPage />} />
           <Route path="demo" element={<DemoPage />} />
         </Route>
